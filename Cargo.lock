@@ -3,5 +3,19 @@
 version = 4
 
 [[package]]
+name = "aegis-crypto"
+version = "0.0.0"
+
+[[package]]
 name = "aegis-identity"
 version = "0.0.0"
+dependencies = [
+ "aegis-crypto",
+]
+
+[[package]]
+name = "aegis-session"
+version = "0.0.0"
+dependencies = [
+ "aegis-crypto",
+]

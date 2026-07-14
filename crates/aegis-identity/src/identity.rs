@@ -8,12 +8,12 @@
 //!   key that the PQXDH handshake will bind to (Phase 1).
 //!
 //! The long-term *signing* key (ML-DSA-65 in `docs/CRYPTO_MATH.md` §2.1) is
-//! **deferred to Phase 1**: it is only needed to sign prekey bundles at
-//! session-setup time, not for stealth addressing, and it needs a
-//! from-scratch ML-DSA implementation that Phase 0 does not require.
+//! **deferred to a later increment**: it authenticates prekey bundles at
+//! session-setup time (G8), not stealth addressing, so it is added when
+//! bundle signing lands rather than here.
 
-use crate::crypto::{fill_random, sha256, x25519::SecretKey};
 use crate::stealth::{self, EphemeralPublic, StealthAddress, ViewPublicKey};
+use aegis_crypto::{fill_random, sha256, x25519::SecretKey};
 
 /// A view keypair: the secret `v` and the published point `V = v·G`.
 pub struct ViewKeypair {

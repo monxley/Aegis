@@ -12,7 +12,8 @@ cannot read — and cannot tell who it was between.**
 
 ## Status
 
-**Phase 0 — identity & stealth addressing — implemented.** The protocol is
+**Phases 0–1 implemented:** identity & stealth addressing, and the
+post-quantum session core (PQXDH handshake + Double Ratchet). The protocol is
 specified first, so the code is an implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
@@ -21,22 +22,40 @@ specified first, so the code is an implementation of a *reviewed spec*.
 - 🧮 **[docs/CRYPTO_MATH.md](docs/CRYPTO_MATH.md)** — the exact mathematics of
   every process: group operations, byte-precise KDF inputs, correctness proofs,
   and the security assumption each step rests on.
-- 📦 **[crates/aegis-identity](crates/aegis-identity)** — Phase 0 crate:
-  X25519 identities, shareable Aegis IDs, and DH-only stealth addressing, with
-  zero third-party dependencies. `cargo test` runs the RFC/FIPS crypto vectors
-  and the stealth-addressing correctness/unlinkability suite.
 
 ```console
-$ cargo test
-running 23 tests ... ok   # RFC 7748 / 5869 / 4231, NIST SHA-256, stealth + Aegis ID
+$ cargo test --all
+aegis-crypto  : 31 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202, ML-KEM-768 round-trip
+aegis-identity: 14 ok   # stealth addressing: correctness, unlinkability, tamper/degenerate
+aegis-session : 12 ok   # PQXDH agreement, Double Ratchet, out-of-order, tamper rejection
 ```
+
+### Project map
+
+```
+Aegis/
+├── AEGIS_PROTOCOL.md        # protocol design (all 5 layers)
+├── docs/CRYPTO_MATH.md      # exact mathematics + security assumptions
+└── crates/
+    ├── aegis-crypto/        # zero-dep primitives, RFC/FIPS test-vector verified
+    │   └── src/             #   x25519 · ml_kem · aead(chacha20+poly1305)
+    │                        #   keccak · sha256 · hmac/hkdf · rand
+    ├── aegis-identity/      # Phase 0 — Layer 1
+    │   └── src/             #   identity.rs (keys, Aegis ID) · stealth.rs (addressing)
+    └── aegis-session/       # Phase 1 — Layers 2–3
+        └── src/             #   bundle.rs (prekeys) · pqxdh.rs · ratchet.rs
+```
+
+Dependency flow: `aegis-identity` and `aegis-session` both build on
+`aegis-crypto`; nothing depends on a third-party crate.
 
 ### Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Identity, Aegis IDs, stealth addressing | ✅ implemented |
-| 1 | PQXDH handshake + post-quantum Double Ratchet | ⏳ next |
+| 1 | PQXDH handshake + post-quantum Double Ratchet | ✅ implemented |
+| 1.5 | ML-DSA-65 prekey-bundle signing (authenticity, G8) + PQ ratchet (§4) | ⏳ next |
 | 2 | Blind store-and-forward delivery, sealed sender | ⏳ |
 | 3 | Sphinx onion routing → Loopix mixnet | ⏳ |
 

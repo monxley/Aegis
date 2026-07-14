@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aegis-identity"]
+members = ["crates/aegis-crypto", "crates/aegis-identity", "crates/aegis-session"]
 
 [workspace.package]
 version = "0.0.0"

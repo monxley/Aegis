@@ -1,6 +1,6 @@
 //! Operating-system randomness. Reads the kernel CSPRNG directly so the
-//! crate stays dependency-free. Adapted from Ciphra's `ciphra-crypto::rand`
-//! (Apache-2.0).
+//! crate stays dependency-free; getrandom-style syscall wrappers can
+//! replace this behind the same function later.
 
 use std::fs::File;
 use std::io::Read;
@@ -27,6 +27,7 @@ mod tests {
         let mut b = [0u8; 32];
         fill_random(&mut a);
         fill_random(&mut b);
+        // 2^-256 false-negative probability is acceptable.
         assert_ne!(a, b);
         assert_ne!(a, [0u8; 32]);
     }

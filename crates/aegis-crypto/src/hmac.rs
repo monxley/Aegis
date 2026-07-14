@@ -1,12 +1,13 @@
-//! HMAC-SHA256 (RFC 2104) and HKDF-SHA256 (RFC 5869). Adapted from Ciphra's
-//! `ciphra-crypto::hmac` (Apache-2.0). Verified against RFC test vectors.
+//! HMAC-SHA256 (RFC 2104), HKDF-SHA256 (RFC 5869) and
+//! PBKDF2-HMAC-SHA256 (RFC 8018), all verified against RFC test vectors.
 
-use super::sha256::{sha256, Sha256};
+use crate::sha256::{sha256, Sha256};
 
 const BLOCK_LEN: usize = 64;
 pub const MAC_LEN: usize = 32;
 
-/// HMAC-SHA256 with cached pad states.
+/// HMAC-SHA256 with cached pad states, so PBKDF2 pays two compressions
+/// per iteration instead of four.
 #[derive(Clone)]
 pub struct HmacSha256 {
     inner: Sha256,
@@ -75,20 +76,56 @@ pub fn hkdf_expand(prk: &[u8; MAC_LEN], info: &[u8], out: &mut [u8]) {
     }
 }
 
+/// PBKDF2-HMAC-SHA256 (RFC 8018).
+pub fn pbkdf2_sha256(password: &[u8], salt: &[u8], iterations: u32, out: &mut [u8]) {
+    assert!(iterations > 0, "PBKDF2 needs at least one iteration");
+    let hmac = HmacSha256::new(password);
+    let mut block_index = 1u32;
+    let mut written = 0usize;
+    while written < out.len() {
+        let mut salted = Vec::with_capacity(salt.len() + 4);
+        salted.extend_from_slice(salt);
+        salted.extend_from_slice(&block_index.to_be_bytes());
+        let mut u = hmac.mac(&salted);
+        let mut acc = u;
+        for _ in 1..iterations {
+            u = hmac.mac(&u);
+            for (a, b) in acc.iter_mut().zip(u) {
+                *a ^= b;
+            }
+        }
+        let take = (out.len() - written).min(MAC_LEN);
+        out[written..written + take].copy_from_slice(&acc[..take]);
+        written += take;
+        block_index += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::hex;
+    use crate::test_util::hex;
 
     #[test]
     fn hmac_rfc4231_vectors() {
+        // Test case 1
         assert_eq!(
             hmac_sha256(&[0x0b; 20], b"Hi There").to_vec(),
             hex("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
         );
+        // Test case 2 ("Jefe")
         assert_eq!(
             hmac_sha256(b"Jefe", b"what do ya want for nothing?").to_vec(),
             hex("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+        );
+        // Test case 6: key longer than the block size.
+        assert_eq!(
+            hmac_sha256(
+                &[0xaa; 131],
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            )
+            .to_vec(),
+            hex("60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54")
         );
     }
 
@@ -106,7 +143,33 @@ mod tests {
         hkdf_expand(&prk, &info, &mut okm);
         assert_eq!(
             okm.to_vec(),
-            hex("3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
+            hex(
+                "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+            )
         );
+    }
+
+    #[test]
+    fn pbkdf2_rfc7914_vector() {
+        let mut out = [0u8; 64];
+        pbkdf2_sha256(b"passwd", b"salt", 1, &mut out);
+        assert_eq!(
+            out.to_vec(),
+            hex(
+                "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783"
+            )
+        );
+    }
+
+    #[test]
+    fn pbkdf2_iterations_change_output() {
+        let mut one = [0u8; 32];
+        let mut many = [0u8; 32];
+        pbkdf2_sha256(b"pass", b"salt", 1, &mut one);
+        pbkdf2_sha256(b"pass", b"salt", 100, &mut many);
+        assert_ne!(one, many);
+        let mut again = [0u8; 32];
+        pbkdf2_sha256(b"pass", b"salt", 100, &mut again);
+        assert_eq!(many, again);
     }
 }

@@ -27,7 +27,6 @@
 //! assert!(bob.view().matches(&ephemeral, &address));
 //! ```
 
-mod crypto;
 pub mod identity;
 pub mod stealth;
 

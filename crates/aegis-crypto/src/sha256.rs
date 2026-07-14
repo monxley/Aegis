@@ -1,5 +1,4 @@
-//! SHA-256 (FIPS 180-4). Adapted from Ciphra's `ciphra-crypto::sha256`
-//! (Apache-2.0). Verified against NIST test vectors in the tests below.
+//! SHA-256 (FIPS 180-4). Verified against NIST test vectors in the tests.
 
 const K: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -142,7 +141,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::hex;
+    use crate::test_util::hex;
 
     #[test]
     fn nist_vectors() {
@@ -158,6 +157,15 @@ mod tests {
         assert_eq!(
             sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq").to_vec(),
             hex("248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
+        );
+        // One million 'a's (streaming path).
+        let mut hasher = Sha256::new();
+        for _ in 0..1_000_000 / 50 {
+            hasher.update(&[b'a'; 50]);
+        }
+        assert_eq!(
+            hasher.finalize().to_vec(),
+            hex("cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
         );
     }
 

@@ -1,15 +1,11 @@
-//! X25519 (RFC 7748). Adapted from Ciphra's `ciphra-crypto::x25519`
-//! (Apache-2.0). Field arithmetic mod p = 2^255 - 19 on 51-bit limbs plus
-//! the Montgomery ladder. Verified against the RFC 7748 §5.2/§6.1 vectors.
+//! X25519 (RFC 7748): the classical half of Ciphra's hybrid key
+//! exchange. Field arithmetic mod p = 2^255 - 19 on 64-bit limbs, plus
+//! the Montgomery ladder. Verified against the RFC 7748 §5.2 vectors.
 //!
-//! Constant-time-ish: the ladder swaps are branch-free (masked), field ops
-//! are data-independent. Not hardened against every microarchitectural
-//! channel — see the protocol threat model.
+//! Constant-time-ish: the ladder swaps are branch-free (masked), field
+//! ops are data-independent. Not hardened against every microarchitectural
+//! channel — the audit checklist owns that (ADR-0002).
 
-use super::zeroize::secure_zero;
-
-/// Length of an X25519 key/point in bytes. Used by later phases (PQXDH).
-#[allow(dead_code)]
 pub const KEY_LEN: usize = 32;
 
 /// A field element mod 2^255 - 19 as five 51-bit limbs.
@@ -34,6 +30,7 @@ impl Fe {
         let x1 = load(8);
         let x2 = load(16);
         let x3 = load(24);
+        // Repack 4x64-bit (top bit cleared) into 5x51-bit.
         Fe([
             x0 & MASK51,
             ((x0 >> 51) | (x1 << 13)) & MASK51,
@@ -60,6 +57,7 @@ impl Fe {
         out
     }
 
+    /// Reduce limbs to under 2^51 + small.
     fn carry(&mut self) {
         let l = &mut self.0;
         let mut carry;
@@ -80,9 +78,13 @@ impl Fe {
         l[0] += carry * 19;
     }
 
+    /// Fully reduce into the canonical range [0, p).
     fn freeze(&mut self) {
         self.carry();
         self.carry();
+        // Each limb is now < 2^51. Add 19: if the value is >= p this
+        // overflows past 2^255 and `q` becomes 1, telling us to keep the
+        // reduced form; otherwise q is 0 and we discard the +19.
         let l = &mut self.0;
         let mut q = (l[0] + 19) >> 51;
         q = (l[1] + q) >> 51;
@@ -110,6 +112,9 @@ impl Fe {
     }
 
     fn sub(&self, other: &Fe) -> Fe {
+        // Add a multiple of p (≡ 0 mod p) large enough that the
+        // subtraction never underflows, then carry-reduce. Constants
+        // are the standard 51-bit field-arithmetic values.
         let mut r = Fe::ZERO;
         r.0[0] = self.0[0] + 36_028_797_018_963_664 - other.0[0];
         r.0[1] = self.0[1] + 36_028_797_018_963_952 - other.0[1];
@@ -123,6 +128,7 @@ impl Fe {
     fn mul(&self, other: &Fe) -> Fe {
         let a = self.0;
         let b = other.0;
+        // Schoolbook 5x5 with 19x folding, in u128.
         let m = |x: u64, y: u64| -> u128 { (x as u128) * (y as u128) };
         let r19 = |x: u64| x * 19;
         let t0 = m(a[0], b[0])
@@ -302,12 +308,12 @@ const BASE_POINT: [u8; 32] = {
     b
 };
 
-/// An X25519 secret scalar. Zeroized on drop.
+/// A freshly generated X25519 secret key. Zeroized on drop.
 pub struct SecretKey([u8; 32]);
 
 impl Drop for SecretKey {
     fn drop(&mut self) {
-        secure_zero(&mut self.0);
+        crate::zeroize::secure_zero(&mut self.0);
     }
 }
 
@@ -330,7 +336,7 @@ impl SecretKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::hex;
+    use crate::test_util::hex;
 
     fn arr(hex_str: &str) -> [u8; 32] {
         hex(hex_str).try_into().unwrap()
@@ -338,12 +344,14 @@ mod tests {
 
     #[test]
     fn rfc7748_scalarmult_vectors() {
+        // RFC 7748 §5.2, test vector 1.
         let k = arr("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4");
         let u = arr("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
         assert_eq!(
             scalarmult(&k, &u).to_vec(),
             hex("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552")
         );
+        // Test vector 2.
         let k = arr("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d");
         let u = arr("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493");
         assert_eq!(
@@ -354,6 +362,7 @@ mod tests {
 
     #[test]
     fn rfc7748_diffie_hellman() {
+        // RFC 7748 §6.1 Alice/Bob.
         let alice = SecretKey::from_bytes(arr(
             "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
         ));
@@ -377,5 +386,14 @@ mod tests {
             bob.diffie_hellman(&alice.public_key()).to_vec(),
             hex(shared)
         );
+    }
+
+    #[test]
+    fn field_roundtrip_and_inverse() {
+        let bytes = arr("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
+        let fe = Fe::from_bytes(&bytes);
+        // (x^-1) * x == 1
+        let one = fe.mul(&fe.invert());
+        assert_eq!(one.to_bytes(), Fe::ONE.to_bytes());
     }
 }
