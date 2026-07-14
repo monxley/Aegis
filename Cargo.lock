@@ -18,4 +18,5 @@ name = "aegis-session"
 version = "0.0.0"
 dependencies = [
  "aegis-crypto",
+ "aegis-identity",
 ]
