@@ -1,0 +1,12 @@
+[package]
+name = "aegis-identity"
+description = "Aegis identity keys, Aegis IDs, and stealth addressing (Phase 0)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Zero third-party dependencies, by policy — mirroring Ciphra's ADR-0002.
+# The crypto primitives live in `src/crypto/` and are implemented from the
+# primary specifications and verified against official test vectors.

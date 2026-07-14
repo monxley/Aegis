@@ -12,8 +12,8 @@ cannot read — and cannot tell who it was between.**
 
 ## Status
 
-Pre-design. The protocol is being specified before any code is written, so the
-implementation is an implementation of a *reviewed spec*, not an invented one.
+**Phase 0 — identity & stealth addressing — implemented.** The protocol is
+specified first, so the code is an implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
   identity & stealth addressing, PQXDH handshake, post-quantum Double Ratchet,
@@ -21,6 +21,24 @@ implementation is an implementation of a *reviewed spec*, not an invented one.
 - 🧮 **[docs/CRYPTO_MATH.md](docs/CRYPTO_MATH.md)** — the exact mathematics of
   every process: group operations, byte-precise KDF inputs, correctness proofs,
   and the security assumption each step rests on.
+- 📦 **[crates/aegis-identity](crates/aegis-identity)** — Phase 0 crate:
+  X25519 identities, shareable Aegis IDs, and DH-only stealth addressing, with
+  zero third-party dependencies. `cargo test` runs the RFC/FIPS crypto vectors
+  and the stealth-addressing correctness/unlinkability suite.
+
+```console
+$ cargo test
+running 23 tests ... ok   # RFC 7748 / 5869 / 4231, NIST SHA-256, stealth + Aegis ID
+```
+
+### Roadmap
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Identity, Aegis IDs, stealth addressing | ✅ implemented |
+| 1 | PQXDH handshake + post-quantum Double Ratchet | ⏳ next |
+| 2 | Blind store-and-forward delivery, sealed sender | ⏳ |
+| 3 | Sphinx onion routing → Loopix mixnet | ⏳ |
 
 ## Design in brief
 
