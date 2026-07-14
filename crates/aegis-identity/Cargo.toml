@@ -1,0 +1,12 @@
+[package]
+name = "aegis-identity"
+description = "Aegis identity keys, Aegis IDs, and stealth addressing (Phase 0)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Cryptographic primitives (zero third-party deps) live in the aegis-crypto
+# crate, shared with aegis-session.
+aegis-crypto = { path = "../aegis-crypto" }

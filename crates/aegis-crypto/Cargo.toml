@@ -1,0 +1,10 @@
+[package]
+name = "aegis-crypto"
+description = "Aegis cryptographic primitives — zero third-party dependencies, verified against RFC/FIPS test vectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Zero third-party dependencies, by policy (mirrors Ciphra ADR-0002).
