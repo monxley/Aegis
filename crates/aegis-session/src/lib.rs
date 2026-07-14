@@ -1,15 +1,18 @@
-//! # aegis-session — Phase 1
+//! # aegis-session — Phases 1–1.6
 //!
 //! Session setup and message encryption for Aegis: the machinery that makes a
 //! message unreadable even if intercepted, now *and* against a future quantum
 //! adversary. Implements Layers 2–3 of the protocol
 //! ([`AEGIS_PROTOCOL.md`](../../../AEGIS_PROTOCOL.md)), with the exact math in
-//! [`docs/CRYPTO_MATH.md`](../../../docs/CRYPTO_MATH.md) §2–§3:
+//! [`docs/CRYPTO_MATH.md`](../../../docs/CRYPTO_MATH.md) §2–§4:
 //!
 //! - [`pqxdh`] — asynchronous post-quantum handshake (four X25519 DHs mixed
 //!   with an ML-KEM-768 encapsulation) yielding a shared root secret;
-//! - [`ratchet`] — the Double Ratchet: a fresh key per message (forward
-//!   secrecy) and a DH step that self-heals after key compromise.
+//! - [`ratchet`] — the Double Ratchet with an ongoing post-quantum ratchet:
+//!   a fresh key per message (forward secrecy), a DH step that self-heals after
+//!   compromise, and an ML-KEM re-encapsulation mixed into the root at every
+//!   step so the whole conversation stays post-quantum confidential;
+//! - [`bundle`] — ML-DSA-65-signed prekey bundles (authenticity, G8).
 //!
 //! Zero third-party dependencies — all primitives come from [`aegis_crypto`].
 //!
@@ -84,7 +87,8 @@ pub fn establish_initiator(
         return Err(SessionError::UnauthenticBundle);
     }
     let (sk, message) = pqxdh::initiate(initiator_identity_dh, bundle);
-    let ratchet = DoubleRatchet::init_initiator(sk, bundle.signed_prekey);
+    let ratchet =
+        DoubleRatchet::init_initiator(sk, bundle.signed_prekey, &bundle.ratchet_kem_prekey);
     Ok((message, ratchet))
 }
 
@@ -96,9 +100,11 @@ pub fn establish_responder(
     message: &InitialMessage,
 ) -> Result<DoubleRatchet, SessionError> {
     let sk = pqxdh::respond(&secrets, message)?;
+    let (signed_prekey, ratchet_kem) = secrets.into_responder_ratchet_keys();
     Ok(DoubleRatchet::init_responder(
         sk,
-        secrets.into_signed_prekey(),
+        signed_prekey,
+        ratchet_kem,
     ))
 }
 
@@ -114,6 +120,7 @@ mod tests {
             [4u8; 32],
             with_one_time.then_some([5u8; 32]),
             [6u8; 32],
+            [7u8; 32],
         )
     }
 
@@ -285,6 +292,7 @@ mod tests {
             [4u8; 32],
             Some([5u8; 32]),
             [99u8; 32], // different signing seed
+            [7u8; 32],
         );
         bundle.identity_signing_public = attacker.signing_public().to_vec();
         assert!(!bundle.verify());
@@ -306,5 +314,37 @@ mod tests {
 
         let m = alice.encrypt(b"for bob only", b"").unwrap();
         assert!(other_bob.decrypt(&m, b"").is_err());
+    }
+
+    #[test]
+    fn ratchet_headers_carry_post_quantum_material() {
+        // Each header carries an ML-KEM encapsulation key (1184) and ciphertext
+        // (1088) alongside the X25519 ratchet key — the machinery of the
+        // ongoing PQ ratchet (§4). Size is the visible proof it is present.
+        let bob = bob_secrets(true);
+        let (_initial, mut alice) =
+            establish_initiator(&alice_identity(), &bob.public_bundle()).unwrap();
+        let m = alice.encrypt(b"pq", b"").unwrap();
+        assert_eq!(m.header.len(), 32 + 1184 + 1088 + 4 + 4);
+    }
+
+    #[test]
+    fn tampering_the_kem_ciphertext_breaks_a_ratchet_message() {
+        // Bob's reply triggers Alice's DH+KEM ratchet. Corrupting the KEM
+        // ciphertext field of its header makes the mixed secret (and the
+        // header-as-AAD) wrong, so Alice cannot open it.
+        let bob = bob_secrets(true);
+        let (initial, mut alice) =
+            establish_initiator(&alice_identity(), &bob.public_bundle()).unwrap();
+        let mut bob = establish_responder(bob, &initial).unwrap();
+
+        let m1 = alice.encrypt(b"hi", b"").unwrap();
+        assert_eq!(bob.decrypt(&m1, b"").unwrap(), b"hi");
+
+        let mut reply = bob.encrypt(b"hey", b"").unwrap();
+        // Flip a byte inside the KEM ciphertext region (after x_pub + kem_ek).
+        let kem_ct_start = 32 + 1184;
+        reply.header[kem_ct_start] ^= 1;
+        assert!(alice.decrypt(&reply, b"").is_err());
     }
 }
