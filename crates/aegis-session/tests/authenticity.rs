@@ -26,6 +26,7 @@ fn bob_identity_and_secrets() -> (Identity, PrekeySecrets) {
         [6u8; 32],       // ML-KEM z
         Some([7u8; 32]), // one-time prekey
         signing_seed,    // same signing key as the Identity
+        [8u8; 32],       // ratchet KEM seed
     );
     (identity, secrets)
 }
@@ -60,6 +61,7 @@ fn mitm_bundle_from_a_different_key_is_caught_by_the_binding() {
         [13u8; 32],
         Some([14u8; 32]),
         [15u8; 32],
+        [16u8; 32],
     );
     let forged = mallory.public_bundle();
 
