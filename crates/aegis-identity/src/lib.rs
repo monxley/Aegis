@@ -7,8 +7,8 @@
 //! [`docs/CRYPTO_MATH.md`](../../../docs/CRYPTO_MATH.md) §1–§2.1.
 //!
 //! Zero third-party dependencies: the cryptographic primitives (X25519,
-//! SHA-256, HMAC/HKDF) live in [`crypto`] and are verified against official
-//! RFC/FIPS test vectors.
+//! SHA-256, HMAC/HKDF, ML-DSA-65) live in the `aegis-crypto` crate and are
+//! verified against official RFC/FIPS test vectors.
 //!
 //! ## Quick tour
 //!
@@ -44,15 +44,15 @@ mod tests {
 
     #[test]
     fn recipient_recognizes_their_own_address() {
-        let bob = Identity::from_secret_bytes(seed(1), seed(2));
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
         let (address, ephemeral) = stealth::create(&bob.view_public()).unwrap();
         assert!(bob.view().matches(&ephemeral, &address));
     }
 
     #[test]
     fn a_different_recipient_does_not_match() {
-        let bob = Identity::from_secret_bytes(seed(1), seed(2));
-        let mallory = Identity::from_secret_bytes(seed(3), seed(4));
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
+        let mallory = Identity::from_secret_bytes(seed(3), seed(4), seed((3 ^ 4) ^ 0x5a));
         let (address, ephemeral) = stealth::create(&bob.view_public()).unwrap();
         assert!(!mallory.view().matches(&ephemeral, &address));
         // ...and Bob still matches, to rule out a trivially-broken derivation.
@@ -63,7 +63,7 @@ mod tests {
     fn sender_and_recipient_derive_the_same_address() {
         // create_with_ephemeral (sender) vs. recomputation inside matches()
         // (recipient) must agree — this is the §1.3 correctness property.
-        let bob = Identity::from_secret_bytes(seed(7), seed(8));
+        let bob = Identity::from_secret_bytes(seed(7), seed(8), seed((7 ^ 8) ^ 0x5a));
         let (address, ephemeral) =
             stealth::create_with_ephemeral(&bob.view_public(), seed(42)).unwrap();
         assert!(bob.view().matches(&ephemeral, &address));
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn derivation_is_deterministic_for_fixed_ephemeral() {
-        let bob = Identity::from_secret_bytes(seed(1), seed(2));
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
         let a = stealth::create_with_ephemeral(&bob.view_public(), seed(99)).unwrap();
         let b = stealth::create_with_ephemeral(&bob.view_public(), seed(99)).unwrap();
         assert_eq!(a.0, b.0);
@@ -82,7 +82,7 @@ mod tests {
     fn addresses_to_one_recipient_are_unlinkable() {
         // 256 messages to the same recipient must all carry distinct address
         // tags and distinct ephemerals — the relay sees no repeats (§1.4).
-        let bob = Identity::from_secret_bytes(seed(5), seed(6));
+        let bob = Identity::from_secret_bytes(seed(5), seed(6), seed((5 ^ 6) ^ 0x5a));
         let mut tags = std::collections::HashSet::new();
         let mut ephemerals = std::collections::HashSet::new();
         for i in 0..256u32 {
@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn tampered_address_tag_does_not_match() {
-        let bob = Identity::from_secret_bytes(seed(1), seed(2));
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
         let (mut address, ephemeral) = stealth::create(&bob.view_public()).unwrap();
         address.addr_tag[0] ^= 0x01;
         assert!(!bob.view().matches(&ephemeral, &address));
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn tampered_ephemeral_does_not_match() {
-        let bob = Identity::from_secret_bytes(seed(1), seed(2));
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
         let (address, mut ephemeral) = stealth::create(&bob.view_public()).unwrap();
         ephemeral.0[0] ^= 0x01;
         assert!(!bob.view().matches(&ephemeral, &address));
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn scanning_a_degenerate_envelope_is_a_non_match_not_a_panic() {
-        let bob = Identity::from_secret_bytes(seed(1), seed(2));
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
         let address = StealthAddress {
             addr_tag: [0u8; ADDR_TAG_LEN],
             view_tag: 0,
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn aegis_id_round_trips() {
-        let id = Identity::from_secret_bytes(seed(10), seed(20)).aegis_id();
+        let id = Identity::from_secret_bytes(seed(10), seed(20), seed((10 ^ 20) ^ 0x5a)).aegis_id();
         let encoded = id.encode();
         assert!(encoded.starts_with("aegis:"));
         let decoded = AegisId::decode(&encoded).unwrap();
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn aegis_id_carries_the_right_keys() {
-        let identity = Identity::from_secret_bytes(seed(10), seed(20));
+        let identity = Identity::from_secret_bytes(seed(10), seed(20), seed((10 ^ 20) ^ 0x5a));
         let id = identity.aegis_id();
         assert_eq!(id.identity_dh_public(), identity.identity_dh_public());
         assert_eq!(id.view_public(), identity.view_public());
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn decoded_aegis_id_addresses_the_real_recipient() {
         // End-to-end: decode Bob's shared ID, send to it, Bob recognizes it.
-        let bob = Identity::from_secret_bytes(seed(11), seed(22));
+        let bob = Identity::from_secret_bytes(seed(11), seed(22), seed((11 ^ 22) ^ 0x5a));
         let shared = bob.aegis_id().encode();
         let bob_pub = AegisId::decode(&shared).unwrap();
         let (address, ephemeral) = stealth::create(&bob_pub.view_public()).unwrap();
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn corrupted_aegis_id_fails_checksum() {
-        let encoded = Identity::from_secret_bytes(seed(1), seed(2))
+        let encoded = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a))
             .aegis_id()
             .encode();
         // Flip one character in the payload region (after the "aegis:" prefix).
@@ -182,5 +182,42 @@ mod tests {
     #[test]
     fn aegis_id_bad_prefix_is_rejected() {
         assert_eq!(AegisId::decode("nope:abc"), Err(AegisIdError::BadPrefix));
+    }
+
+    #[test]
+    fn identity_signs_and_verifies() {
+        use aegis_crypto::ml_dsa;
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed(3));
+        let sig = bob.sign(b"prekey bundle bytes");
+        assert!(ml_dsa::verify(
+            bob.signing_public(),
+            b"prekey bundle bytes",
+            &sig
+        ));
+        // A different message does not verify under the same signature.
+        assert!(!ml_dsa::verify(
+            bob.signing_public(),
+            b"tampered bytes",
+            &sig
+        ));
+    }
+
+    #[test]
+    fn aegis_id_binds_the_signing_key() {
+        let bob = Identity::from_secret_bytes(seed(1), seed(2), seed(3));
+        let id = bob.aegis_id();
+        // The real signing key matches the ID's commitment...
+        assert!(id.verify_signing_key(bob.signing_public()));
+        // ...but a different identity's signing key does not (substitution).
+        let mallory = Identity::from_secret_bytes(seed(4), seed(5), seed(6));
+        assert!(!id.verify_signing_key(mallory.signing_public()));
+    }
+
+    #[test]
+    fn aegis_id_round_trip_preserves_the_signing_hash() {
+        let id = Identity::from_secret_bytes(seed(10), seed(20), seed(30)).aegis_id();
+        let decoded = AegisId::decode(&id.encode()).unwrap();
+        assert_eq!(decoded, id);
+        assert_eq!(decoded.signing_key_hash(), id.signing_key_hash());
     }
 }

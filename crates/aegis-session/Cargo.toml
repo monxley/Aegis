@@ -8,3 +8,8 @@ repository.workspace = true
 
 [dependencies]
 aegis-crypto = { path = "../aegis-crypto" }
+
+[dev-dependencies]
+# Used only by integration tests that exercise the full authenticity chain
+# (Aegis ID ↔ bundle signing key). Not a runtime dependency.
+aegis-identity = { path = "../aegis-identity" }
