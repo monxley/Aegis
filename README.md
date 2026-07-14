@@ -18,6 +18,9 @@ implementation is an implementation of a *reviewed spec*, not an invented one.
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
   identity & stealth addressing, PQXDH handshake, post-quantum Double Ratchet,
   blind store-and-forward delivery, and the onion-routing / mixnet layer.
+- 🧮 **[docs/CRYPTO_MATH.md](docs/CRYPTO_MATH.md)** — the exact mathematics of
+  every process: group operations, byte-precise KDF inputs, correctness proofs,
+  and the security assumption each step rests on.
 
 ## Design in brief
 
