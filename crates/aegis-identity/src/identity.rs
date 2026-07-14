@@ -1,18 +1,22 @@
 //! Aegis identities, view keys, and the human-facing Aegis ID.
 //!
-//! An identity holds two X25519 keypairs (Phase 0):
+//! An identity holds three keypairs:
 //!
 //! - the **view keypair** `(v, V)` — used to *detect* incoming messages via
 //!   stealth addressing (`stealth` module);
 //! - the **identity DH keypair** `(ik, IK)` — the long-term Diffie-Hellman
-//!   key that the PQXDH handshake will bind to (Phase 1).
+//!   key the PQXDH handshake binds to;
+//! - the **identity signing key** `IK^sig` — an ML-DSA-65 (FIPS 204) keypair
+//!   that authenticates prekey bundles at session setup (G8), per
+//!   `docs/CRYPTO_MATH.md` §2.1.
 //!
-//! The long-term *signing* key (ML-DSA-65 in `docs/CRYPTO_MATH.md` §2.1) is
-//! **deferred to a later increment**: it authenticates prekey bundles at
-//! session-setup time (G8), not stealth addressing, so it is added when
-//! bundle signing lands rather than here.
+//! Because an ML-DSA public key is ~1.9 KB — far too large to paste around —
+//! the shareable [`AegisId`] commits to `SHA-256(IK^sig)` (32 bytes) rather
+//! than the key itself. The full signing key travels in the prekey bundle and
+//! is checked against that hash before its signature is trusted.
 
 use crate::stealth::{self, EphemeralPublic, StealthAddress, ViewPublicKey};
+use aegis_crypto::ml_dsa;
 use aegis_crypto::{fill_random, sha256, x25519::SecretKey};
 
 /// A view keypair: the secret `v` and the published point `V = v·G`.
@@ -59,35 +63,45 @@ impl ViewKeypair {
     }
 }
 
-/// A full Aegis identity (Phase 0: two X25519 keypairs).
+/// A full Aegis identity: view keypair, identity DH keypair, and ML-DSA
+/// signing keypair.
 pub struct Identity {
     identity_dh: SecretKey,
     identity_dh_public: [u8; 32],
     view: ViewKeypair,
+    signing_public: Vec<u8>,
+    signing_secret: Vec<u8>,
 }
 
 impl Identity {
     /// Generate a fresh identity from OS randomness.
     pub fn generate() -> Self {
         let mut ik = [0u8; 32];
+        let mut v = [0u8; 32];
+        let mut sig = [0u8; 32];
         fill_random(&mut ik);
-        Self::from_secret_bytes(ik, {
-            let mut v = [0u8; 32];
-            fill_random(&mut v);
-            v
-        })
+        fill_random(&mut v);
+        fill_random(&mut sig);
+        Self::from_secret_bytes(ik, v, sig)
     }
 
-    /// Build an identity from its two 32-byte secret scalars (clamped
-    /// internally). Deterministic — used for reproducible tests and for
-    /// restoring an identity from a seed.
-    pub fn from_secret_bytes(identity_dh: [u8; 32], view: [u8; 32]) -> Self {
+    /// Build an identity from its secret seeds (X25519 scalars are clamped
+    /// internally; `signing_seed` is the ML-DSA-65 KeyGen seed). Deterministic
+    /// — used for reproducible tests and for restoring an identity from seeds.
+    pub fn from_secret_bytes(
+        identity_dh: [u8; 32],
+        view: [u8; 32],
+        signing_seed: [u8; 32],
+    ) -> Self {
         let identity_dh = SecretKey::from_bytes(identity_dh);
         let identity_dh_public = identity_dh.public_key();
+        let (signing_public, signing_secret) = ml_dsa::keypair_from_seed(&signing_seed);
         Identity {
             identity_dh,
             identity_dh_public,
             view: ViewKeypair::from_secret_bytes(view),
+            signing_public,
+            signing_secret,
         }
     }
 
@@ -101,21 +115,34 @@ impl Identity {
         self.view.public()
     }
 
-    /// The long-term identity DH public key `IK` (used by PQXDH in Phase 1).
+    /// The long-term identity DH public key `IK` (used by PQXDH).
     pub fn identity_dh_public(&self) -> [u8; 32] {
         self.identity_dh_public
     }
 
-    /// Perform a raw X25519 DH with the identity key. Kept crate-internal for
-    /// now; Phase 1's handshake is the intended consumer.
-    #[allow(dead_code)]
-    pub(crate) fn identity_dh(&self, their_public: &[u8; 32]) -> [u8; 32] {
+    /// Perform a raw X25519 DH with the identity key. The PQXDH handshake is
+    /// the intended consumer.
+    pub fn identity_dh(&self, their_public: &[u8; 32]) -> [u8; 32] {
         self.identity_dh.diffie_hellman(their_public)
     }
 
-    /// The shareable Aegis ID committing to `(IK, V)`.
+    /// The ML-DSA-65 identity signing public key `IK^sig`.
+    pub fn signing_public(&self) -> &[u8] {
+        &self.signing_public
+    }
+
+    /// Sign `message` with the identity signing key (ML-DSA-65).
+    pub fn sign(&self, message: &[u8]) -> Vec<u8> {
+        ml_dsa::sign(&self.signing_secret, message)
+    }
+
+    /// The shareable Aegis ID committing to `(IK, V, SHA-256(IK^sig))`.
     pub fn aegis_id(&self) -> AegisId {
-        AegisId::from_keys(&self.identity_dh_public, &self.view.public().0)
+        AegisId::from_keys(
+            &self.identity_dh_public,
+            &self.view.public().0,
+            &sha256(&self.signing_public),
+        )
     }
 }
 
@@ -152,23 +179,31 @@ impl std::error::Error for AegisIdError {}
 const AEGIS_ID_PREFIX: &str = "aegis:";
 const AEGIS_ID_VERSION: u8 = 1;
 const CHECKSUM_LEN: usize = 4;
-// version(1) + identity_dh(32) + view(32)
-const PAYLOAD_LEN: usize = 1 + 32 + 32;
+// version(1) + identity_dh(32) + view(32) + signing-key hash(32)
+const PAYLOAD_LEN: usize = 1 + 32 + 32 + 32;
 
 /// A shareable Aegis identity string: `aegis:` + base32(version ‖ IK ‖ V ‖
-/// checksum). The checksum is the first 4 bytes of `SHA-256(version ‖ IK ‖ V)`,
-/// so a mistyped ID is rejected rather than silently pointing at a wrong key.
+/// H(IK^sig) ‖ checksum). The checksum is the first 4 bytes of
+/// `SHA-256(version ‖ IK ‖ V ‖ H(IK^sig))`, so a mistyped ID is rejected
+/// rather than silently pointing at a wrong key. The signing-key hash lets a
+/// recipient bind a prekey bundle's signing key to this identity (§2.1).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AegisId {
     identity_dh_public: [u8; 32],
     view_public: [u8; 32],
+    signing_key_hash: [u8; 32],
 }
 
 impl AegisId {
-    fn from_keys(identity_dh_public: &[u8; 32], view_public: &[u8; 32]) -> Self {
+    fn from_keys(
+        identity_dh_public: &[u8; 32],
+        view_public: &[u8; 32],
+        signing_key_hash: &[u8; 32],
+    ) -> Self {
         AegisId {
             identity_dh_public: *identity_dh_public,
             view_public: *view_public,
+            signing_key_hash: *signing_key_hash,
         }
     }
 
@@ -182,11 +217,24 @@ impl AegisId {
         ViewPublicKey(self.view_public)
     }
 
+    /// The committed `SHA-256(IK^sig)` of the identity signing key.
+    pub fn signing_key_hash(&self) -> [u8; 32] {
+        self.signing_key_hash
+    }
+
+    /// Check that `signing_public` is the identity signing key this ID commits
+    /// to — the binding that upgrades a self-consistent bundle signature into
+    /// authentication of *this* identity (defeats bundle substitution / MITM).
+    pub fn verify_signing_key(&self, signing_public: &[u8]) -> bool {
+        sha256(signing_public) == self.signing_key_hash
+    }
+
     fn payload(&self) -> [u8; PAYLOAD_LEN] {
         let mut p = [0u8; PAYLOAD_LEN];
         p[0] = AEGIS_ID_VERSION;
         p[1..33].copy_from_slice(&self.identity_dh_public);
         p[33..65].copy_from_slice(&self.view_public);
+        p[65..97].copy_from_slice(&self.signing_key_hash);
         p
     }
 
@@ -221,9 +269,12 @@ impl AegisId {
         identity_dh_public.copy_from_slice(&payload[1..33]);
         let mut view_public = [0u8; 32];
         view_public.copy_from_slice(&payload[33..65]);
+        let mut signing_key_hash = [0u8; 32];
+        signing_key_hash.copy_from_slice(&payload[65..97]);
         Ok(AegisId {
             identity_dh_public,
             view_public,
+            signing_key_hash,
         })
     }
 }

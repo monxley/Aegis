@@ -14,6 +14,7 @@
 //! |---|---|---|---|
 //! | [`x25519`] | X25519 Diffie–Hellman | RFC 7748 | stealth addr, PQXDH, ratchet |
 //! | [`ml_kem`] | ML-KEM-768 KEM | FIPS 203 | post-quantum handshake/ratchet |
+//! | [`ml_dsa`] | ML-DSA-65 signatures | FIPS 204 | prekey-bundle authenticity |
 //! | [`aead`] | ChaCha20-Poly1305 | RFC 8439 | message encryption |
 //! | [`chacha20`] / [`poly1305`] | AEAD internals | RFC 8439 | (used by `aead`) |
 //! | [`keccak`] | SHA-3 / SHAKE | FIPS 202 | (used by `ml_kem`) |
@@ -25,6 +26,7 @@ pub mod aead;
 pub mod chacha20;
 pub mod hmac;
 pub mod keccak;
+pub mod ml_dsa;
 pub mod ml_kem;
 pub mod poly1305;
 pub mod rand;
