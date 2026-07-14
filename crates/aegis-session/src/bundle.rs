@@ -25,8 +25,13 @@ pub struct PrekeyBundle {
     /// Medium-term signed prekey `SPK`. Doubles as the responder's initial
     /// Double Ratchet public key.
     pub signed_prekey: [u8; 32],
-    /// Post-quantum prekey `PQSPK`: an ML-KEM-768 encapsulation key (1184 B).
+    /// Post-quantum prekey `PQSPK`: an ML-KEM-768 encapsulation key (1184 B),
+    /// used by the PQXDH handshake.
     pub pq_prekey: Vec<u8>,
+    /// The responder's initial ratchet ML-KEM encapsulation key (1184 B), used
+    /// to seed the ongoing post-quantum ratchet (§4) from the very first
+    /// message. Distinct from `pq_prekey` so the two are never key-reused.
+    pub ratchet_kem_prekey: Vec<u8>,
     /// Optional one-time prekey `OPK`, consumed by a single handshake.
     pub one_time_prekey: Option<[u8; 32]>,
     /// The ML-DSA-65 identity signing public key `IK^sig` (1952 B).
@@ -44,6 +49,7 @@ impl PrekeyBundle {
             &self.identity_dh,
             &self.signed_prekey,
             &self.pq_prekey,
+            &self.ratchet_kem_prekey,
             &self.one_time_prekey,
         );
         ml_dsa::verify(&self.identity_signing_public, &input, &self.signature)
@@ -61,13 +67,17 @@ fn signing_input(
     identity_dh: &[u8; 32],
     signed_prekey: &[u8; 32],
     pq_prekey: &[u8],
+    ratchet_kem_prekey: &[u8],
     one_time_prekey: &Option<[u8; 32]>,
 ) -> Vec<u8> {
-    let mut input = Vec::with_capacity(BUNDLE_DOMAIN.len() + 32 + 32 + pq_prekey.len() + 33);
+    let mut input = Vec::with_capacity(
+        BUNDLE_DOMAIN.len() + 32 + 32 + pq_prekey.len() + ratchet_kem_prekey.len() + 33,
+    );
     input.extend_from_slice(BUNDLE_DOMAIN);
     input.extend_from_slice(identity_dh);
     input.extend_from_slice(signed_prekey);
     input.extend_from_slice(pq_prekey);
+    input.extend_from_slice(ratchet_kem_prekey);
     match one_time_prekey {
         Some(opk) => {
             input.push(1);
@@ -84,6 +94,7 @@ pub struct PrekeySecrets {
     pub(crate) identity_dh: SecretKey,
     pub(crate) signed_prekey: SecretKey,
     pub(crate) pq_prekey: ml_kem::KeyPair,
+    pub(crate) ratchet_kem: ml_kem::KeyPair,
     pub(crate) one_time_prekey: Option<SecretKey>,
     signing_public: Vec<u8>,
     signing_secret: Vec<u8>,
@@ -104,12 +115,20 @@ impl PrekeySecrets {
         aegis_crypto::fill_random(&mut spk);
         aegis_crypto::fill_random(&mut opk);
         aegis_crypto::fill_random(&mut sig);
-        Self::build(ik, spk, ml_kem::KeyPair::generate(), Some(opk), sig)
+        Self::build(
+            ik,
+            spk,
+            ml_kem::KeyPair::generate(),
+            ml_kem::KeyPair::generate(),
+            Some(opk),
+            sig,
+        )
     }
 
     /// Deterministic construction from seeds — for reproducible tests and for
     /// restoring prekeys from stored material. `kem_d`/`kem_z` are the ML-KEM
-    /// KeyGen seeds (FIPS 203 `d`, `z`); `signing_seed` is the ML-DSA-65 seed.
+    /// KeyGen seeds (FIPS 203 `d`, `z`) for the PQXDH prekey; `ratchet_kem_seed`
+    /// seeds the ratchet KEM prekey; `signing_seed` is the ML-DSA-65 seed.
     pub fn from_seeds(
         identity_dh: [u8; 32],
         signed_prekey: [u8; 32],
@@ -117,11 +136,15 @@ impl PrekeySecrets {
         kem_z: [u8; 32],
         one_time_prekey: Option<[u8; 32]>,
         signing_seed: [u8; 32],
+        ratchet_kem_seed: [u8; 32],
     ) -> Self {
+        // Derive the ratchet KEM's (d, z) deterministically from one seed.
+        let ratchet_kem = ml_kem::keygen_internal(&ratchet_kem_seed, &sha256(&ratchet_kem_seed));
         Self::build(
             identity_dh,
             signed_prekey,
             ml_kem::keygen_internal(&kem_d, &kem_z),
+            ratchet_kem,
             one_time_prekey,
             signing_seed,
         )
@@ -131,6 +154,7 @@ impl PrekeySecrets {
         identity_dh: [u8; 32],
         signed_prekey: [u8; 32],
         pq_prekey: ml_kem::KeyPair,
+        ratchet_kem: ml_kem::KeyPair,
         one_time_prekey: Option<[u8; 32]>,
         signing_seed: [u8; 32],
     ) -> Self {
@@ -151,6 +175,7 @@ impl PrekeySecrets {
             identity_dh,
             signed_prekey,
             pq_prekey,
+            ratchet_kem,
             one_time_prekey,
             signing_public,
             signing_secret,
@@ -163,10 +188,12 @@ impl PrekeySecrets {
     /// The publishable public bundle, signed with the identity signing key.
     pub fn public_bundle(&self) -> PrekeyBundle {
         let pq_prekey = self.pq_prekey.ek.clone();
+        let ratchet_kem_prekey = self.ratchet_kem.ek.clone();
         let input = signing_input(
             &self.identity_dh_public,
             &self.signed_prekey_public,
             &pq_prekey,
+            &ratchet_kem_prekey,
             &self.one_time_prekey_public,
         );
         let signature = ml_dsa::sign(&self.signing_secret, &input);
@@ -174,6 +201,7 @@ impl PrekeySecrets {
             identity_dh: self.identity_dh_public,
             signed_prekey: self.signed_prekey_public,
             pq_prekey,
+            ratchet_kem_prekey,
             one_time_prekey: self.one_time_prekey_public,
             identity_signing_public: self.signing_public.clone(),
             signature,
@@ -195,10 +223,11 @@ impl PrekeySecrets {
         &self.signing_public
     }
 
-    /// Consume the secrets, yielding the signed-prekey key for use as the
-    /// responder's initial ratchet key (moves it out without ever exposing
-    /// its bytes).
-    pub(crate) fn into_signed_prekey(self) -> SecretKey {
-        self.signed_prekey
+    /// Consume the secrets, yielding the responder's initial ratchet material:
+    /// the signed-prekey key (its X25519 ratchet key) and the ratchet KEM
+    /// keypair (its post-quantum ratchet key). Moves them out without ever
+    /// exposing secret bytes.
+    pub(crate) fn into_responder_ratchet_keys(self) -> (SecretKey, ml_kem::KeyPair) {
+        (self.signed_prekey, self.ratchet_kem)
     }
 }
