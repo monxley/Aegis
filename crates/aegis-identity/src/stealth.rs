@@ -15,7 +15,7 @@
 //!             view_tag = σ[16]     (1-byte fast-reject during scanning)
 //! ```
 
-use crate::crypto::{fill_random, hkdf_expand, hkdf_extract, x25519::SecretKey};
+use aegis_crypto::{fill_random, hkdf_expand, hkdf_extract, x25519::SecretKey};
 
 /// Length of the one-time relay address tag, in bytes.
 pub const ADDR_TAG_LEN: usize = 16;

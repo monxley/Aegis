@@ -7,6 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Zero third-party dependencies, by policy — mirroring Ciphra's ADR-0002.
-# The crypto primitives live in `src/crypto/` and are implemented from the
-# primary specifications and verified against official test vectors.
+# Cryptographic primitives (zero third-party deps) live in the aegis-crypto
+# crate, shared with aegis-session.
+aegis-crypto = { path = "../aegis-crypto" }
