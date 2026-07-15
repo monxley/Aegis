@@ -12,10 +12,10 @@
 #   MAILBOX_PORT (default 5077)   MIX_PORT (default 5078)   REPO   DATA_DIR
 set -euo pipefail
 
-# The project's built-in seed nodes. A fresh VPS joins these automatically; the
-# very first node of a brand-new network leaves this empty and self-seeds. Fill
-# in real hosts here (or override with BOOTSTRAP=) once seeds are running.
-DEFAULT_BOOTSTRAP=""
+# The project's built-in seed node. A fresh VPS joins it automatically; override
+# with BOOTSTRAP= to point elsewhere, or BOOTSTRAP=" " (a space) to self-seed a
+# brand-new independent network.
+DEFAULT_BOOTSTRAP="135.181.125.178:5078"
 
 MAILBOX_PORT="${MAILBOX_PORT:-5077}"
 MIX_PORT="${MIX_PORT:-5078}"
