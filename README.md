@@ -12,12 +12,12 @@ cannot read — and cannot tell who it was between.**
 
 ## Status
 
-**Phases 0–3 implemented:** identity & stealth addressing, the post-quantum
+**Phases 0–3.5 implemented:** identity & stealth addressing, the post-quantum
 session core (PQXDH handshake + Double Ratchet), ML-DSA-65 prekey-bundle
 signing (authenticity), an ongoing post-quantum ratchet, blind store-and-forward
-delivery with sealed-sender envelopes, and **Sphinx onion routing** for
-network-layer anonymity. The protocol is specified first, so the code is an
-implementation of a *reviewed spec*.
+delivery with sealed-sender envelopes, **Sphinx onion routing**, and **Loopix**
+mixing + cover traffic — completing the network-anonymity layer. The protocol is
+specified first, so the code is an implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
   identity & stealth addressing, PQXDH handshake, post-quantum Double Ratchet,
@@ -32,7 +32,7 @@ aegis-crypto  : 36 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202/203/204, ML-KE
 aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key binding
 aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
-aegis-net     :  7 ok   # Sphinx onion routing: round-trip all path lengths, fixed size, MAC
+aegis-net     : 15 ok   # Sphinx onion routing + Loopix Poisson mixing & cover traffic
 ```
 
 ### Project map
@@ -51,8 +51,8 @@ Aegis/
     │   └── src/             #   bundle.rs (signed prekeys) · pqxdh.rs · ratchet.rs (PQ)
     ├── aegis-mailbox/       # Phase 2 — Layer 4a
     │   └── src/             #   sealed-sender envelopes over a blind store-and-forward relay
-    └── aegis-net/           # Phase 3 — Layer 4b
-        └── src/             #   Sphinx onion routing (blinding chain · filler · onion payload)
+    └── aegis-net/           # Phases 3–3.5 — Layer 4b
+        └── src/             #   lib.rs (Sphinx) · loopix.rs (Poisson mix + cover) · rng.rs
 ```
 
 Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; nothing
@@ -68,7 +68,13 @@ depends on a third-party crate.
 | 1.6 | Ongoing PQ ratchet — ML-KEM re-encapsulation into the root KDF (§4) | ✅ implemented |
 | 2 | Blind store-and-forward delivery, sealed sender | ✅ implemented |
 | 3 | Sphinx onion routing (fixed-size layered packets) | ✅ implemented |
-| 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ⏳ next |
+| 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ✅ implemented |
+
+All five protocol layers now have a working, tested implementation. What remains
+is hardening and integration, not new layers: an external security audit (a
+release blocker, as for Ciphra), payload non-malleability (LIONESS), the SPQR
+KEM-chunking size optimization, wiring `MailboxStore` to a live Ciphra blind
+server, and folding the identity/session/mailbox keys into one client type.
 
 ## Design in brief
 
