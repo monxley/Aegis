@@ -25,12 +25,12 @@
 //! alice.start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"hi bob").unwrap();
 //!
 //! // Bob scans the blind relay and reads it.
-//! let got = bob.receive(&relay);
+//! let got = bob.receive(&relay).unwrap();
 //! assert_eq!(got[0].message, b"hi bob");
 //!
 //! // Bob replies on the now-established session; Alice reads it.
 //! bob.send(&mut relay, &got[0].from, b"hi alice").unwrap();
-//! assert_eq!(alice.receive(&relay)[0].message, b"hi alice");
+//! assert_eq!(alice.receive(&relay).unwrap()[0].message, b"hi alice");
 //! ```
 
 mod wire;
@@ -121,6 +121,8 @@ pub enum ClientError {
     Session,
     /// Message encryption failed (e.g. sending before the session is ready).
     Encrypt,
+    /// The mailbox relay (store) returned an error.
+    Relay,
 }
 
 impl core::fmt::Display for ClientError {
@@ -131,6 +133,7 @@ impl core::fmt::Display for ClientError {
             ClientError::NoSession => "no established session with this peer",
             ClientError::Session => "session setup failed",
             ClientError::Encrypt => "message encryption failed",
+            ClientError::Relay => "mailbox relay error",
         };
         f.write_str(s)
     }
@@ -213,7 +216,7 @@ impl AegisClient {
         };
         // Sealed-sender: the relay sees only a one-time address and ciphertext.
         aegis_mailbox::send(store, &peer.view_public(), &inner.encode())
-            .map_err(|_| ClientError::Session)?;
+            .map_err(|_| ClientError::Relay)?;
 
         self.sessions.insert(peer.identity_dh_public(), ratchet);
         Ok(())
@@ -238,16 +241,18 @@ impl AegisClient {
             message,
         };
         aegis_mailbox::send(store, &peer.view_public(), &inner.encode())
-            .map_err(|_| ClientError::Session)?;
+            .map_err(|_| ClientError::Relay)?;
         Ok(())
     }
 
     /// Scan the relay for new mail addressed to this client, decrypt it, and
     /// return the messages. New peers (handshakes) are established transparently;
     /// their sessions are stored so replies work. Envelopes for other recipients
-    /// or that fail to decrypt are silently skipped.
-    pub fn receive(&mut self, store: &impl MailboxStore) -> Vec<Received> {
-        let (cursor, inners) = aegis_mailbox::receive(store, self.identity.view(), self.cursor);
+    /// or that fail to decrypt are silently skipped. Fails only if the relay
+    /// itself errors.
+    pub fn receive(&mut self, store: &impl MailboxStore) -> Result<Vec<Received>, ClientError> {
+        let (cursor, inners) = aegis_mailbox::receive(store, self.identity.view(), self.cursor)
+            .map_err(|_| ClientError::Relay)?;
         self.cursor = cursor;
 
         let mut out = Vec::new();
@@ -289,7 +294,7 @@ impl AegisClient {
                 }
             }
         }
-        out
+        Ok(out)
     }
 }
 
@@ -308,7 +313,7 @@ mod tests {
             .start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"hi bob")
             .unwrap();
 
-        let got = bob.receive(&relay);
+        let got = bob.receive(&relay).unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].message, b"hi bob");
         assert_eq!(got[0].from, alice.aegis_id());
@@ -316,7 +321,7 @@ mod tests {
         // Bob replies on the established session.
         bob.send(&mut relay, &alice.aegis_id(), b"hi alice")
             .unwrap();
-        let got = alice.receive(&relay);
+        let got = alice.receive(&relay).unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].message, b"hi alice");
         assert_eq!(got[0].from, bob.aegis_id());
@@ -331,15 +336,15 @@ mod tests {
         alice
             .start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"turn 0")
             .unwrap();
-        assert_eq!(bob.receive(&relay)[0].message, b"turn 0");
+        assert_eq!(bob.receive(&relay).unwrap()[0].message, b"turn 0");
 
         for i in 1..10u8 {
             bob.send(&mut relay, &alice.aegis_id(), &[i]).unwrap();
-            assert_eq!(alice.receive(&relay)[0].message, vec![i]);
+            assert_eq!(alice.receive(&relay).unwrap()[0].message, vec![i]);
             alice
                 .send(&mut relay, &bob.aegis_id(), &[i ^ 0xff])
                 .unwrap();
-            assert_eq!(bob.receive(&relay)[0].message, vec![i ^ 0xff]);
+            assert_eq!(bob.receive(&relay).unwrap()[0].message, vec![i ^ 0xff]);
         }
     }
 
@@ -354,8 +359,8 @@ mod tests {
             .start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"for bob")
             .unwrap();
 
-        assert!(carol.receive(&relay).is_empty());
-        assert_eq!(bob.receive(&relay).len(), 1);
+        assert!(carol.receive(&relay).unwrap().is_empty());
+        assert_eq!(bob.receive(&relay).unwrap().len(), 1);
     }
 
     #[test]
@@ -370,7 +375,7 @@ mod tests {
             peer.start_conversation(&mut relay, &bob_id, &bob_bundle, &[seed])
                 .unwrap();
         }
-        let got = bob.receive(&relay);
+        let got = bob.receive(&relay).unwrap();
         assert_eq!(got.len(), 5);
         let mut msgs: Vec<u8> = got.iter().map(|r| r.message[0]).collect();
         msgs.sort_unstable();
