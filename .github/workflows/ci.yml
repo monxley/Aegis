@@ -23,20 +23,28 @@ jobs:
         run: cargo test --all
 
   app:
-    name: Flutter app (codegen, analyze, build)
+    name: Flutter app (codegen, analyze, build APK)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal
+      - name: Install Rust + Android targets
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      # The bridge codegen turns the Rust API in app/rust into the Dart bindings
-      # under app/lib/src/rust that the app imports; without this, analyze can't
-      # resolve them. This verifies the Flutter side actually compiles.
-      - name: Install flutter_rust_bridge_codegen
-        run: cargo install flutter_rust_bridge_codegen --version 2.0.0 --locked
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+      # codegen turns the Rust API in app/rust into the Dart bindings under
+      # app/lib/src/rust; cargo-ndk cross-compiles the engine for Android so the
+      # native library is actually bundled in the APK.
+      - name: Install tooling
+        run: |
+          cargo install flutter_rust_bridge_codegen --version 2.0.0 --locked
+          cargo install cargo-ndk
       - name: Scaffold platforms + generate bindings
         working-directory: app
         run: |
@@ -46,9 +54,17 @@ jobs:
       - name: Analyze (compiles the Dart + generated bindings)
         working-directory: app
         run: flutter analyze
-      - name: Build the Rust engine
+      - name: Build the Rust engine for Android (arm64, arm, x86_64)
         working-directory: app/rust
-        run: cargo build --release
-      - name: Build debug APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
+      - name: Build debug APK (installable, debug-signed)
         working-directory: app
         run: flutter build apk --debug
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
