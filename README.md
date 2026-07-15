@@ -95,6 +95,8 @@ Aegis/
     │   └── src/             #   lib.rs (CiphraStore) · tests/ (live in-process server)
     ├── aegis-relay-server/  # `aegis-relay-server` binary: run your own blind relay
     │   └── src/             #   main.rs (persistent, pinnable Ciphra blind server)
+    ├── aegis-mix/           # the mixnet: networked Sphinx mix nodes + MixnetStore
+    │   └── src/             #   MixService (forward/deliver) · MixnetStore (onion send)
     ├── aegis-client/        # the messenger: one identity, one API over all layers
     │   └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
     └── aegis-api/           # UI-facing engine (AegisApp): identity, contacts, chat, poll
@@ -127,6 +129,8 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ scaffold |
 | — | `aegis-relay-server`: run your own blind relay (persistent, pinnable) | ✅ implemented |
 | — | Session persistence: sessions, contacts & history survive a restart | ✅ implemented |
+| — | `aegis-mix`: networked Sphinx mixnet + onion-routed send path (`MixnetStore`) | ✅ implemented |
+| — | Opt-in node: any client can also be a mix node (app wiring next) | 🔨 in progress |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -135,10 +139,21 @@ server** (an in-process `ciphra-server` in the test). On top, `aegis-api` expose
 a UI-facing engine and a **Flutter app** (`app/`) provides the interface.
 Conversations **survive a restart**: `AegisApp` serializes its sessions (the
 Double Ratchet, including skipped-message keys), contacts, and history, and the
-app restores them on launch. What remains is hardening, not new layers: an
+app restores them on launch. The **mixnet** (`aegis-mix`) turns `aegis-net`'s
+Sphinx routing into a networked layer: `MixnetStore` onion-routes each send
+through a random path of mix nodes to a provider, so no single node links the
+sender to the deposited message. What remains is hardening, not new layers: an
 external security audit (a release blocker, as for Ciphra), the SPQR KEM-chunking
-size optimization, group messaging, wiring the `aegis-net` mixnet into the send
-path, and finishing the app (push wake-ups, QR scanning).
+size optimization, group messaging, wiring `MixnetStore` into `aegis-api` with a
+node directory, receive-path anonymity + Loopix cover traffic, and finishing the
+app (push wake-ups, QR scanning).
+
+**Who runs the nodes.** End users run nothing — a fresh install just connects.
+The node layer is **opt-in**: any client *can* also be a mix node (great as a
+default on always-on desktop/Linux, opt-in and constrained on battery-powered
+Android), so the network is powered by volunteers, not forced onto every phone.
+This keeps a stable, less Sybil-prone node set — the same reason Session, Tor,
+and Nym use vetted/staked nodes rather than "every phone is a relay".
 
 ## Build & run it yourself
 
