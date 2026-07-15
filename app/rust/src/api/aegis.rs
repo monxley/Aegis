@@ -111,6 +111,23 @@ impl AegisEngine {
         })
     }
 
+    /// Like [`new_on_network`] but with **anonymous receive**: this device runs a
+    /// reachable mix node (bound at `node_listen`, e.g. `"0.0.0.0:0"`) and polls
+    /// its provider *through the mixnet* with single-use reply blocks, so the
+    /// provider never learns who is polling. Use on a reachable device
+    /// (desktop/Linux, or a phone with a forwarded port).
+    pub fn new_on_network_with_receive(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+        node_listen: String,
+    ) -> Result<AegisEngine, String> {
+        let app = AegisApp::create_on_network_with_receive(master_seed, bootstrap, node_listen)
+            .map_err(|e| e.to_string())?;
+        Ok(AegisEngine {
+            inner: Mutex::new(app),
+        })
+    }
+
     fn with<T>(&self, f: impl FnOnce(&mut AegisApp) -> T) -> T {
         let mut guard = self.inner.lock().expect("engine mutex poisoned");
         f(&mut guard)

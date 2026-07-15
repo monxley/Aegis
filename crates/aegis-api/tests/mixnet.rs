@@ -94,3 +94,33 @@ fn two_apps_talk_over_the_auto_discovered_mixnet() {
     let got = poll_until(&mut alice, 1);
     assert_eq!(got[0].text, "got it");
 }
+
+#[test]
+fn bob_receives_anonymously_over_surbs() {
+    // Alice sends normally; Bob runs a node and polls his provider *through the
+    // mixnet* with SURBs, so the provider never learns Bob is the one polling.
+    let ciphra = spawn_ciphra();
+    let provider = spawn_provider(210, ciphra);
+    let forwarder =
+        spawn_forwarder([211u8; 32], "127.0.0.1:0", &[provider.mix_addr], None).expect("forwarder");
+    // Let the provider learn the forwarder (needed to route SURB replies).
+    aegis_mix::announce(provider.mix_addr, std::slice::from_ref(&forwarder)).unwrap();
+    thread::sleep(Duration::from_millis(100));
+
+    let boot = vec![provider.mix_addr.to_string()];
+    let mut alice = AegisApp::create_on_network(vec![1u8; 32], boot.clone()).expect("alice");
+    let mut bob =
+        AegisApp::create_on_network_with_receive(vec![2u8; 32], boot, "127.0.0.1:0".into())
+            .expect("bob anon");
+
+    alice
+        .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+        .unwrap();
+    alice.send(bob.my_aegis_id(), "anon hello".into()).unwrap();
+
+    // Bob's first poll issues the anonymous fetch; a later one harvests the SURB
+    // reply. The message arrives without the provider seeing Bob.
+    let got = poll_until(&mut bob, 1);
+    assert_eq!(got.len(), 1, "bob should receive one message anonymously");
+    assert_eq!(got[0].text, "anon hello");
+}
