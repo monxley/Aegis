@@ -131,6 +131,22 @@ impl AegisEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Snapshot sessions, contacts, and history so a restart resumes the
+    /// conversation. Persist the blob in the app's private storage (never on the
+    /// relay); restore it into an engine built from the same seed.
+    #[frb(sync)]
+    pub fn export_state(&self) -> Vec<u8> {
+        self.with(|app| app.export_state())
+    }
+
+    /// Restore state from [`export_state`]. Errors (leaving the engine
+    /// unchanged) if the blob is malformed or from an unknown version.
+    #[frb(sync)]
+    pub fn restore_state(&self, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.restore_state(blob))
+            .map_err(|e| e.to_string())
+    }
+
     /// Poll the relay for new messages, decrypt them, append to history, and
     /// return what arrived. Call on a timer or a push wake-up.
     pub fn poll(&self) -> Result<Vec<IncomingMessage>, String> {

@@ -199,6 +199,59 @@ mod tests {
     }
 
     #[test]
+    fn serialized_ratchet_resumes_a_conversation() {
+        // Persist both sides mid-conversation, restore, and keep talking — the
+        // real "app was restarted" case.
+        let bob = bob_secrets(true);
+        let (initial, mut alice) =
+            establish_initiator(&alice_identity(), &bob.public_bundle()).unwrap();
+        let mut bob = establish_responder(bob, &initial).unwrap();
+
+        let m1 = alice.encrypt(b"before restart", b"ad").unwrap();
+        assert_eq!(bob.decrypt(&m1, b"ad").unwrap(), b"before restart");
+        let r1 = bob.encrypt(b"ack", b"ad").unwrap();
+        assert_eq!(alice.decrypt(&r1, b"ad").unwrap(), b"ack");
+
+        // "Restart": both sides go through disk.
+        let mut alice = DoubleRatchet::deserialize(&alice.serialize()).unwrap();
+        let mut bob = DoubleRatchet::deserialize(&bob.serialize()).unwrap();
+
+        // Conversation continues across the restart, both directions + ratchets.
+        for i in 0..5u8 {
+            let a = alice.encrypt(&[i; 8], b"").unwrap();
+            assert_eq!(bob.decrypt(&a, b"").unwrap(), vec![i; 8]);
+            let b = bob.encrypt(&[i ^ 0xff; 8], b"").unwrap();
+            assert_eq!(alice.decrypt(&b, b"").unwrap(), vec![i ^ 0xff; 8]);
+        }
+    }
+
+    #[test]
+    fn serialized_ratchet_preserves_skipped_keys() {
+        // Skipped-message keys must survive a restart or out-of-order mail sent
+        // before the restart becomes undecryptable after it.
+        let bob = bob_secrets(true);
+        let (initial, mut alice) =
+            establish_initiator(&alice_identity(), &bob.public_bundle()).unwrap();
+        let mut bob = establish_responder(bob, &initial).unwrap();
+
+        let m0 = alice.encrypt(b"zero", b"").unwrap();
+        let m1 = alice.encrypt(b"one", b"").unwrap();
+        let m2 = alice.encrypt(b"two", b"").unwrap();
+        // Bob receives m2 first, recording skipped keys for 0 and 1, then restarts.
+        assert_eq!(bob.decrypt(&m2, b"").unwrap(), b"two");
+        let mut bob = DoubleRatchet::deserialize(&bob.serialize()).unwrap();
+        // After the restart the skipped keys still decrypt the delayed messages.
+        assert_eq!(bob.decrypt(&m0, b"").unwrap(), b"zero");
+        assert_eq!(bob.decrypt(&m1, b"").unwrap(), b"one");
+    }
+
+    #[test]
+    fn deserialize_rejects_garbage() {
+        assert!(DoubleRatchet::deserialize(&[]).is_none());
+        assert!(DoubleRatchet::deserialize(&[0xff, 1, 2, 3]).is_none());
+    }
+
+    #[test]
     fn many_messages_in_one_direction_advance_the_chain() {
         let bob = bob_secrets(true);
         let (initial, mut alice) =

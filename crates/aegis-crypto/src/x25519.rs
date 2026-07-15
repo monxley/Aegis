@@ -322,6 +322,12 @@ impl SecretKey {
         SecretKey(bytes)
     }
 
+    /// The raw 32-byte scalar. Exposed so long-lived ratchet state can be
+    /// serialized and restored across restarts; handle the bytes as secret.
+    pub fn to_bytes(&self) -> [u8; 32] {
+        self.0
+    }
+
     /// The public key `scalar * basepoint`.
     pub fn public_key(&self) -> [u8; 32] {
         scalarmult(&self.0, &BASE_POINT)
