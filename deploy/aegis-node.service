@@ -1,0 +1,30 @@
+# systemd unit for a full Aegis node. Install:
+#   sudo cp target/release/aegis-relay-server /usr/local/bin/
+#   sudo useradd -r -s /usr/sbin/nologin aegis && sudo mkdir -p /var/lib/aegis && sudo chown aegis /var/lib/aegis
+#   sudo cp deploy/aegis-node.service /etc/systemd/system/
+#   # edit ExecStart below: set your public host and a real bootstrap node
+#   sudo systemctl enable --now aegis-node
+[Unit]
+Description=Aegis node (blind mailbox + mixnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=aegis
+Group=aegis
+# Replace your.host and the bootstrap address. The first seed node omits --bootstrap.
+ExecStart=/usr/local/bin/aegis-relay-server \
+  --listen 0.0.0.0:5077 --mix 0.0.0.0:5078 --data /var/lib/aegis \
+  --advertise-mix your.host:5078 --advertise-provider your.host:5077 \
+  --bootstrap seed.aegis.example:5078
+Restart=on-failure
+RestartSec=5
+# Hardening: the node holds no data keys and needs only its data dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aegis
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

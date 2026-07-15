@@ -31,6 +31,10 @@ use aegis_identity::{
     EphemeralPublic, StealthAddress, StealthError, ViewKeypair, ViewPublicKey, ADDR_TAG_LEN,
 };
 
+/// Re-exported so [`MailboxStore::put_for`] implementors can name the recipient
+/// key type without depending on `aegis-identity` directly.
+pub use aegis_identity::ViewPublicKey as RecipientKey;
+
 /// The envelope AEAD binds the address and ephemeral so a relay cannot move a
 /// ciphertext to a different address undetected.
 const ENVELOPE_AAD_DOMAIN: &[u8] = b"aegis/mailbox/v1";
@@ -139,6 +143,20 @@ pub trait MailboxStore {
     /// Return every envelope with index `>= cursor`, and the new cursor. A
     /// recipient scans these with its view key.
     fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError>;
+
+    /// Store an envelope **destined for `recipient`**. A network store that
+    /// shards mail across several providers uses the recipient's (public) view
+    /// key to pick the one that recipient polls — without ever seeing the
+    /// message. The default ignores it and behaves like [`put`](Self::put), so
+    /// single-store backends need not implement this.
+    fn put_for(
+        &mut self,
+        recipient: &ViewPublicKey,
+        envelope: Envelope,
+    ) -> Result<(), MailboxError> {
+        let _ = recipient;
+        self.put(envelope)
+    }
 }
 
 /// A simple in-memory [`MailboxStore`] for local use and tests.
@@ -182,7 +200,7 @@ pub fn send(
     inner: &[u8],
 ) -> Result<(), MailboxError> {
     let envelope = seal(recipient, inner).map_err(|e| MailboxError(e.to_string()))?;
-    store.put(envelope)
+    store.put_for(recipient, envelope)
 }
 
 /// Scan the store from `cursor` and return the new cursor plus the `inner`
