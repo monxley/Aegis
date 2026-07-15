@@ -315,7 +315,7 @@ impl AegisApp {
         if providers.is_empty() {
             return Err(AppError::Relay("network has no provider".into()));
         }
-        let pool: Vec<_> = nodes.iter().filter(|n| !n.is_provider()).cloned().collect();
+        let pool: Vec<_> = nodes.clone(); // every node is a mix; exit excluded per route
 
         let view = client.aegis_id().view_public();
         let own_idx = aegis_mix::provider_index(&view.0, providers.len());
@@ -354,7 +354,7 @@ impl AegisApp {
         if providers.is_empty() {
             return Err(AppError::Relay("network has no provider".into()));
         }
-        let pool: Vec<_> = nodes.iter().filter(|n| !n.is_provider()).cloned().collect();
+        let pool: Vec<_> = nodes.clone(); // every node is a mix; exit excluded per route
         let view = client.aegis_id().view_public();
         let own_provider = providers[aegis_mix::provider_index(&view.0, providers.len())].clone();
         let provider_addr = own_provider

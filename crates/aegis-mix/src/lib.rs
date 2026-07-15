@@ -665,7 +665,8 @@ impl<P: MailboxStore> MixnetStore<P> {
     /// * `reader` — reads this user's mail from `own_provider`'s mailbox.
     /// * `providers` — every provider in the network (sharding targets); sorted
     ///   by id internally so all clients agree.
-    /// * `pool` — candidate intermediate mixes to route through.
+    /// * `pool` — candidate intermediate hops: **all** nodes work (every node is
+    ///   a mix), the exit is just excluded per route.
     /// * `own_provider` — the provider this user polls (its shard).
     /// * `hops` — mixes before the exit, clamped to fit [`aegis_net::MAX_HOPS`].
     pub fn new(
@@ -676,8 +677,7 @@ impl<P: MailboxStore> MixnetStore<P> {
         hops: usize,
     ) -> Self {
         providers.sort_by_key(|p| p.id);
-        let max_mid = aegis_net::MAX_HOPS.saturating_sub(1);
-        let hops = hops.min(max_mid).min(pool.len());
+        let hops = hops.min(aegis_net::MAX_HOPS.saturating_sub(1));
         MixnetStore {
             reader,
             providers,
@@ -709,7 +709,7 @@ impl<P: MailboxStore> MixnetStore<P> {
         let batch = MAX_FETCH_SURBS.min(4);
         let mut headers = Vec::with_capacity(batch);
         for _ in 0..batch {
-            let mut back = choose(&self.pool, self.hops);
+            let mut back = choose_excluding(&self.pool, self.hops, &anon.own_node.id);
             back.push(anon.own_node.clone());
             let hops: Vec<Hop> = back.iter().map(NodeDescriptor::hop).collect();
             if let Ok(surb) = Surb::create(&hops) {
@@ -720,7 +720,7 @@ impl<P: MailboxStore> MixnetStore<P> {
         if headers.is_empty() {
             return;
         }
-        let mut route = choose(&self.pool, self.hops);
+        let mut route = choose_excluding(&self.pool, self.hops, &self.own_provider.id);
         route.push(self.own_provider.clone());
         let hops: Vec<Hop> = route.iter().map(NodeDescriptor::hop).collect();
         let _ = anonymous_fetch(&hops, route[0].mix_addr, cursor, &headers);
@@ -735,7 +735,7 @@ impl<P: MailboxStore> MixnetStore<P> {
     }
 
     fn route(&self, exit: &NodeDescriptor, envelope: &Envelope) -> Result<(), MailboxError> {
-        let mut route = choose(&self.pool, self.hops);
+        let mut route = choose_excluding(&self.pool, self.hops, &exit.id);
         route.push(exit.clone());
         let hops: Vec<Hop> = route.iter().map(NodeDescriptor::hop).collect();
         // KIND_STORE ‖ envelope, so the exit provider stores it (vs. a fetch).
@@ -804,6 +804,19 @@ fn choose(pool: &[NodeDescriptor], k: usize) -> Vec<NodeDescriptor> {
         idx.swap(i, j);
     }
     idx[..k].iter().map(|&i| pool[i].clone()).collect()
+}
+
+/// Like [`choose`] but never picks the node with id `exclude` (the exit), so an
+/// intermediate hop is always a *different* node. Every node can forward, so the
+/// pool is the whole network, not just non-providers.
+fn choose_excluding(
+    pool: &[NodeDescriptor],
+    k: usize,
+    exclude: &[u8; NODE_ID_LEN],
+) -> Vec<NodeDescriptor> {
+    let candidates: Vec<NodeDescriptor> =
+        pool.iter().filter(|n| &n.id != exclude).cloned().collect();
+    choose(&candidates, k)
 }
 
 fn random_u64() -> u64 {
