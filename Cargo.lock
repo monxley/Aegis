@@ -10,6 +10,8 @@ dependencies = [
  "aegis-crypto",
  "aegis-identity",
  "aegis-mailbox",
+ "aegis-mix",
+ "aegis-net",
  "aegis-relay",
  "aegis-session",
  "ciphra-net",

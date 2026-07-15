@@ -7,6 +7,7 @@ import '../widgets.dart';
 import 'add_contact.dart';
 import 'chat.dart';
 import 'identity.dart';
+import 'settings.dart';
 
 /// The home screen: the list of conversations. Rebuilds whenever the engine
 /// signals new state (a sent or polled message, a new contact).
@@ -32,6 +33,15 @@ class ChatsScreen extends StatelessWidget {
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => IdentityScreen(engine: engine),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_rounded, color: AegisTheme.textHi),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SettingsScreen(engine: engine),
               ),
             ),
           ),
