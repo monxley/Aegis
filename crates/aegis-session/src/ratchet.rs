@@ -31,6 +31,8 @@ const MAX_SKIP: u32 = 1000;
 const HEADER_LEN: usize = 32 + EK_LEN + CT_LEN + 4 + 4;
 const ROOT_INFO: &[u8] = b"aegis/ratchet/root/pq/v1";
 const MSG_INFO: &[u8] = b"aegis/ratchet/msg";
+/// Version tag on serialized ratchet state; bump on a format change.
+const STATE_VERSION: u8 = 1;
 
 /// An encrypted Double Ratchet message: cleartext header + AEAD ciphertext.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -220,6 +222,77 @@ impl DoubleRatchet {
         }
     }
 
+    /// Serialize the full ratchet state to bytes so a conversation survives a
+    /// restart. The output contains long-term secrets (the X25519 ratchet key,
+    /// the ML-KEM secret key, chain and root keys, skipped message keys) — store
+    /// it only where the app's own data lives, never on the relay.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut w = Vec::new();
+        w.push(STATE_VERSION);
+        w.extend_from_slice(&self.root_key);
+        w.extend_from_slice(&self.dh_self.to_bytes());
+        w.extend_from_slice(&self.dh_self_public);
+        put_bytes(&mut w, &self.kem_self.ek);
+        put_bytes(&mut w, &self.kem_self.dk);
+        put_opt32(&mut w, &self.dh_remote);
+        put_opt_bytes(&mut w, self.pending_kem_ct.as_deref());
+        put_opt32(&mut w, &self.chain_send);
+        put_opt32(&mut w, &self.chain_recv);
+        w.extend_from_slice(&self.n_send.to_le_bytes());
+        w.extend_from_slice(&self.n_recv.to_le_bytes());
+        w.extend_from_slice(&self.prev_n.to_le_bytes());
+        w.extend_from_slice(&(self.skipped.len() as u32).to_le_bytes());
+        for ((remote, n), mk) in &self.skipped {
+            w.extend_from_slice(remote);
+            w.extend_from_slice(&n.to_le_bytes());
+            w.extend_from_slice(mk);
+        }
+        w
+    }
+
+    /// Reconstruct a ratchet from [`serialize`](Self::serialize). Returns `None`
+    /// if the bytes are truncated or the version is unknown.
+    pub fn deserialize(bytes: &[u8]) -> Option<Self> {
+        let mut r = StateReader::new(bytes);
+        if r.u8()? != STATE_VERSION {
+            return None;
+        }
+        let root_key = r.array32()?;
+        let dh_self = SecretKey::from_bytes(r.array32()?);
+        let dh_self_public = r.array32()?;
+        let ek = r.bytes()?.to_vec();
+        let dk = r.bytes()?.to_vec();
+        let dh_remote = r.opt32()?;
+        let pending_kem_ct = r.opt_bytes()?;
+        let chain_send = r.opt32()?;
+        let chain_recv = r.opt32()?;
+        let n_send = r.u32()?;
+        let n_recv = r.u32()?;
+        let prev_n = r.u32()?;
+        let skip_count = r.u32()? as usize;
+        let mut skipped = HashMap::with_capacity(skip_count);
+        for _ in 0..skip_count {
+            let remote = r.array32()?;
+            let n = r.u32()?;
+            let mk = r.array32()?;
+            skipped.insert((remote, n), mk);
+        }
+        Some(DoubleRatchet {
+            root_key,
+            dh_self,
+            dh_self_public,
+            kem_self: ml_kem::KeyPair { ek, dk },
+            dh_remote,
+            pending_kem_ct,
+            chain_send,
+            chain_recv,
+            n_send,
+            n_recv,
+            prev_n,
+            skipped,
+        })
+    }
+
     /// Encrypt `plaintext`, binding `associated_data` (which the peer must
     /// supply identically to decrypt) alongside the header.
     pub fn encrypt(
@@ -349,6 +422,77 @@ impl DoubleRatchet {
         self.dh_self_public = new_public;
         self.kem_self = new_kem;
         Ok(())
+    }
+}
+
+// --- serialization helpers (see `DoubleRatchet::serialize`) --------------
+
+fn put_bytes(w: &mut Vec<u8>, bytes: &[u8]) {
+    w.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    w.extend_from_slice(bytes);
+}
+
+fn put_opt32(w: &mut Vec<u8>, opt: &Option<[u8; 32]>) {
+    match opt {
+        Some(b) => {
+            w.push(1);
+            w.extend_from_slice(b);
+        }
+        None => w.push(0),
+    }
+}
+
+fn put_opt_bytes(w: &mut Vec<u8>, opt: Option<&[u8]>) {
+    match opt {
+        Some(b) => {
+            w.push(1);
+            put_bytes(w, b);
+        }
+        None => w.push(0),
+    }
+}
+
+struct StateReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> StateReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        StateReader { buf, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn array32(&mut self) -> Option<[u8; 32]> {
+        self.take(32)?.try_into().ok()
+    }
+    fn bytes(&mut self) -> Option<&'a [u8]> {
+        let n = self.u32()? as usize;
+        self.take(n)
+    }
+    fn opt32(&mut self) -> Option<Option<[u8; 32]>> {
+        match self.u8()? {
+            0 => Some(None),
+            1 => Some(Some(self.array32()?)),
+            _ => None,
+        }
+    }
+    fn opt_bytes(&mut self) -> Option<Option<Vec<u8>>> {
+        match self.u8()? {
+            0 => Some(None),
+            1 => Some(Some(self.bytes()?.to_vec())),
+            _ => None,
+        }
     }
 }
 

@@ -48,6 +48,8 @@ workspace) and re-exports `AegisApp` for the bridge to bind. See
 Scaffold: the Rust engine (`aegis-api`) is complete and tested; the Dart screens
 (onboarding, chats, thread, add-contact) and theme are in place and call the
 engine through `AegisEngine`. Running `flutter_rust_bridge_codegen generate`
-fills in `lib/src/rust/` and the app builds. Push notifications, QR scanning,
-persistent storage of ratchet state, and message-status ticks are the next UI
-work.
+fills in `lib/src/rust/` and the app builds. **State persists across restarts**:
+the engine exports its sessions, contacts, and history, and `AegisEngine`
+(lib/engine.dart) saves that blob to local storage after every change and
+restores it on launch. Push notifications, QR scanning, and message-status ticks
+are the next UI work.

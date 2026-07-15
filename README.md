@@ -125,16 +125,20 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | `aegis-relay`: `MailboxStore` over a live Ciphra blind server | ✅ implemented |
 | — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
 | — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ scaffold |
+| — | `aegis-relay-server`: run your own blind relay (persistent, pinnable) | ✅ implemented |
+| — | Session persistence: sessions, contacts & history survive a restart | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
 messenger, and `aegis-relay` runs a full conversation over a **live Ciphra blind
 server** (an in-process `ciphra-server` in the test). On top, `aegis-api` exposes
-a UI-facing engine and a **Flutter app** (`app/`) provides the interface. What
-remains is hardening, not new layers: an external security audit (a release
-blocker, as for Ciphra), the SPQR KEM-chunking size optimization, group
-messaging, and finishing the app (push wake-ups, QR scanning, persisted ratchet
-state).
+a UI-facing engine and a **Flutter app** (`app/`) provides the interface.
+Conversations **survive a restart**: `AegisApp` serializes its sessions (the
+Double Ratchet, including skipped-message keys), contacts, and history, and the
+app restores them on launch. What remains is hardening, not new layers: an
+external security audit (a release blocker, as for Ciphra), the SPQR KEM-chunking
+size optimization, group messaging, wiring the `aegis-net` mixnet into the send
+path, and finishing the app (push wake-ups, QR scanning).
 
 ## Build & run it yourself
 

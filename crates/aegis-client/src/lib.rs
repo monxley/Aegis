@@ -68,6 +68,61 @@ fn derive(master: &[u8; 32], tag: &[u8]) -> [u8; 32] {
     sha256(&input)
 }
 
+/// Version tag on exported client state; bump on a format change.
+const STATE_VERSION: u8 = 1;
+
+/// Parsed client state (see [`AegisClient::export_state`]).
+struct ClientState {
+    cursor: usize,
+    sessions: HashMap<[u8; 32], DoubleRatchet>,
+}
+
+/// A bounds-checked reader for [`AegisClient::import_state`].
+struct StateReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> StateReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        StateReader { buf, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+    fn array32(&mut self) -> Option<[u8; 32]> {
+        self.take(32)?.try_into().ok()
+    }
+    fn parse(&mut self) -> Option<ClientState> {
+        if self.u8()? != STATE_VERSION {
+            return None;
+        }
+        let cursor = self.u64()? as usize;
+        let count = self.u32()? as usize;
+        let mut sessions = HashMap::with_capacity(count);
+        for _ in 0..count {
+            let peer = self.array32()?;
+            let len = self.u32()? as usize;
+            let bytes = self.take(len)?;
+            let ratchet = DoubleRatchet::deserialize(bytes)?;
+            sessions.insert(peer, ratchet);
+        }
+        Some(ClientState { cursor, sessions })
+    }
+}
+
 impl Seeds {
     fn from_master(master: &[u8; 32]) -> Self {
         Seeds {
@@ -245,6 +300,39 @@ impl AegisClient {
         Ok(())
     }
 
+    /// Serialize the client's live conversation state — every peer session
+    /// (Double Ratchet) and the mailbox scan cursor — so a restart resumes where
+    /// it left off. Identity keys are **not** included: they are derived from the
+    /// master seed, which the app stores separately. The output holds ratchet
+    /// secrets; keep it in the app's private storage, never on the relay.
+    pub fn export_state(&self) -> Vec<u8> {
+        let mut w = Vec::new();
+        w.push(STATE_VERSION);
+        w.extend_from_slice(&(self.cursor as u64).to_le_bytes());
+        w.extend_from_slice(&(self.sessions.len() as u32).to_le_bytes());
+        for (peer, ratchet) in &self.sessions {
+            w.extend_from_slice(peer);
+            let bytes = ratchet.serialize();
+            w.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            w.extend_from_slice(&bytes);
+        }
+        w
+    }
+
+    /// Restore sessions and cursor from [`export_state`](Self::export_state).
+    /// Returns `false` (leaving the client untouched) if the bytes are malformed
+    /// or a version it does not understand. Identity is unchanged — restore into
+    /// a client built from the same master seed.
+    pub fn import_state(&mut self, bytes: &[u8]) -> bool {
+        let mut r = StateReader::new(bytes);
+        let Some(state) = r.parse() else {
+            return false;
+        };
+        self.cursor = state.cursor;
+        self.sessions = state.sessions;
+        true
+    }
+
     /// Scan the relay for new mail addressed to this client, decrypt it, and
     /// return the messages. New peers (handshakes) are established transparently;
     /// their sessions are stored so replies work. Envelopes for other recipients
@@ -380,6 +468,48 @@ mod tests {
         let mut msgs: Vec<u8> = got.iter().map(|r| r.message[0]).collect();
         msgs.sort_unstable();
         assert_eq!(msgs, (10..15).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn exported_state_resumes_a_conversation_across_a_restart() {
+        let mut alice = AegisClient::from_master_seed([1u8; 32]);
+        let mut bob = AegisClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+
+        alice
+            .start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"hi bob")
+            .unwrap();
+        assert_eq!(bob.receive(&relay).unwrap()[0].message, b"hi bob");
+        bob.send(&mut relay, &alice.aegis_id(), b"hi alice")
+            .unwrap();
+        assert_eq!(alice.receive(&relay).unwrap()[0].message, b"hi alice");
+
+        // "Restart" both: rebuild from the master seed (as the app does from the
+        // stored seed) and restore the saved session state.
+        let alice_blob = alice.export_state();
+        let bob_blob = bob.export_state();
+        let mut alice = AegisClient::from_master_seed([1u8; 32]);
+        let mut bob = AegisClient::from_master_seed([2u8; 32]);
+        assert!(alice.import_state(&alice_blob));
+        assert!(bob.import_state(&bob_blob));
+
+        // The established session keeps working after the restart.
+        alice
+            .send(&mut relay, &bob.aegis_id(), b"after restart")
+            .unwrap();
+        assert_eq!(bob.receive(&relay).unwrap()[0].message, b"after restart");
+        bob.send(&mut relay, &alice.aegis_id(), b"still here")
+            .unwrap();
+        assert_eq!(alice.receive(&relay).unwrap()[0].message, b"still here");
+    }
+
+    #[test]
+    fn a_fresh_client_has_empty_but_valid_state() {
+        let alice = AegisClient::from_master_seed([1u8; 32]);
+        let blob = alice.export_state();
+        let mut restored = AegisClient::from_master_seed([1u8; 32]);
+        assert!(restored.import_state(&blob));
+        assert!(!restored.import_state(b"garbage"));
     }
 
     #[test]
