@@ -32,7 +32,7 @@ aegis-crypto  : 36 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202/203/204, ML-KE
 aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key binding
 aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
-aegis-net     : 15 ok   # Sphinx onion routing + Loopix Poisson mixing & cover traffic
+aegis-net     : 16 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
 ```
 
 ### Project map
@@ -70,11 +70,12 @@ depends on a third-party crate.
 | 3 | Sphinx onion routing (fixed-size layered packets) | ✅ implemented |
 | 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ✅ implemented |
 
-All five protocol layers now have a working, tested implementation. What remains
+All five protocol layers now have a working, tested implementation, with a
+non-malleable **LIONESS** onion payload (tagging-attack resistant). What remains
 is hardening and integration, not new layers: an external security audit (a
-release blocker, as for Ciphra), payload non-malleability (LIONESS), the SPQR
-KEM-chunking size optimization, wiring `MailboxStore` to a live Ciphra blind
-server, and folding the identity/session/mailbox keys into one client type.
+release blocker, as for Ciphra), the SPQR KEM-chunking size optimization, wiring
+`MailboxStore` to a live Ciphra blind server, and folding the
+identity/session/mailbox keys into one client type.
 
 ## Design in brief
 
