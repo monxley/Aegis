@@ -31,7 +31,9 @@ pub mod identity;
 pub mod stealth;
 
 pub use identity::{AegisId, AegisIdError, Identity, ViewKeypair};
-pub use stealth::{EphemeralPublic, StealthAddress, StealthError, ViewPublicKey, ADDR_TAG_LEN};
+pub use stealth::{
+    EphemeralPublic, SealedStealth, StealthAddress, StealthError, ViewPublicKey, ADDR_TAG_LEN,
+};
 
 #[cfg(test)]
 mod tests {

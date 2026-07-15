@@ -61,6 +61,24 @@ impl ViewKeypair {
         let recomputed = stealth::tags_from_shared(&shared, &ephemeral.0, &self.public.0);
         recomputed.view_tag == address.view_tag && recomputed.addr_tag == address.addr_tag
     }
+
+    /// Like [`matches`](Self::matches), but on a match also returns the
+    /// per-message **envelope key** so the caller can decrypt a sealed
+    /// envelope addressed to this identity. Returns `None` if the envelope is
+    /// not ours (or is degenerate). One DH, one derivation — no double work.
+    pub fn open(&self, ephemeral: &EphemeralPublic, address: &StealthAddress) -> Option<[u8; 32]> {
+        let shared = stealth::checked_shared(self.secret.diffie_hellman(&ephemeral.0)).ok()?;
+        let recomputed = stealth::tags_from_shared(&shared, &ephemeral.0, &self.public.0);
+        if recomputed.view_tag == address.view_tag && recomputed.addr_tag == address.addr_tag {
+            Some(stealth::envelope_key_from_shared(
+                &shared,
+                &ephemeral.0,
+                &self.public.0,
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 /// A full Aegis identity: view keypair, identity DH keypair, and ML-DSA
