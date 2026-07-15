@@ -6,6 +6,7 @@ members = [
     "crates/aegis-session",
     "crates/aegis-mailbox",
     "crates/aegis-net",
+    "crates/aegis-client",
 ]
 
 [workspace.package]
