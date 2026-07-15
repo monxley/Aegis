@@ -131,7 +131,7 @@ impl MixNode {
 
         // Peel one payload layer.
         let mut payload = packet.delta;
-        xor_payload(&pi_key(&s), &mut payload);
+        lioness_decrypt(&pi_key(&s), &mut payload);
 
         if next_id == DEST_MARKER {
             return Ok(ProcessedPacket::Deliver {
@@ -258,10 +258,11 @@ impl SphinxPacket {
             gamma = truncated_mac(&mu_key(&shared[i]), &beta);
         }
 
-        // --- payload onion: pad, then wrap under each hop's key (exit first) ---
+        // --- payload onion: pad, then wrap each hop's LIONESS layer (exit
+        // first, so hop 0's layer is outermost and peeled first) ---
         let mut delta = pad(message)?;
         for i in (0..nu).rev() {
-            xor_payload(&pi_key(&shared[i]), &mut delta);
+            lioness_encrypt(&pi_key(&shared[i]), &mut delta);
         }
 
         Ok(SphinxPacket {
@@ -366,19 +367,84 @@ fn xor_prg(key: &[u8; 32], data: &mut [u8; BETA_LEN + HOP_META]) {
     }
 }
 
-/// XOR the payload with a payload-length ChaCha20 keystream (domain-separated
-/// from the header stream by the `pi` key).
-fn xor_payload(key: &[u8; 32], data: &mut [u8; PAYLOAD_LEN]) {
+// --- LIONESS wide-block cipher for the payload ---------------------------
+//
+// The payload must be non-malleable: with a plain stream cipher a one-bit flip
+// propagates unchanged to the exit, enabling a *tagging attack* (mark a packet
+// at the entry, recognize it at the exit → deanonymization). The header MAC
+// protects the header but not the payload, so the payload itself must be a
+// pseudo-random permutation where any change scrambles the whole block.
+//
+// LIONESS (Anderson–Biham) builds exactly that from a stream cipher `S` and a
+// keyed hash `H` over four unbalanced-Feistel rounds. The block splits into a
+// key-sized left half `L` (32 B) and the rest `R`:
+//
+//   R ^= S(L ^ k1);  L ^= H(k2, R);  R ^= S(L ^ k3);  L ^= H(k4, R)
+//
+// Decryption runs the rounds in reverse. Each hop encrypts one layer; a single
+// altered byte anywhere makes the delivered block uniformly unrecognizable.
+
+/// Left-half size (matches the stream-cipher key / hash output size).
+const LION_L: usize = 32;
+
+/// Four round subkeys derived from a hop's payload key `pi`.
+fn lion_subkeys(pi: &[u8; 32]) -> [[u8; 32]; 4] {
+    [
+        derive(b"aegis/lioness/k1", pi),
+        derive(b"aegis/lioness/k2", pi),
+        derive(b"aegis/lioness/k3", pi),
+        derive(b"aegis/lioness/k4", pi),
+    ]
+}
+
+/// `data ^= ChaCha20(key)` over `data`'s length (the LIONESS `S`).
+fn lion_stream(key: &[u8; 32], data: &mut [u8]) {
     chacha20::xor_stream(key, &NONCE, 0, data);
+}
+
+/// `l ^= HMAC(k, r)` (the LIONESS `H`, applied to the 32-byte left half).
+fn lion_hash(k: &[u8; 32], r: &[u8], l: &mut [u8]) {
+    let h = hmac_sha256(k, r);
+    for (b, x) in l.iter_mut().zip(h.iter()) {
+        *b ^= x;
+    }
+}
+
+fn xor32(a: &[u8], k: &[u8; 32]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = a[i] ^ k[i];
+    }
+    out
+}
+
+/// Encrypt one LIONESS layer in place under payload key `pi`.
+fn lioness_encrypt(pi: &[u8; 32], block: &mut [u8; PAYLOAD_LEN]) {
+    let [k1, k2, k3, k4] = lion_subkeys(pi);
+    let (l, r) = block.split_at_mut(LION_L);
+    lion_stream(&xor32(l, &k1), r);
+    lion_hash(&k2, r, l);
+    lion_stream(&xor32(l, &k3), r);
+    lion_hash(&k4, r, l);
+}
+
+/// Decrypt one LIONESS layer in place under payload key `pi` (rounds reversed).
+fn lioness_decrypt(pi: &[u8; 32], block: &mut [u8; PAYLOAD_LEN]) {
+    let [k1, k2, k3, k4] = lion_subkeys(pi);
+    let (l, r) = block.split_at_mut(LION_L);
+    lion_hash(&k4, r, l);
+    lion_stream(&xor32(l, &k3), r);
+    lion_hash(&k2, r, l);
+    lion_stream(&xor32(l, &k1), r);
 }
 
 // --- payload padding -----------------------------------------------------
 //
-// Layout: `len (4 LE) ‖ message ‖ zeros`, fixed to PAYLOAD_LEN. This is
-// length-hiding within the fixed size; integrity of the message itself is
-// provided by the end-to-end AEAD of the inner (session/mailbox) ciphertext,
-// so a mauled onion payload simply fails that check downstream. A non-malleable
-// wide-block payload (LIONESS) is the planned hardening.
+// Layout: `len (4 LE) ‖ message ‖ zeros`, fixed to PAYLOAD_LEN, length-hiding
+// within the fixed size. The payload is sealed under the LIONESS wide-block
+// cipher above, so it is non-malleable: any alteration scrambles the whole
+// block, defeating tagging attacks. End-to-end message integrity is still
+// additionally provided by the AEAD of the inner (session/mailbox) ciphertext.
 
 fn pad(message: &[u8]) -> Result<[u8; PAYLOAD_LEN], SphinxError> {
     if message.len() + 4 > PAYLOAD_LEN {
@@ -471,6 +537,41 @@ mod tests {
             outsider.process(&packet),
             Err(SphinxError::BadMac)
         ));
+    }
+
+    #[test]
+    fn payload_tampering_scrambles_delivery_defeating_tagging() {
+        // A stream-cipher payload would let an attacker flip a byte at entry and
+        // recognize the same flip at the exit (a tagging attack). LIONESS makes
+        // the delivered block uniformly unrecognizable instead: the exit either
+        // fails to unpad, or recovers bytes unrelated to the original.
+        let mixes = mixes(3);
+        let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
+        let original = b"secret message to tag";
+        let mut packet = SphinxPacket::seal(&path, original).unwrap();
+        packet.delta[100] ^= 0xff; // the "tag"
+
+        let mut pkt = packet;
+        let mut outcome: Option<Result<Vec<u8>, SphinxError>> = None;
+        for mix in &mixes {
+            match mix.process(&pkt) {
+                Ok(ProcessedPacket::Forward { packet, .. }) => pkt = *packet,
+                Ok(ProcessedPacket::Deliver { payload }) => {
+                    outcome = Some(Ok(payload));
+                    break;
+                }
+                Err(e) => {
+                    outcome = Some(Err(e));
+                    break;
+                }
+            }
+        }
+        match outcome.expect("packet routed to an end") {
+            // Unpadding failed — the tag destroyed the length header. Fine.
+            Err(_) => {}
+            // Or it "delivered" something, but it must NOT be the tagged original.
+            Ok(payload) => assert_ne!(payload.as_slice(), &original[..]),
+        }
     }
 
     #[test]
