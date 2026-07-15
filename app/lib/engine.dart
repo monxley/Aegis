@@ -32,6 +32,8 @@ class AegisEngineController extends ChangeNotifier {
   bool _nodeEnabled = false;
   NodeInfo? _node;
   List<String> _userBootstrap = const [];
+  Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
+  bool _anonReceive = false; // network + node mode: the engine runs its own node
 
   /// The bootstrap nodes actually used: any compiled in (`--dart-define`) plus
   /// any the user added, de-duplicated.
@@ -52,9 +54,16 @@ class AegisEngineController extends ChangeNotifier {
   /// The running node's address + id, if node mode is on.
   NodeInfo? get node => _node;
 
+  /// Whether receive is going through the mixnet (anonymous), not a direct poll.
+  bool get anonReceive => _anonReceive;
+
   /// A human label for the current connection mode.
   String get connectionLabel {
-    if (_mode == 'network') return 'Mixnet (anonymous)';
+    if (_mode == 'network') {
+      return _anonReceive
+          ? 'Mixnet · anonymous send + receive'
+          : 'Mixnet · anonymous send';
+    }
     if (_mode.startsWith('relay:')) return 'Relay ${_mode.substring(6)}';
     return 'Offline (in-memory)';
   }
@@ -111,9 +120,14 @@ class AegisEngineController extends ChangeNotifier {
   }
 
   void _start(Uint8List seed) {
+    _seed = seed;
+    // In network mode with node mode on, run our own node and receive
+    // anonymously through it (the provider never learns we are polling).
+    _anonReceive = _mode == 'network' && _nodeEnabled;
     _engine = switch (_mode) {
-      'network' =>
-        AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: _bootstrap),
+      'network' when _anonReceive => AegisEngine.newOnNetworkWithReceive(
+          masterSeed: seed, bootstrap: _bootstrap, nodeListen: '0.0.0.0:0'),
+      'network' => AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: _bootstrap),
       _ when _mode.startsWith('relay:') =>
         AegisEngine.newWithRelay(masterSeed: seed, relayAddr: _mode.substring(6)),
       _ => AegisEngine.newInMemory(masterSeed: seed),
@@ -123,22 +137,34 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Turn opt-in node mode on or off (persisted). When on, this device also runs
-  /// a mix forwarder that carries others' traffic. Best on desktop/Linux.
+  /// Turn opt-in node mode on or off (persisted). On desktop/Linux this both
+  /// carries others' traffic and (in network mode) enables anonymous receive.
   Future<void> setNodeEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_nodeKey, enabled);
     _nodeEnabled = enabled;
-    if (enabled) {
+    // In network mode the node is baked into the engine, so rebuild it to switch
+    // anonymous receive on/off, restoring saved state.
+    if (_mode == 'network' && _seed != null) {
+      _start(_seed!);
+      final blob = prefs.getString(_stateKey);
+      if (blob != null) {
+        try {
+          _engine!.restoreState(blob: base64Decode(blob));
+        } catch (_) {}
+      }
+    } else if (enabled) {
       _startNode();
     } else {
-      // The Rust node runs for the process lifetime; it fully stops on restart.
       _node = null;
     }
     notifyListeners();
   }
 
   void _startNode() {
+    // A standalone forwarder for non-network modes (network mode runs its node
+    // inside the engine via anonymous receive).
+    if (_anonReceive) return;
     try {
       _node = startForwarderNode(
         bootstrap: _bootstrap,

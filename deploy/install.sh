@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # Deploy a full Aegis node on a plain VPS, entirely from the console — no GUI.
+# Zero-config: it auto-detects this VPS's public IP and uses the built-in seed
+# nodes, so the usual case is just:
 #
-#   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | \
-#     sudo PUBLIC_HOST=your.host BOOTSTRAP=seed.example:5078 bash
+#   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | sudo bash
 #
-# or, from a checkout:
-#   sudo PUBLIC_HOST=your.host BOOTSTRAP=seed.example:5078 deploy/install.sh
-#
-# Env vars:
-#   PUBLIC_HOST  (required) the address other nodes/clients reach this VPS at
-#   BOOTSTRAP    (optional) an existing node's mix addr to join; omit for the
-#                first seed node of a new network
-#   MAILBOX_PORT (default 5077)   MIX_PORT (default 5078)   REPO (default the
-#   monxley/Aegis GitHub repo)    DATA_DIR (default /var/lib/aegis)
+# Override anything if you need to:
+#   PUBLIC_HOST  the address others reach this VPS at   (default: auto-detected)
+#   BOOTSTRAP    an existing node's mix addr to join    (default: built-in seeds,
+#                or self-seed if there are none)
+#   MAILBOX_PORT (default 5077)   MIX_PORT (default 5078)   REPO   DATA_DIR
 set -euo pipefail
 
-PUBLIC_HOST="${PUBLIC_HOST:?set PUBLIC_HOST to the address clients reach this VPS at}"
-BOOTSTRAP="${BOOTSTRAP:-}"
+# The project's built-in seed nodes. A fresh VPS joins these automatically; the
+# very first node of a brand-new network leaves this empty and self-seeds. Fill
+# in real hosts here (or override with BOOTSTRAP=) once seeds are running.
+DEFAULT_BOOTSTRAP=""
+
 MAILBOX_PORT="${MAILBOX_PORT:-5077}"
 MIX_PORT="${MIX_PORT:-5078}"
 DATA_DIR="${DATA_DIR:-/var/lib/aegis}"
@@ -27,6 +27,30 @@ log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 if [ "$(id -u)" -ne 0 ]; then
   echo "run as root (sudo)"; exit 1
 fi
+
+# Auto-detect the public IP if PUBLIC_HOST wasn't given: ask a few IP echo
+# services, then fall back to the default-route interface address.
+detect_public_host() {
+  local ip
+  for url in https://api.ipify.org https://ifconfig.me https://icanhazip.com; do
+    ip="$(curl -fsSL --max-time 5 "$url" 2>/dev/null | tr -d '[:space:]')" || true
+    if printf '%s' "$ip" | grep -qE '^[0-9a-fA-F.:]+$'; then
+      printf '%s' "$ip"; return 0
+    fi
+  done
+  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oE 'src [0-9.]+' | awk '{print $2}')" || true
+  [ -n "$ip" ] && { printf '%s' "$ip"; return 0; }
+  return 1
+}
+
+PUBLIC_HOST="${PUBLIC_HOST:-}"
+if [ -z "$PUBLIC_HOST" ]; then
+  log "detecting this VPS's public address"
+  PUBLIC_HOST="$(detect_public_host)" || {
+    echo "could not auto-detect a public address; set PUBLIC_HOST=your.host"; exit 1; }
+  log "using PUBLIC_HOST=$PUBLIC_HOST"
+fi
+BOOTSTRAP="${BOOTSTRAP:-$DEFAULT_BOOTSTRAP}"
 
 # 1. Toolchain: install Rust if cargo is absent.
 if ! command -v cargo >/dev/null 2>&1; then

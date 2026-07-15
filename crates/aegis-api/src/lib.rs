@@ -306,21 +306,7 @@ impl AegisApp {
         bootstrap: Vec<String>,
     ) -> Result<AegisApp, AppError> {
         let client = AegisClient::from_master_seed(seed_array(master_seed)?);
-
-        // Discover the node set from the first reachable bootstrap node.
-        let mut nodes = None;
-        let mut last_err = String::from("no bootstrap nodes given");
-        for addr in &bootstrap {
-            match aegis_mix::discover(addr.as_str()) {
-                Ok(n) => {
-                    nodes = Some(n);
-                    break;
-                }
-                Err(e) => last_err = e.to_string(),
-            }
-        }
-        let nodes =
-            nodes.ok_or_else(|| AppError::Relay(format!("discovery failed: {last_err}")))?;
+        let nodes = discover_network(&bootstrap)?;
 
         // The provider set (sorted by id so all clients agree) shards the mail;
         // this user reads from its own shard, chosen from its view key.
@@ -341,6 +327,57 @@ impl AegisApp {
         let reader = CiphraStore::connect(provider_addr, None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
         let store = MixnetStore::new(reader, providers, pool, own_provider, 2);
+        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store))))
+    }
+
+    /// Like [`create_on_network`](Self::create_on_network) but with **anonymous
+    /// receive**: this device runs a reachable mix node (bound at `node_listen`,
+    /// e.g. `"0.0.0.0:5079"`) and polls its provider *through the mixnet* using
+    /// single-use reply blocks, so the provider never learns who is polling.
+    ///
+    /// Use this when the device is reachable (desktop/Linux, or a phone with a
+    /// forwarded port) — it needs to receive the SURB replies. Behind NAT without
+    /// a forwarded port, use [`create_on_network`](Self::create_on_network), whose
+    /// receive is a direct poll.
+    pub fn create_on_network_with_receive(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+        node_listen: String,
+    ) -> Result<AegisApp, AppError> {
+        use std::net::ToSocketAddrs;
+
+        let client = AegisClient::from_master_seed(seed_array(master_seed)?);
+        let nodes = discover_network(&bootstrap)?;
+
+        let mut providers: Vec<_> = nodes.iter().filter(|n| n.is_provider()).cloned().collect();
+        providers.sort_by_key(|n| n.id);
+        if providers.is_empty() {
+            return Err(AppError::Relay("network has no provider".into()));
+        }
+        let pool: Vec<_> = nodes.iter().filter(|n| !n.is_provider()).cloned().collect();
+        let view = client.aegis_id().view_public();
+        let own_provider = providers[aegis_mix::provider_index(&view.0, providers.len())].clone();
+        let provider_addr = own_provider
+            .provider_addr
+            .ok_or_else(|| AppError::Relay("provider has no mailbox address".into()))?;
+        let reader = CiphraStore::connect(provider_addr, None)
+            .map_err(|e| AppError::Relay(e.to_string()))?;
+
+        // Bring up our own reachable node with a SURB inbox for anonymous receive.
+        let inbox = aegis_mix::SurbInbox::new();
+        let mut node_seed = [0u8; 32];
+        aegis_crypto::fill_random(&mut node_seed);
+        let boots: Vec<std::net::SocketAddr> = bootstrap
+            .iter()
+            .filter_map(|b| b.to_socket_addrs().ok())
+            .flatten()
+            .collect();
+        let own_node =
+            aegis_mix::spawn_receiver(node_seed, node_listen.as_str(), &boots, inbox.clone(), None)
+                .map_err(|e| AppError::Relay(e.to_string()))?;
+
+        let store = MixnetStore::new(reader, providers, pool, own_provider, 2)
+            .with_anon_receive(inbox, own_node);
         Ok(Self::from_parts(client, Store::Mixnet(Box::new(store))))
     }
 
@@ -503,6 +540,18 @@ impl AegisApp {
         }
         Ok(out)
     }
+}
+
+/// Discover the current node set from the first reachable bootstrap node.
+fn discover_network(bootstrap: &[String]) -> Result<Vec<aegis_mix::NodeDescriptor>, AppError> {
+    let mut last_err = String::from("no bootstrap nodes given");
+    for addr in bootstrap {
+        match aegis_mix::discover(addr.as_str()) {
+            Ok(n) => return Ok(n),
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(AppError::Relay(format!("discovery failed: {last_err}")))
 }
 
 /// A running opt-in mix node (a background forwarder). Dropping it does not stop
