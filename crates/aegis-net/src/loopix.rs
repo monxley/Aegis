@@ -243,6 +243,7 @@ mod tests {
                             advanced = true;
                             break;
                         }
+                        ProcessedPacket::DeliverReply { .. } => unreachable!(),
                     }
                 }
             }
@@ -280,6 +281,7 @@ mod tests {
                             advanced = true;
                             break;
                         }
+                        ProcessedPacket::DeliverReply { .. } => unreachable!(),
                     }
                 }
             }

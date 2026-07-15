@@ -39,6 +39,7 @@
 //!             assert_eq!(i, 2);
 //!             assert_eq!(&payload, b"meet at dawn");
 //!         }
+//!         ProcessedPacket::DeliverReply { .. } => unreachable!("not a SURB reply"),
 //!     }
 //! }
 //! ```
@@ -73,6 +74,10 @@ pub const PACKET_LEN: usize = 32 + BETA_LEN + MAC_LEN + PAYLOAD_LEN;
 
 /// Reserved next-hop id meaning "you are the exit — the payload is yours".
 pub const DEST_MARKER: [u8; NODE_ID_LEN] = [0xff; NODE_ID_LEN];
+
+/// Reserved next-hop id meaning "you are the exit of a SURB reply — the payload
+/// is still onion-wrapped; recover it with the SURB's stored keys".
+pub const SURB_MARKER: [u8; NODE_ID_LEN] = [0xfe; NODE_ID_LEN];
 
 const NONCE: [u8; 12] = [0u8; 12];
 
@@ -146,6 +151,15 @@ impl MixNode {
                 payload: unpad(&payload)?,
             });
         }
+        if next_id == SURB_MARKER {
+            // A SURB reply: the payload is still onion-wrapped (the sender did not
+            // pre-encrypt it, since only the SURB's creator knows the message on
+            // the way back). Hand the raw peeled block to the recipient, who
+            // recovers it with the keys it stored when building the SURB.
+            return Ok(ProcessedPacket::DeliverReply {
+                payload: payload.to_vec(),
+            });
+        }
 
         // Blind the group element for the next hop.
         let b_scalar = blind(&packet.alpha, &s);
@@ -173,6 +187,10 @@ pub enum ProcessedPacket {
     },
     /// This mix is the exit; `payload` is the delivered message.
     Deliver { payload: Vec<u8> },
+    /// This mix is the exit of a **SURB reply**; `payload` is still onion-wrapped
+    /// (fixed [`PAYLOAD_LEN`] bytes). The recipient recovers the message with
+    /// [`Surb::recover`] using the keys it kept when it built the SURB.
+    DeliverReply { payload: Vec<u8> },
 }
 
 /// A fixed-size Sphinx packet. `alpha`, `beta` and `delta` all have the same
@@ -233,38 +251,8 @@ impl SphinxPacket {
         aegis_crypto::fill_random(&mut ephemeral);
         let (alphas, shared) = blinding_chain(&ephemeral, path);
 
-        // Filler that keeps the header fixed-size as each hop shifts it.
-        let filler = filler(&shared);
-
-        // --- routing header, built from the exit inward ---
-        // Exit hop: its next-hop id is the DEST marker; its beta is
-        // (DEST ‖ pad) XOR PRG, with the filler occupying the shifted tail.
-        let last = nu - 1;
-        let mut beta = [0u8; BETA_LEN];
-        let prefix_len = BETA_LEN - (nu - 1) * HOP_META;
-        let mut prefix = vec![0u8; prefix_len];
-        prefix[..NODE_ID_LEN].copy_from_slice(&DEST_MARKER);
-        let stream = prg(&rho_key(&shared[last]));
-        for i in 0..prefix_len {
-            beta[i] = prefix[i] ^ stream[i];
-        }
-        beta[prefix_len..].copy_from_slice(&filler);
-        let mut gamma = truncated_mac(&mu_key(&shared[last]), &beta);
-
-        // Wrap outward through the interior hops.
-        for i in (0..last).rev() {
-            // plaintext prefix = next_id ‖ next_gamma ‖ beta[..BETA_LEN-HOP_META]
-            let mut plaintext = [0u8; BETA_LEN];
-            plaintext[..NODE_ID_LEN].copy_from_slice(&path[i + 1].id);
-            plaintext[NODE_ID_LEN..HOP_META].copy_from_slice(&gamma);
-            plaintext[HOP_META..].copy_from_slice(&beta[..BETA_LEN - HOP_META]);
-
-            let stream = prg(&rho_key(&shared[i]));
-            for j in 0..BETA_LEN {
-                beta[j] = plaintext[j] ^ stream[j];
-            }
-            gamma = truncated_mac(&mu_key(&shared[i]), &beta);
-        }
+        // Routing header, terminating at a plain (unpad-on-arrival) exit.
+        let (beta, gamma) = build_header(path, &shared, DEST_MARKER);
 
         // --- payload onion: pad, then wrap each hop's LIONESS layer (exit
         // first, so hop 0's layer is outermost and peeled first) ---
@@ -346,6 +334,118 @@ fn blinding_chain(ephemeral: &[u8; 32], path: &[Hop]) -> (Vec<[u8; 32]>, Vec<[u8
         alpha = SecretKey::from_bytes(b).diffie_hellman(&alpha);
     }
     (alphas, shared)
+}
+
+/// Build the Sphinx routing header for `path` given its per-hop shared secrets,
+/// terminating at `terminal` (`DEST_MARKER` for a normal packet, `SURB_MARKER`
+/// for a reply block). Returns `(beta, gamma)` for the first hop.
+fn build_header(
+    path: &[Hop],
+    shared: &[[u8; 32]],
+    terminal: [u8; NODE_ID_LEN],
+) -> ([u8; BETA_LEN], [u8; MAC_LEN]) {
+    let nu = path.len();
+    let filler = filler(shared);
+    let last = nu - 1;
+
+    // Exit hop: its next-hop id is `terminal`; beta = (terminal ‖ pad) XOR PRG,
+    // with the filler occupying the shifted tail.
+    let mut beta = [0u8; BETA_LEN];
+    let prefix_len = BETA_LEN - (nu - 1) * HOP_META;
+    let mut prefix = vec![0u8; prefix_len];
+    prefix[..NODE_ID_LEN].copy_from_slice(&terminal);
+    let stream = prg(&rho_key(&shared[last]));
+    for i in 0..prefix_len {
+        beta[i] = prefix[i] ^ stream[i];
+    }
+    beta[prefix_len..].copy_from_slice(&filler);
+    let mut gamma = truncated_mac(&mu_key(&shared[last]), &beta);
+
+    // Wrap outward through the interior hops.
+    for i in (0..last).rev() {
+        let mut plaintext = [0u8; BETA_LEN];
+        plaintext[..NODE_ID_LEN].copy_from_slice(&path[i + 1].id);
+        plaintext[NODE_ID_LEN..HOP_META].copy_from_slice(&gamma);
+        plaintext[HOP_META..].copy_from_slice(&beta[..BETA_LEN - HOP_META]);
+
+        let stream = prg(&rho_key(&shared[i]));
+        for j in 0..BETA_LEN {
+            beta[j] = plaintext[j] ^ stream[j];
+        }
+        gamma = truncated_mac(&mu_key(&shared[i]), &beta);
+    }
+    (beta, gamma)
+}
+
+/// A **single-use reply block**: a Sphinx header a recipient pre-builds to route
+/// a reply back to itself through a chosen path, plus the keys to recover that
+/// reply. The recipient gives the header (and the first hop's address) to
+/// whoever will reply — a provider answering an anonymous poll — so the reply
+/// finds its way back **without the replier learning the recipient's location**.
+/// Use each SURB once.
+pub struct Surb {
+    /// The mix id the reply enters at (route the wrapped packet to its address).
+    pub first_hop: [u8; NODE_ID_LEN],
+    /// The reply packet's initial group element.
+    pub alpha: [u8; 32],
+    /// The reply packet's routing header.
+    pub beta: [u8; BETA_LEN],
+    /// The reply packet's header MAC.
+    pub gamma: [u8; MAC_LEN],
+    /// Per-hop shared secrets, kept secret, to peel the returned payload.
+    shared: Vec<[u8; 32]>,
+}
+
+impl Surb {
+    /// Build a reply block routed through `path`, whose last hop is a node the
+    /// creator controls (its [`MixNode::process`] returns
+    /// [`ProcessedPacket::DeliverReply`]).
+    pub fn create(path: &[Hop]) -> Result<Surb, SphinxError> {
+        let nu = path.len();
+        if nu == 0 || nu > MAX_HOPS {
+            return Err(SphinxError::BadPathLength);
+        }
+        let mut ephemeral = [0u8; 32];
+        aegis_crypto::fill_random(&mut ephemeral);
+        let (alphas, shared) = blinding_chain(&ephemeral, path);
+        let (beta, gamma) = build_header(path, &shared, SURB_MARKER);
+        Ok(Surb {
+            first_hop: path[0].id,
+            alpha: alphas[0],
+            beta,
+            gamma,
+            shared,
+        })
+    }
+
+    /// A replier wraps `message` into a reply packet using this SURB, then routes
+    /// it to [`first_hop`](Self::first_hop). The message must fit
+    /// `PAYLOAD_LEN - 4` bytes. The replier learns nothing about the destination.
+    pub fn wrap(&self, message: &[u8]) -> Result<SphinxPacket, SphinxError> {
+        let delta = pad(message)?;
+        Ok(SphinxPacket {
+            alpha: self.alpha,
+            beta: self.beta,
+            gamma: self.gamma,
+            delta,
+        })
+    }
+
+    /// Recover the message from the [`DeliverReply`](ProcessedPacket::DeliverReply)
+    /// payload that came back. The creator peels every hop's payload layer (which
+    /// only it can, knowing all the per-hop keys) and unpads.
+    pub fn recover(&self, payload: &[u8]) -> Result<Vec<u8>, SphinxError> {
+        if payload.len() != PAYLOAD_LEN {
+            return Err(SphinxError::BadPadding);
+        }
+        let mut block = [0u8; PAYLOAD_LEN];
+        block.copy_from_slice(payload);
+        // Undo each hop's LIONESS layer, exit (outermost) first.
+        for s in self.shared.iter().rev() {
+            lioness_encrypt(&pi_key(s), &mut block);
+        }
+        unpad(&block)
+    }
 }
 
 /// The filler string (length `(ν-1)·HOP_META`) that the shifted-out padding of
@@ -537,9 +637,75 @@ mod tests {
                     assert_eq!(i, mixes.len() - 1, "delivered before the exit");
                     return payload;
                 }
+                ProcessedPacket::DeliverReply { .. } => panic!("unexpected SURB reply"),
             }
         }
         panic!("path ended without delivery");
+    }
+
+    #[test]
+    fn surb_round_trips_an_anonymous_reply() {
+        // The last mix is the recipient's own node; it builds a SURB routed back
+        // to itself and hands the header to a replier who knows nothing else.
+        let mixes = mixes(3);
+        let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
+        let surb = Surb::create(&path).unwrap();
+        assert_eq!(surb.first_hop, mixes[0].id);
+
+        let mut pkt = surb.wrap(b"anonymous reply").unwrap();
+        let mut recovered = None;
+        for (i, mix) in mixes.iter().enumerate() {
+            match mix.process(&pkt).unwrap() {
+                ProcessedPacket::Forward { packet, .. } => {
+                    assert!(i < mixes.len() - 1);
+                    pkt = *packet;
+                }
+                ProcessedPacket::DeliverReply { payload } => {
+                    assert_eq!(i, mixes.len() - 1);
+                    recovered = Some(surb.recover(&payload).unwrap());
+                }
+                ProcessedPacket::Deliver { .. } => {
+                    panic!("expected a SURB reply, not a plain delivery")
+                }
+            }
+        }
+        assert_eq!(recovered.as_deref(), Some(&b"anonymous reply"[..]));
+    }
+
+    #[test]
+    fn surb_reply_survives_wire_serialization() {
+        let mixes = mixes(2);
+        let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
+        let surb = Surb::create(&path).unwrap();
+        let mut pkt = surb.wrap(b"reply over the wire").unwrap();
+        let mut recovered = None;
+        for mix in &mixes {
+            let bytes = pkt.to_bytes();
+            pkt = SphinxPacket::from_bytes(&bytes).unwrap();
+            match mix.process(&pkt).unwrap() {
+                ProcessedPacket::Forward { packet, .. } => pkt = *packet,
+                ProcessedPacket::DeliverReply { payload } => {
+                    recovered = Some(surb.recover(&payload).unwrap());
+                }
+                _ => panic!("unexpected"),
+            }
+        }
+        assert_eq!(recovered.as_deref(), Some(&b"reply over the wire"[..]));
+    }
+
+    #[test]
+    fn a_single_hop_surb_round_trips() {
+        // Degenerate path (recipient is the only hop) still works.
+        let mixes = mixes(1);
+        let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
+        let surb = Surb::create(&path).unwrap();
+        let pkt = surb.wrap(b"one hop").unwrap();
+        match mixes[0].process(&pkt).unwrap() {
+            ProcessedPacket::DeliverReply { payload } => {
+                assert_eq!(surb.recover(&payload).unwrap(), b"one hop");
+            }
+            _ => panic!("expected reply"),
+        }
     }
 
     #[test]
@@ -580,6 +746,7 @@ mod tests {
                     delivered = Some(payload);
                     break;
                 }
+                ProcessedPacket::DeliverReply { .. } => unreachable!(),
             }
         }
         assert_eq!(delivered.as_deref(), Some(&b"through the wire"[..]));
@@ -612,6 +779,7 @@ mod tests {
             match mix.process(&pkt).unwrap() {
                 ProcessedPacket::Forward { packet, .. } => pkt = *packet,
                 ProcessedPacket::Deliver { .. } => break,
+                ProcessedPacket::DeliverReply { .. } => break,
             }
         }
     }
@@ -650,6 +818,7 @@ mod tests {
                     outcome = Some(Ok(payload));
                     break;
                 }
+                Ok(ProcessedPacket::DeliverReply { .. }) => unreachable!(),
                 Err(e) => {
                     outcome = Some(Err(e));
                     break;
