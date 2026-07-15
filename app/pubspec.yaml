@@ -1,0 +1,22 @@
+name: aegis
+description: "Aegis — anonymous, end-to-end-encrypted, post-quantum messenger."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The generated bridge needs this at the version codegen pinned (see
+  # app/rust/Cargo.toml). Keep the two in lockstep.
+  flutter_rust_bridge: 2.0.0
+  # Local key/value store for the master seed + relay address.
+  shared_preferences: ^2.2.0
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
