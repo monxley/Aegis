@@ -1,0 +1,16 @@
+[package]
+name = "aegis-mailbox"
+description = "Aegis blind store-and-forward delivery: sealed-sender envelopes over stealth addressing (Phase 2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-crypto = { path = "../aegis-crypto" }
+aegis-identity = { path = "../aegis-identity" }
+
+[dev-dependencies]
+# Integration tests that carry a real Double Ratchet message through the
+# mailbox. Not a runtime dependency.
+aegis-session = { path = "../aegis-session" }
