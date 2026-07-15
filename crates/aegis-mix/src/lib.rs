@@ -42,10 +42,66 @@ const MSG_FORWARD: u8 = 0x01;
 const MSG_GET_DIRECTORY: u8 = 0x02;
 const MSG_ANNOUNCE: u8 = 0x03;
 
+/// Proof-of-work difficulty (leading zero bits) a node must burn to join the
+/// directory. This makes a **Sybil attack cost CPU per node** — spinning up
+/// thousands of fake nodes to dominate path selection is no longer free — without
+/// any money, staking, or central admission. Production burns ~2^20 hashes
+/// (sub-second on any CPU, once per node); tunable via [`set_pow_difficulty`].
+static POW_BITS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(if cfg!(test) { 10 } else { 20 });
+
+/// Set the network's node-admission proof-of-work difficulty (leading zero
+/// bits). Operators of a private network can raise it; tests lower it for speed.
+/// All nodes must agree on it, since it is the bar a directory verifies against.
+pub fn set_pow_difficulty(bits: u32) {
+    POW_BITS.store(bits, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn pow_bits() -> u32 {
+    POW_BITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+const POW_DOMAIN: &[u8] = b"aegis/node/pow/v1";
+
+fn pow_hash(public: &[u8; 32], nonce: u64) -> [u8; 32] {
+    let mut input = Vec::with_capacity(POW_DOMAIN.len() + 40);
+    input.extend_from_slice(POW_DOMAIN);
+    input.extend_from_slice(public);
+    input.extend_from_slice(&nonce.to_le_bytes());
+    aegis_crypto::sha256(&input)
+}
+
+fn leading_zero_bits(h: &[u8; 32]) -> u32 {
+    let mut n = 0;
+    for &b in h {
+        if b == 0 {
+            n += 8;
+        } else {
+            n += b.leading_zeros();
+            break;
+        }
+    }
+    n
+}
+
+/// Search for a nonce whose `pow_hash(public, nonce)` has at least `bits` leading
+/// zero bits. This is the work a node does once at startup to be admitted.
+pub fn mine_pow(public: &[u8; 32], bits: u32) -> u64 {
+    let mut nonce = 0u64;
+    loop {
+        if leading_zero_bits(&pow_hash(public, nonce)) >= bits {
+            return nonce;
+        }
+        nonce = nonce.wrapping_add(1);
+    }
+}
+
 /// The public description of a mixnet node: its Sphinx id + key, the address to
-/// forward Sphinx packets to, and — if it also runs a blind mailbox — the
-/// address clients poll for mail. Descriptors are public and self-authenticating
-/// (the id is `SHA-256(public)[..16]`, and a wrong key simply fails routing).
+/// forward Sphinx packets to, an optional blind-mailbox (provider) address, and
+/// a **proof-of-work nonce** binding real CPU to this exact key. Descriptors are
+/// public and self-authenticating: the id is `SHA-256(public)[..16]`, a wrong
+/// key fails routing, and a directory rejects any descriptor whose PoW does not
+/// verify (see [`pow_valid`](Self::pow_valid)).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeDescriptor {
     pub id: [u8; NODE_ID_LEN],
@@ -53,17 +109,22 @@ pub struct NodeDescriptor {
     pub mix_addr: SocketAddr,
     /// `Some` if this node is also a provider (a blind mailbox clients poll).
     pub provider_addr: Option<SocketAddr>,
+    /// Proof-of-work nonce over `public` at the network difficulty.
+    pub pow_nonce: u64,
 }
 
 impl NodeDescriptor {
-    /// Build from a mix node's public hop, its mix address, and an optional
-    /// provider (mailbox) address.
+    /// Build a descriptor for **your own** node from its public hop, mix address,
+    /// and optional provider address, **mining** the admission proof-of-work
+    /// (done once at startup).
     pub fn new(hop: Hop, mix_addr: SocketAddr, provider_addr: Option<SocketAddr>) -> Self {
+        let pow_nonce = mine_pow(&hop.public, pow_bits());
         NodeDescriptor {
             id: hop.id,
             public: hop.public,
             mix_addr,
             provider_addr,
+            pow_nonce,
         }
     }
     fn hop(&self) -> Hop {
@@ -75,6 +136,12 @@ impl NodeDescriptor {
     /// Whether this node is a provider (runs a mailbox clients can poll).
     pub fn is_provider(&self) -> bool {
         self.provider_addr.is_some()
+    }
+    /// Verify the id binds to the key and the admission proof-of-work holds.
+    /// Directories and clients drop descriptors that fail this.
+    pub fn pow_valid(&self) -> bool {
+        let id_ok = aegis_crypto::sha256(&self.public)[..NODE_ID_LEN] == self.id;
+        id_ok && leading_zero_bits(&pow_hash(&self.public, self.pow_nonce)) >= pow_bits()
     }
 }
 
@@ -99,6 +166,7 @@ fn encode_directory(nodes: &[NodeDescriptor]) -> Vec<u8> {
             }
             None => out.push(0),
         }
+        out.extend_from_slice(&n.pow_nonce.to_le_bytes());
     }
     out
 }
@@ -116,11 +184,13 @@ fn decode_directory(bytes: &[u8]) -> Option<Vec<NodeDescriptor>> {
             1 => Some(r.string()?.parse().ok()?),
             _ => return None,
         };
+        let pow_nonce = u64::from_le_bytes(r.take(8)?.try_into().ok()?);
         out.push(NodeDescriptor {
             id,
             public,
             mix_addr,
             provider_addr,
+            pow_nonce,
         });
     }
     Some(out)
@@ -172,7 +242,11 @@ pub fn discover(seed: impl ToSocketAddrs) -> io::Result<Vec<NodeDescriptor>> {
     stream.read_exact(&mut len)?;
     let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
     stream.read_exact(&mut body)?;
-    decode_directory(&body).ok_or_else(|| io::Error::other("malformed directory"))
+    let mut nodes =
+        decode_directory(&body).ok_or_else(|| io::Error::other("malformed directory"))?;
+    // A malicious node might serve unmined descriptors; keep only valid ones.
+    nodes.retain(NodeDescriptor::pow_valid);
+    Ok(nodes)
 }
 
 /// Gossip a node set to a peer for it to merge into its directory.
@@ -259,11 +333,15 @@ impl DirectoryState {
         s.merge(nodes);
         s
     }
-    /// Merge descriptors, keyed by id (last writer wins per id).
+    /// Merge descriptors, keyed by id (last writer wins per id). Descriptors that
+    /// fail the admission proof-of-work are **dropped**, so a Sybil flood of
+    /// unmined nodes cannot pollute the directory.
     pub fn merge(&self, nodes: &[NodeDescriptor]) {
         let mut map = self.nodes.lock().unwrap();
         for n in nodes {
-            map.insert(n.id, n.clone());
+            if n.pow_valid() {
+                map.insert(n.id, n.clone());
+            }
         }
     }
     /// A snapshot of the current node set.
@@ -898,12 +976,10 @@ mod tests {
     fn announce_merges_into_a_nodes_directory() {
         let (node, dir) = spawn_mix(20, &[], None, Collect(nil()));
         assert_eq!(dir.snapshot().len(), 1);
-        let newcomer = NodeDescriptor {
-            id: [9u8; NODE_ID_LEN],
-            public: [8u8; 32],
-            mix_addr: "127.0.0.1:6100".parse().unwrap(),
-            provider_addr: None,
-        };
+        let peer = MixNode::from_seed(&[42u8; 32]);
+        let newcomer =
+            NodeDescriptor::new(peer.public_hop(), "127.0.0.1:6100".parse().unwrap(), None);
+        let newcomer_id = newcomer.id;
         announce(node.mix_addr, std::slice::from_ref(&newcomer)).unwrap();
         // Give the server a moment to merge.
         for _ in 0..100 {
@@ -912,7 +988,25 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(5));
         }
-        assert!(dir.snapshot().iter().any(|n| n.id == [9u8; NODE_ID_LEN]));
+        assert!(dir.snapshot().iter().any(|n| n.id == newcomer_id));
+    }
+
+    #[test]
+    fn pow_gates_the_directory() {
+        // A descriptor with a bad proof-of-work is dropped on merge.
+        let dir = DirectoryState::new();
+        let node = MixNode::from_seed(&[77u8; 32]);
+        let mut bad =
+            NodeDescriptor::new(node.public_hop(), "127.0.0.1:6500".parse().unwrap(), None);
+        assert!(bad.pow_valid());
+        bad.pow_nonce = bad.pow_nonce.wrapping_add(1); // break the proof
+        assert!(!bad.pow_valid());
+        dir.merge(std::slice::from_ref(&bad));
+        assert!(dir.snapshot().is_empty(), "unmined node must be rejected");
+
+        let good = NodeDescriptor::new(node.public_hop(), "127.0.0.1:6500".parse().unwrap(), None);
+        dir.merge(std::slice::from_ref(&good));
+        assert_eq!(dir.snapshot().len(), 1);
     }
 
     #[test]
