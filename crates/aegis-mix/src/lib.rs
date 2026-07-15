@@ -1,49 +1,66 @@
 //! # aegis-mix — the Aegis mixnet
 //!
-//! Wires [`aegis_net`]'s Sphinx onion routing into a real, networked layer and
-//! plugs it into the send path.
+//! Turns [`aegis_net`]'s Sphinx routing into a real networked layer, adds a
+//! self-organizing **node directory** so clients that are not nodes can find the
+//! network, and plugs onion routing into the send path.
 //!
-//! - [`MixService`] is a **mix node**: it listens for Sphinx packets, peels one
-//!   layer, and either forwards to the next hop or — if it is the exit — hands
-//!   the recovered Aegis envelope to a [`Deliver`] sink (e.g. its mailbox). A
-//!   node run by the project or a volunteer combines this with a blind
-//!   mailbox server; end users run nothing.
-//! - [`MixnetStore`] is a [`MailboxStore`] whose `put` **onion-routes** an
-//!   envelope through a random path of mixes to a provider (so no single node
-//!   links the sender to the deposited message), while `fetch_since` reads from
-//!   that provider as before. Because it is a `MailboxStore`, an
-//!   `AegisClient`/`AegisApp` uses it with no other change.
+//! - [`MixService`] is a **mix node**: it peels one Sphinx layer and forwards to
+//!   the next hop or, at the exit, hands the recovered envelope to a [`Deliver`]
+//!   sink (its mailbox). It also serves and gossips the [directory](NodeDescriptor)
+//!   so the node set propagates without any central server.
+//! - [`discover`] lets a plain client bootstrap: ask any reachable node for the
+//!   directory and get the whole node set back — **download and use, run
+//!   nothing**.
+//! - [`MixnetStore`] is a [`MailboxStore`] whose `put` onion-routes an envelope
+//!   through a random path of mixes to a provider, so no single node links the
+//!   sender to the deposited message. Drop-in: an `AegisClient`/`AegisApp` uses
+//!   it unchanged.
 //!
-//! Receive-path anonymity (polling the provider over the mixnet) and Loopix
-//! cover traffic + delays are the next increment; this crate is the routing they
-//! build on.
+//! Wire protocol: one message per TCP connection, a type byte then its body —
+//! `FORWARD` (a Sphinx packet), `GET_DIRECTORY` (→ the node set), `ANNOUNCE`
+//! (gossip a node set to merge). Sphinx packets are all [`PACKET_LEN`] bytes, so
+//! a forwarded packet's size never leaks its position on the path.
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use aegis_crypto::fill_random;
 use aegis_mailbox::{Envelope, MailboxError, MailboxStore};
+use aegis_net::loopix::exp_delay;
+use aegis_net::rng::ChaChaRng;
 use aegis_net::{Hop, MixNode, ProcessedPacket, SphinxPacket, NODE_ID_LEN, PACKET_LEN};
 
-/// The public description of a mixnet node: its Sphinx id + key (from
-/// [`MixNode::public_hop`]) and the network address peers reach it at.
-#[derive(Clone, Debug)]
-pub struct NodeInfo {
+/// Wire message types (first byte of every connection).
+const MSG_FORWARD: u8 = 0x01;
+const MSG_GET_DIRECTORY: u8 = 0x02;
+const MSG_ANNOUNCE: u8 = 0x03;
+
+/// The public description of a mixnet node: its Sphinx id + key, the address to
+/// forward Sphinx packets to, and — if it also runs a blind mailbox — the
+/// address clients poll for mail. Descriptors are public and self-authenticating
+/// (the id is `SHA-256(public)[..16]`, and a wrong key simply fails routing).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NodeDescriptor {
     pub id: [u8; NODE_ID_LEN],
     pub public: [u8; 32],
-    pub addr: SocketAddr,
+    pub mix_addr: SocketAddr,
+    /// `Some` if this node is also a provider (a blind mailbox clients poll).
+    pub provider_addr: Option<SocketAddr>,
 }
 
-impl NodeInfo {
-    /// Build from a mix node's public hop and its address.
-    pub fn new(hop: Hop, addr: SocketAddr) -> Self {
-        NodeInfo {
+impl NodeDescriptor {
+    /// Build from a mix node's public hop, its mix address, and an optional
+    /// provider (mailbox) address.
+    pub fn new(hop: Hop, mix_addr: SocketAddr, provider_addr: Option<SocketAddr>) -> Self {
+        NodeDescriptor {
             id: hop.id,
             public: hop.public,
-            addr,
+            mix_addr,
+            provider_addr,
         }
     }
     fn hop(&self) -> Hop {
@@ -52,49 +69,134 @@ impl NodeInfo {
             public: self.public,
         }
     }
+    /// Whether this node is a provider (runs a mailbox clients can poll).
+    pub fn is_provider(&self) -> bool {
+        self.provider_addr.is_some()
+    }
 }
 
-/// Maps a mix's id to the address to forward to — the routing table a running
-/// mix consults for the next hop.
-#[derive(Clone, Default)]
-pub struct Directory {
-    map: HashMap<[u8; NODE_ID_LEN], SocketAddr>,
+// --- directory (node set) serialization ----------------------------------
+
+fn put_str(out: &mut Vec<u8>, s: &str) {
+    out.extend_from_slice(&(s.len() as u32).to_le_bytes());
+    out.extend_from_slice(s.as_bytes());
 }
 
-impl Directory {
-    pub fn new() -> Self {
-        Directory {
-            map: HashMap::new(),
+fn encode_directory(nodes: &[NodeDescriptor]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&(nodes.len() as u32).to_le_bytes());
+    for n in nodes {
+        out.extend_from_slice(&n.id);
+        out.extend_from_slice(&n.public);
+        put_str(&mut out, &n.mix_addr.to_string());
+        match &n.provider_addr {
+            Some(a) => {
+                out.push(1);
+                put_str(&mut out, &a.to_string());
+            }
+            None => out.push(0),
         }
     }
-    /// Build a directory from the nodes a mix may forward to.
-    pub fn from_nodes(nodes: &[NodeInfo]) -> Self {
-        let mut d = Directory::new();
-        for n in nodes {
-            d.map.insert(n.id, n.addr);
-        }
-        d
+    out
+}
+
+fn decode_directory(bytes: &[u8]) -> Option<Vec<NodeDescriptor>> {
+    let mut r = Reader::new(bytes);
+    let count = r.u32()? as usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let id = r.take(NODE_ID_LEN)?.try_into().ok()?;
+        let public = r.take(32)?.try_into().ok()?;
+        let mix_addr = r.string()?.parse().ok()?;
+        let provider_addr = match r.u8()? {
+            0 => None,
+            1 => Some(r.string()?.parse().ok()?),
+            _ => return None,
+        };
+        out.push(NodeDescriptor {
+            id,
+            public,
+            mix_addr,
+            provider_addr,
+        });
     }
-    pub fn insert(&mut self, id: [u8; NODE_ID_LEN], addr: SocketAddr) {
-        self.map.insert(id, addr);
+    Some(out)
+}
+
+struct Reader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+impl<'a> Reader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        Reader { buf, pos: 0 }
     }
-    fn addr(&self, id: &[u8; NODE_ID_LEN]) -> Option<SocketAddr> {
-        self.map.get(id).copied()
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn string(&mut self) -> Option<String> {
+        let n = self.u32()? as usize;
+        String::from_utf8(self.take(n)?.to_vec()).ok()
     }
 }
 
-/// Send one Sphinx packet to a hop: connect, write the fixed-size packet, close.
-/// One packet per connection keeps every exchange identical in size.
+// --- client-side network calls -------------------------------------------
+
+/// Forward one Sphinx packet to a hop: connect, write `FORWARD ‖ packet`, close.
 pub fn dispatch(addr: impl ToSocketAddrs, packet: &SphinxPacket) -> io::Result<()> {
     let mut stream = TcpStream::connect(addr)?;
+    stream.write_all(&[MSG_FORWARD])?;
     stream.write_all(&packet.to_bytes())?;
     stream.flush()
 }
+
+/// Ask a node for the current directory (the whole known node set). This is how
+/// a client that runs no node bootstraps onto the network.
+pub fn discover(seed: impl ToSocketAddrs) -> io::Result<Vec<NodeDescriptor>> {
+    let mut stream = TcpStream::connect(seed)?;
+    stream.write_all(&[MSG_GET_DIRECTORY])?;
+    stream.flush()?;
+    let mut len = [0u8; 4];
+    stream.read_exact(&mut len)?;
+    let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
+    stream.read_exact(&mut body)?;
+    decode_directory(&body).ok_or_else(|| io::Error::other("malformed directory"))
+}
+
+/// Gossip a node set to a peer for it to merge into its directory.
+pub fn announce(peer: impl ToSocketAddrs, nodes: &[NodeDescriptor]) -> io::Result<()> {
+    let body = encode_directory(nodes);
+    let mut stream = TcpStream::connect(peer)?;
+    stream.write_all(&[MSG_ANNOUNCE])?;
+    stream.write_all(&(body.len() as u32).to_le_bytes())?;
+    stream.write_all(&body)?;
+    stream.flush()
+}
+
+// --- delivery sink -------------------------------------------------------
 
 /// What an exit mix does with a recovered payload — normally: decode the Aegis
 /// envelope and store it in the node's mailbox.
 pub trait Deliver: Send + Sync {
     fn deliver(&self, payload: Vec<u8>);
+}
+
+/// A [`Deliver`] that drops payloads — a pure **forwarder** mix that carries
+/// others' traffic but runs no mailbox. This is the light, opt-in role a
+/// desktop/Linux client can take on to strengthen the network.
+pub struct NullDeliver;
+
+impl Deliver for NullDeliver {
+    fn deliver(&self, _payload: Vec<u8>) {}
 }
 
 /// A [`Deliver`] that decodes the payload as an [`Envelope`] and puts it in a
@@ -111,24 +213,74 @@ impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
     }
 }
 
-/// A networked Sphinx mix node.
+// --- the mix node --------------------------------------------------------
+
+/// The shared, mergeable node set a [`MixService`] serves, gossips, and consults
+/// for forwarding.
+#[derive(Clone, Default)]
+pub struct DirectoryState {
+    nodes: Arc<Mutex<HashMap<[u8; NODE_ID_LEN], NodeDescriptor>>>,
+}
+
+impl DirectoryState {
+    pub fn new() -> Self {
+        DirectoryState::default()
+    }
+    /// Seed with a set of known nodes.
+    pub fn with_nodes(nodes: &[NodeDescriptor]) -> Self {
+        let s = DirectoryState::new();
+        s.merge(nodes);
+        s
+    }
+    /// Merge descriptors, keyed by id (last writer wins per id).
+    pub fn merge(&self, nodes: &[NodeDescriptor]) {
+        let mut map = self.nodes.lock().unwrap();
+        for n in nodes {
+            map.insert(n.id, n.clone());
+        }
+    }
+    /// A snapshot of the current node set.
+    pub fn snapshot(&self) -> Vec<NodeDescriptor> {
+        self.nodes.lock().unwrap().values().cloned().collect()
+    }
+    fn addr(&self, id: &[u8; NODE_ID_LEN]) -> Option<SocketAddr> {
+        self.nodes.lock().unwrap().get(id).map(|n| n.mix_addr)
+    }
+}
+
+/// A networked Sphinx mix node that also serves and gossips the directory.
 pub struct MixService<D: Deliver> {
     node: MixNode,
-    directory: Directory,
+    directory: DirectoryState,
     deliver: D,
+    delay_rate: Option<f64>,
 }
 
 impl<D: Deliver + 'static> MixService<D> {
-    pub fn new(node: MixNode, directory: Directory, deliver: D) -> Self {
+    pub fn new(node: MixNode, directory: DirectoryState, deliver: D) -> Self {
         MixService {
             node,
             directory,
             deliver,
+            delay_rate: None,
         }
     }
 
-    /// Serve forever: accept connections, process one packet each, forward or
-    /// deliver. Blocks; run it on its own thread.
+    /// Add a Loopix mixing delay: each forwarded packet waits an independent
+    /// `Exp(rate)` time (mean `1/rate` seconds) before going on, so a packet's
+    /// arrival and departure are decorrelated (§6.2). Deliveries are not delayed.
+    pub fn with_delay(mut self, rate: f64) -> Self {
+        self.delay_rate = Some(rate);
+        self
+    }
+
+    /// The shared directory (to seed, snapshot, or gossip from elsewhere).
+    pub fn directory(&self) -> DirectoryState {
+        self.directory.clone()
+    }
+
+    /// Serve forever: accept connections and handle one message each. Blocks; run
+    /// on its own thread.
     pub fn serve(self, listener: TcpListener) -> io::Result<()> {
         let me = Arc::new(self);
         for stream in listener.incoming() {
@@ -142,45 +294,144 @@ impl<D: Deliver + 'static> MixService<D> {
     }
 
     fn handle(&self, mut stream: TcpStream) -> io::Result<()> {
-        let mut buf = [0u8; PACKET_LEN];
-        stream.read_exact(&mut buf)?;
-        let Some(packet) = SphinxPacket::from_bytes(&buf) else {
-            return Ok(()); // wrong size — drop
-        };
-        match self.node.process(&packet) {
-            Ok(ProcessedPacket::Forward { next, packet }) => {
-                if let Some(addr) = self.directory.addr(&next) {
-                    let _ = dispatch(addr, &packet); // best-effort forward
+        let mut kind = [0u8; 1];
+        stream.read_exact(&mut kind)?;
+        match kind[0] {
+            MSG_FORWARD => {
+                let mut buf = [0u8; PACKET_LEN];
+                stream.read_exact(&mut buf)?;
+                if let Some(packet) = SphinxPacket::from_bytes(&buf) {
+                    self.route(&packet);
                 }
             }
-            Ok(ProcessedPacket::Deliver { payload }) => self.deliver.deliver(payload),
-            Err(_) => {} // bad MAC / degenerate — drop silently
+            MSG_GET_DIRECTORY => {
+                let body = encode_directory(&self.directory.snapshot());
+                stream.write_all(&(body.len() as u32).to_le_bytes())?;
+                stream.write_all(&body)?;
+                stream.flush()?;
+            }
+            MSG_ANNOUNCE => {
+                let mut len = [0u8; 4];
+                stream.read_exact(&mut len)?;
+                let mut body = vec![0u8; u32::from_le_bytes(len) as usize];
+                stream.read_exact(&mut body)?;
+                if let Some(nodes) = decode_directory(&body) {
+                    self.directory.merge(&nodes);
+                }
+            }
+            _ => {} // unknown — drop
         }
         Ok(())
     }
+
+    fn route(&self, packet: &SphinxPacket) {
+        match self.node.process(packet) {
+            Ok(ProcessedPacket::Forward { next, packet }) => {
+                if let Some(rate) = self.delay_rate {
+                    let mut rng = ChaChaRng::from_os();
+                    let secs = exp_delay(rate, &mut rng);
+                    thread::sleep(Duration::from_secs_f64(secs));
+                }
+                if let Some(addr) = self.directory.addr(&next) {
+                    let _ = dispatch(addr, &packet); // best-effort
+                }
+            }
+            Ok(ProcessedPacket::Deliver { payload }) => self.deliver.deliver(payload),
+            Err(_) => {} // bad MAC / degenerate — drop
+        }
+    }
 }
 
+/// Run an **opt-in forwarder node**: bind `listen`, learn the network from
+/// `bootstrap`, announce itself, serve + gossip, and forward others' traffic. It
+/// runs no mailbox (a light role for a desktop/Linux client), optionally with a
+/// Loopix `delay_rate`. Returns its descriptor (announce it so others route
+/// through you). Spawns background threads and returns immediately.
+pub fn spawn_forwarder(
+    seed: [u8; 32],
+    listen: impl ToSocketAddrs,
+    bootstrap: &[SocketAddr],
+    delay_rate: Option<f64>,
+) -> io::Result<NodeDescriptor> {
+    let node = MixNode::from_seed(&seed);
+    let listener = TcpListener::bind(listen)?;
+    let addr = listener.local_addr()?;
+    let desc = NodeDescriptor::new(node.public_hop(), addr, None);
+
+    let dir = DirectoryState::new();
+    for b in bootstrap {
+        if let Ok(nodes) = discover(b) {
+            dir.merge(&nodes);
+        }
+    }
+    dir.merge(std::slice::from_ref(&desc));
+
+    let mut service = MixService::new(node, dir.clone(), NullDeliver);
+    if let Some(rate) = delay_rate {
+        service = service.with_delay(rate);
+    }
+    thread::spawn(move || {
+        let _ = service.serve(listener);
+    });
+    run_gossip(dir, desc.clone(), Duration::from_secs(30));
+    Ok(desc)
+}
+
+/// Send one **cover packet** into the mixnet: a decoy routed through a random
+/// path of mixes whose exit discards it, indistinguishable on the wire from a
+/// real send. Call it on a Poisson schedule so a network observer cannot tell
+/// when you are actually sending (§6.2). Best-effort.
+pub fn send_cover(pool: &[NodeDescriptor], hops: usize) -> io::Result<()> {
+    if pool.is_empty() {
+        return Ok(());
+    }
+    let hop_descs: Vec<Hop> = pool.iter().map(NodeDescriptor::hop).collect();
+    let mut rng = ChaChaRng::from_os();
+    let hops = hops.clamp(1, aegis_net::MAX_HOPS);
+    let packet = aegis_net::loopix::drop_cover(&hop_descs, hops, &mut rng)
+        .map_err(|e| io::Error::other(format!("cover: {e}")))?;
+    // Send to a random entry among the pool.
+    let entry = &pool[(random_u64() as usize) % pool.len()];
+    dispatch(entry.mix_addr, &packet)
+}
+
+/// Periodically gossip `own` and everything known to every peer in `directory`,
+/// so the node set converges. Runs until the process exits; spawn it.
+pub fn run_gossip(directory: DirectoryState, own: NodeDescriptor, every: Duration) {
+    thread::spawn(move || loop {
+        directory.merge(std::slice::from_ref(&own));
+        let all = directory.snapshot();
+        for peer in &all {
+            if peer.id != own.id {
+                let _ = announce(peer.mix_addr, &all);
+            }
+        }
+        thread::sleep(every);
+    });
+}
+
+// --- the onion-routing store ---------------------------------------------
+
 /// A [`MailboxStore`] that **sends through the mixnet** and **reads from a
-/// provider**. Drop-in for the plain relay store: `put` onion-routes the
-/// envelope through a random path of mixes ending at the exit provider; the
-/// send therefore never reaches any node that also knows the sender's address.
-/// `fetch_since` polls the provider directly (receive-path anonymity is a later
-/// increment).
+/// provider**. `put` onion-routes the envelope through a random path of mixes
+/// ending at the exit provider (so no node sees both the sender and the stored
+/// message); `fetch_since` polls the provider directly. Receive-path anonymity
+/// is a later increment.
 pub struct MixnetStore<P: MailboxStore> {
     provider: P,
-    pool: Vec<NodeInfo>,
-    exit: NodeInfo,
+    pool: Vec<NodeDescriptor>,
+    exit: NodeDescriptor,
     hops: usize,
 }
 
 impl<P: MailboxStore> MixnetStore<P> {
     /// * `provider` — where received mail is polled from (e.g. a `CiphraStore`).
     /// * `pool` — candidate intermediate mixes to route through.
-    /// * `exit` — the provider node that stores the delivered envelope (the
-    ///   route always ends here; its mailbox is what `provider` reads).
-    /// * `hops` — how many mixes to pick from `pool` before the exit. Clamped so
-    ///   the whole path fits [`aegis_net::MAX_HOPS`].
-    pub fn new(provider: P, pool: Vec<NodeInfo>, exit: NodeInfo, hops: usize) -> Self {
+    /// * `exit` — the provider node that stores the delivered envelope; its
+    ///   mailbox is what `provider` reads.
+    /// * `hops` — mixes to pick from `pool` before the exit, clamped to fit
+    ///   [`aegis_net::MAX_HOPS`].
+    pub fn new(provider: P, pool: Vec<NodeDescriptor>, exit: NodeDescriptor, hops: usize) -> Self {
         let max_mid = aegis_net::MAX_HOPS.saturating_sub(1);
         let hops = hops.min(max_mid).min(pool.len());
         MixnetStore {
@@ -191,8 +442,7 @@ impl<P: MailboxStore> MixnetStore<P> {
         }
     }
 
-    /// A fresh random path of `NodeInfo`s ending at the exit provider.
-    fn pick_route(&self) -> Vec<NodeInfo> {
+    fn pick_route(&self) -> Vec<NodeDescriptor> {
         let mut chosen = choose(&self.pool, self.hops);
         chosen.push(self.exit.clone());
         chosen
@@ -202,11 +452,10 @@ impl<P: MailboxStore> MixnetStore<P> {
 impl<P: MailboxStore> MailboxStore for MixnetStore<P> {
     fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
         let route = self.pick_route();
-        let hops: Vec<Hop> = route.iter().map(NodeInfo::hop).collect();
+        let hops: Vec<Hop> = route.iter().map(NodeDescriptor::hop).collect();
         let packet = SphinxPacket::seal(&hops, &envelope.to_bytes())
             .map_err(|e| MailboxError(format!("sphinx seal: {e}")))?;
-        // Dispatch to the first hop; each hop forwards to the next.
-        dispatch(route[0].addr, &packet).map_err(|e| MailboxError(format!("dispatch: {e}")))?;
+        dispatch(route[0].mix_addr, &packet).map_err(|e| MailboxError(format!("dispatch: {e}")))?;
         Ok(())
     }
 
@@ -215,9 +464,8 @@ impl<P: MailboxStore> MailboxStore for MixnetStore<P> {
     }
 }
 
-/// Pick `k` distinct nodes from `pool` using OS randomness (a partial
-/// Fisher–Yates shuffle). Returns fewer than `k` only if the pool is smaller.
-fn choose(pool: &[NodeInfo], k: usize) -> Vec<NodeInfo> {
+/// Pick `k` distinct nodes from `pool` with OS randomness (partial Fisher–Yates).
+fn choose(pool: &[NodeDescriptor], k: usize) -> Vec<NodeDescriptor> {
     let mut idx: Vec<usize> = (0..pool.len()).collect();
     let k = k.min(idx.len());
     for i in 0..k {
@@ -237,24 +485,7 @@ fn random_u64() -> u64 {
 mod tests {
     use super::*;
     use aegis_mailbox::InMemoryStore;
-    use std::net::TcpListener;
 
-    /// Spawn a mix node backed by `deliver`, returning its NodeInfo.
-    fn spawn_mix(seed: u8, directory: Directory, deliver: impl Deliver + 'static) -> NodeInfo {
-        let node = MixNode::from_seed(&[seed; 32]);
-        let info = NodeInfo::new(
-            node.public_hop(),
-            "127.0.0.1:0".parse().unwrap(), // replaced below
-        );
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        thread::spawn(move || {
-            let _ = MixService::new(node, directory, deliver).serve(listener);
-        });
-        NodeInfo { addr, ..info }
-    }
-
-    // A Deliver that just records payloads, for the pure-routing test.
     struct Collect(Arc<Mutex<Vec<Vec<u8>>>>);
     impl Deliver for Collect {
         fn deliver(&self, payload: Vec<u8>) {
@@ -262,61 +493,151 @@ mod tests {
         }
     }
 
+    /// Spawn a mix node seeded with `known`; return its descriptor.
+    fn spawn_mix(
+        seed: u8,
+        known: &[NodeDescriptor],
+        provider: Option<SocketAddr>,
+        deliver: impl Deliver + 'static,
+    ) -> (NodeDescriptor, DirectoryState) {
+        let node = MixNode::from_seed(&[seed; 32]);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let desc = NodeDescriptor::new(node.public_hop(), addr, provider);
+        let dir = DirectoryState::with_nodes(known);
+        dir.merge(std::slice::from_ref(&desc));
+        let service = MixService::new(node, dir.clone(), deliver);
+        thread::spawn(move || {
+            let _ = service.serve(listener);
+        });
+        (desc, dir)
+    }
+
     #[test]
     fn a_packet_routes_through_three_networked_mixes() {
-        // Build the exit first (it delivers), then the interior mixes whose
-        // directories point forward. Bring them up back-to-front so each knows
-        // the next hop's address.
         let got = Arc::new(Mutex::new(Vec::new()));
-        let exit = spawn_mix(3, Directory::new(), Collect(Arc::clone(&got)));
-        let mid = spawn_mix(
-            2,
-            Directory::from_nodes(std::slice::from_ref(&exit)),
-            Collect(got.clone()),
-        );
-        let entry = spawn_mix(
-            1,
-            Directory::from_nodes(std::slice::from_ref(&mid)),
-            Collect(got.clone()),
-        );
+        let (exit, _) = spawn_mix(3, &[], None, Collect(Arc::clone(&got)));
+        let (mid, _) = spawn_mix(2, std::slice::from_ref(&exit), None, Collect(got.clone()));
+        let (entry, _) = spawn_mix(1, std::slice::from_ref(&mid), None, Collect(got.clone()));
 
         let path = [entry.hop(), mid.hop(), exit.hop()];
         let packet = SphinxPacket::seal(&path, b"routed hello").unwrap();
-        dispatch(entry.addr, &packet).unwrap();
+        dispatch(entry.mix_addr, &packet).unwrap();
 
-        // Give the async forwards a moment to complete.
         wait_for(&got, 1);
         assert_eq!(got.lock().unwrap()[0], b"routed hello");
     }
 
     #[test]
-    fn mixnet_store_delivers_an_envelope_to_the_provider_mailbox() {
-        // The exit writes into a shared mailbox; the store reads from it.
-        let mailbox = Arc::new(Mutex::new(InMemoryStore::new()));
-        let exit = spawn_mix(30, Directory::new(), MailboxDeliver(Arc::clone(&mailbox)));
-        let mid = spawn_mix(
-            20,
-            Directory::from_nodes(std::slice::from_ref(&exit)),
-            Collect(Arc::new(Mutex::new(Vec::new()))),
+    fn a_client_discovers_the_node_set_from_a_seed() {
+        // The seed node knows about two others; a plain client asks and learns all.
+        let (a, _) = spawn_mix(
+            11,
+            &[],
+            Some("127.0.0.1:6001".parse().unwrap()),
+            Collect(nil()),
         );
+        let (b, _) = spawn_mix(12, &[], None, Collect(nil()));
+        let (seed, _) = spawn_mix(10, &[a.clone(), b.clone()], None, Collect(nil()));
 
-        // A store that routes entry→mid→exit, reading from the same mailbox.
-        let reader = SharedRead(Arc::clone(&mailbox));
-        let mut store = MixnetStore::new(reader, vec![mid.clone()], exit.clone(), 1);
-
-        let envelope = Envelope::from_bytes(&sample_envelope()).unwrap();
-        store.put(envelope).unwrap();
-
-        wait_for_mailbox(&mailbox, 1);
-        let (_, got) = store.fetch_since(0).unwrap();
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].to_bytes(), sample_envelope());
+        let mut found = discover(seed.mix_addr).unwrap();
+        found.sort_by_key(|n| n.id);
+        let mut want = vec![a, b, seed];
+        want.sort_by_key(|n| n.id);
+        assert_eq!(found, want);
     }
 
-    // --- test helpers ---
+    #[test]
+    fn announce_merges_into_a_nodes_directory() {
+        let (node, dir) = spawn_mix(20, &[], None, Collect(nil()));
+        assert_eq!(dir.snapshot().len(), 1);
+        let newcomer = NodeDescriptor {
+            id: [9u8; NODE_ID_LEN],
+            public: [8u8; 32],
+            mix_addr: "127.0.0.1:6100".parse().unwrap(),
+            provider_addr: None,
+        };
+        announce(node.mix_addr, std::slice::from_ref(&newcomer)).unwrap();
+        // Give the server a moment to merge.
+        for _ in 0..100 {
+            if dir.snapshot().len() == 2 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(dir.snapshot().iter().any(|n| n.id == [9u8; NODE_ID_LEN]));
+    }
 
-    /// A MailboxStore that reads through a shared in-memory mailbox (so the test
-    /// store and the exit node see the same messages).
+    #[test]
+    fn mixnet_store_delivers_via_discovery() {
+        // Stand up a provider + a mix, then a client discovers them and sends.
+        let mailbox = Arc::new(Mutex::new(InMemoryStore::new()));
+        let (exit, _) = spawn_mix(
+            31,
+            &[],
+            Some("127.0.0.1:6200".parse().unwrap()),
+            MailboxDeliver(Arc::clone(&mailbox)),
+        );
+        let (mid, _) = spawn_mix(21, std::slice::from_ref(&exit), None, Collect(nil()));
+
+        // The client discovers the network from the mix (which knows the exit).
+        let dir = discover(mid.mix_addr).unwrap();
+        let pool: Vec<_> = dir.iter().filter(|n| !n.is_provider()).cloned().collect();
+        let exit_desc = dir.iter().find(|n| n.is_provider()).unwrap().clone();
+
+        let reader = SharedRead(Arc::clone(&mailbox));
+        let mut store = MixnetStore::new(reader, pool, exit_desc, 1);
+        store
+            .put(Envelope::from_bytes(&sample_envelope()).unwrap())
+            .unwrap();
+
+        wait_for_mailbox(&mailbox, 1);
+        assert_eq!(
+            store.fetch_since(0).unwrap().1[0].to_bytes(),
+            sample_envelope()
+        );
+    }
+
+    #[test]
+    fn an_optin_forwarder_joins_and_carries_traffic() {
+        // A provider is up; a client turns on forwarder mode pointed at it. The
+        // forwarder learns the provider, a client discovers the whole net from
+        // the forwarder, and a message routes client -> forwarder -> provider.
+        let mailbox = Arc::new(Mutex::new(InMemoryStore::new()));
+        let (exit, _) = spawn_mix(
+            41,
+            &[],
+            Some("127.0.0.1:6300".parse().unwrap()),
+            MailboxDeliver(Arc::clone(&mailbox)),
+        );
+
+        let fwd = spawn_forwarder([50u8; 32], "127.0.0.1:0", &[exit.mix_addr], None).unwrap();
+
+        let dir = discover(fwd.mix_addr).unwrap();
+        assert!(dir.iter().any(|n| n.id == exit.id));
+        let pool: Vec<_> = dir.iter().filter(|n| !n.is_provider()).cloned().collect();
+
+        // Cover traffic through the forwarder is accepted and discarded.
+        send_cover(&pool, 1).unwrap();
+
+        let reader = SharedRead(Arc::clone(&mailbox));
+        let mut store = MixnetStore::new(reader, pool, exit, 1);
+        store
+            .put(Envelope::from_bytes(&sample_envelope()).unwrap())
+            .unwrap();
+        wait_for_mailbox(&mailbox, 1);
+        assert_eq!(
+            store.fetch_since(0).unwrap().1[0].to_bytes(),
+            sample_envelope()
+        );
+    }
+
+    // --- helpers ---
+
+    fn nil() -> Arc<Mutex<Vec<Vec<u8>>>> {
+        Arc::new(Mutex::new(Vec::new()))
+    }
+
     struct SharedRead(Arc<Mutex<InMemoryStore>>);
     impl MailboxStore for SharedRead {
         fn put(&mut self, e: Envelope) -> Result<(), MailboxError> {
@@ -328,7 +649,6 @@ mod tests {
     }
 
     fn sample_envelope() -> Vec<u8> {
-        // addr_tag(16) ‖ view_tag(1) ‖ R(32) ‖ ciphertext
         let mut v = vec![1u8; 16];
         v.push(7);
         v.extend_from_slice(&[2u8; 32]);
@@ -341,7 +661,7 @@ mod tests {
             if got.lock().unwrap().len() >= n {
                 return;
             }
-            thread::sleep(std::time::Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(10));
         }
         panic!("timed out waiting for {n} delivery(ies)");
     }
@@ -351,7 +671,7 @@ mod tests {
             if m.lock().unwrap().fetch_since(0).unwrap().1.len() >= n {
                 return;
             }
-            thread::sleep(std::time::Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(10));
         }
         panic!("timed out waiting for mailbox");
     }

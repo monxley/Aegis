@@ -8,6 +8,29 @@ use std::sync::Mutex;
 use aegis_api::{AegisApp, ChatMessage as ApiChatMessage, Contact as ApiContact};
 use flutter_rust_bridge::frb;
 
+/// A running opt-in mix node (returned by [`start_forwarder_node`]).
+pub struct NodeInfo {
+    pub address: String,
+    pub node_id: String,
+}
+
+/// Turn this device into an **opt-in mix forwarder** that carries others' onion
+/// traffic (it runs no mailbox). Good as a default on desktop/Linux; on Android
+/// enable only on Wi-Fi + power. Uses a fresh identity unlinked to the Aegis ID.
+/// `listen` e.g. `"0.0.0.0:0"`; `delay_rate` `None` for no Loopix delay.
+pub fn start_forwarder_node(
+    bootstrap: Vec<String>,
+    listen: String,
+    delay_rate: Option<f64>,
+) -> Result<NodeInfo, String> {
+    let handle = aegis_api::run_forwarder_node(bootstrap, listen, delay_rate)
+        .map_err(|e| e.to_string())?;
+    Ok(NodeInfo {
+        address: handle.address,
+        node_id: handle.node_id,
+    })
+}
+
 /// A contact in the address book (mirrored to Dart).
 pub struct Contact {
     pub name: String,
@@ -70,6 +93,19 @@ impl AegisEngine {
     /// bytes. Trust-on-first-use for now.
     pub fn new_with_relay(master_seed: Vec<u8>, relay_addr: String) -> Result<AegisEngine, String> {
         let app = AegisApp::create_with_relay(master_seed, relay_addr).map_err(|e| e.to_string())?;
+        Ok(AegisEngine {
+            inner: Mutex::new(app),
+        })
+    }
+
+    /// Create an engine that **auto-discovers the mixnet** from one or more
+    /// `bootstrap` node addresses and onion-routes every send through it — the
+    /// zero-setup, anonymous path. `master_seed` must be 32 bytes.
+    pub fn new_on_network(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+    ) -> Result<AegisEngine, String> {
+        let app = AegisApp::create_on_network(master_seed, bootstrap).map_err(|e| e.to_string())?;
         Ok(AegisEngine {
             inner: Mutex::new(app),
         })

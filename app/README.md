@@ -51,5 +51,12 @@ engine through `AegisEngine`. Running `flutter_rust_bridge_codegen generate`
 fills in `lib/src/rust/` and the app builds. **State persists across restarts**:
 the engine exports its sessions, contacts, and history, and `AegisEngine`
 (lib/engine.dart) saves that blob to local storage after every change and
-restores it on launch. Push notifications, QR scanning, and message-status ticks
-are the next UI work.
+restores it on launch.
+
+**Zero-setup networking**: onboarding defaults to the anonymous mixnet — the app
+auto-discovers nodes from the built-in bootstrap list (`lib/config.dart`) and
+onion-routes sends, no relay to configure. Settings has an opt-in **node toggle**
+(on by default on desktop/Linux) so a device can also carry the network. An
+"Advanced" sheet still allows a specific relay or offline mode.
+
+Push notifications, QR scanning, and message-status ticks are the next UI work.
