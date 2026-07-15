@@ -1,0 +1,15 @@
+[package]
+name = "aegis-api"
+description = "App-facing Aegis engine: identity, contacts, conversations — the API a UI (Flutter via flutter_rust_bridge) binds to"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-client = { path = "../aegis-client" }
+aegis-identity = { path = "../aegis-identity" }
+aegis-session = { path = "../aegis-session" }
+aegis-mailbox = { path = "../aegis-mailbox" }
+aegis-relay = { path = "../aegis-relay" }
+aegis-crypto = { path = "../aegis-crypto" }

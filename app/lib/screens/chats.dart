@@ -1,0 +1,145 @@
+import 'package:flutter/material.dart';
+
+import '../engine.dart';
+import '../src/rust/api/aegis.dart';
+import '../theme.dart';
+import '../widgets.dart';
+import 'add_contact.dart';
+import 'chat.dart';
+import 'identity.dart';
+
+/// The home screen: the list of conversations. Rebuilds whenever the engine
+/// signals new state (a sent or polled message, a new contact).
+class ChatsScreen extends StatelessWidget {
+  final AegisEngineController engine;
+  const ChatsScreen({super.key, required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: const [
+            ShieldMark(size: 26),
+            SizedBox(width: 10),
+            Text('Aegis'),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'My identity',
+            icon: const Icon(Icons.qr_code_rounded, color: AegisTheme.textHi),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => IdentityScreen(engine: engine),
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: AnimatedBuilder(
+        animation: engine,
+        builder: (context, _) {
+          final contacts = engine.contacts();
+          if (contacts.isEmpty) return const _EmptyState();
+          return ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: contacts.length,
+            separatorBuilder: (_, __) => const Divider(
+              height: 1,
+              indent: 82,
+              color: Color(0xFF1B1E29),
+            ),
+            itemBuilder: (context, i) =>
+                _ContactTile(engine: engine, contact: contacts[i]),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AegisTheme.accent,
+        foregroundColor: const Color(0xFF06110F),
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => AddContactScreen(engine: engine)),
+        ),
+        child: const Icon(Icons.person_add_alt_1_rounded),
+      ),
+    );
+  }
+}
+
+class _ContactTile extends StatelessWidget {
+  final AegisEngineController engine;
+  final Contact contact;
+  const _ContactTile({required this.engine, required this.contact});
+
+  @override
+  Widget build(BuildContext context) {
+    final history = engine.history(contact.aegisId);
+    final last = history.isNotEmpty ? history.last : null;
+    final preview = last == null
+        ? 'Say hello — end-to-end encrypted.'
+        : '${last.fromMe ? 'You: ' : ''}${last.text}';
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+      leading: ContactAvatar(name: contact.name),
+      title: Text(
+        contact.name,
+        style: const TextStyle(
+          color: AegisTheme.textHi,
+          fontWeight: FontWeight.w600,
+          fontSize: 16,
+        ),
+      ),
+      subtitle: Text(
+        preview,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: last == null ? AegisTheme.textLo : AegisTheme.textLo,
+          fontStyle: last == null ? FontStyle.italic : FontStyle.normal,
+        ),
+      ),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(engine: engine, contact: contact),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.forum_rounded, size: 56, color: AegisTheme.surfaceHi),
+            SizedBox(height: 16),
+            Text(
+              'No conversations yet',
+              style: TextStyle(
+                color: AegisTheme.textHi,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Tap + to add a contact by their Aegis code, '
+              'then start an encrypted chat.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
