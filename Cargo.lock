@@ -79,6 +79,10 @@ dependencies = [
 name = "aegis-relay-server"
 version = "0.0.0"
 dependencies = [
+ "aegis-crypto",
+ "aegis-mix",
+ "aegis-net",
+ "aegis-relay",
  "ciphra-crypto",
  "ciphra-net",
  "ciphra-storage",

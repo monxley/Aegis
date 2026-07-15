@@ -21,3 +21,34 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test (incl. RFC/FIPS crypto vectors)
         run: cargo test --all
+
+  app:
+    name: Flutter app (codegen, analyze, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      # The bridge codegen turns the Rust API in app/rust into the Dart bindings
+      # under app/lib/src/rust that the app imports; without this, analyze can't
+      # resolve them. This verifies the Flutter side actually compiles.
+      - name: Install flutter_rust_bridge_codegen
+        run: cargo install flutter_rust_bridge_codegen --version 2.0.0 --locked
+      - name: Scaffold platforms + generate bindings
+        working-directory: app
+        run: |
+          flutter create --platforms=android,linux --project-name aegis .
+          flutter pub get
+          flutter_rust_bridge_codegen generate
+      - name: Analyze (compiles the Dart + generated bindings)
+        working-directory: app
+        run: flutter analyze
+      - name: Build the Rust engine
+        working-directory: app/rust
+        run: cargo build --release
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug

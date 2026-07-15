@@ -134,6 +134,9 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | `AegisApp::create_on_network`: zero-setup, auto-discover + route over mixnet | ✅ implemented |
 | — | Opt-in node: any client can also be a mix forwarder (in-app toggle) | ✅ implemented |
 | — | Loopix mix delays + client cover traffic | ✅ implemented |
+| — | Cross-provider mail sharding (recipient's provider from its view key) | ✅ implemented |
+| — | Turnkey full node (`--mix`) + Docker/systemd deploy + Flutter CI | ✅ implemented |
+| — | Receive-path anonymity via Sphinx reply blocks (SURBs) | 🔨 next |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -161,9 +164,18 @@ volunteers, not forced onto every phone. This keeps a stable, less Sybil-prone
 node set — the same reason Session, Tor, and Nym use vetted/staked nodes rather
 than "every phone is a relay".
 
-Still open on this layer: **receive-path anonymity** (a recipient still polls its
-provider directly) and cross-provider mail sharding; those are the next mixnet
-increments.
+Mail is **sharded across providers**: a message is onion-routed to the provider
+its recipient polls, chosen deterministically from the recipient's view key, so
+no node learns the pairing. A full node (blind mailbox + mix + directory) is one
+command — `aegis-relay-server --mix` (see [`deploy/`](deploy/) for Docker /
+systemd) — and CI compiles both the Rust workspace and the Flutter app on every
+push.
+
+Still open on this layer: **receive-path anonymity** — a recipient still polls
+its provider directly, revealing which provider it uses (sender-side
+unlinkability is already covered). Closing it needs Sphinx single-use reply
+blocks (SURBs) so a poll can be answered without the provider learning who is
+asking; that is the next mixnet increment.
 
 ## Build & run it yourself
 

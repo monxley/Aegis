@@ -412,56 +412,100 @@ pub fn run_gossip(directory: DirectoryState, own: NodeDescriptor, every: Duratio
 
 // --- the onion-routing store ---------------------------------------------
 
-/// A [`MailboxStore`] that **sends through the mixnet** and **reads from a
-/// provider**. `put` onion-routes the envelope through a random path of mixes
-/// ending at the exit provider (so no node sees both the sender and the stored
-/// message); `fetch_since` polls the provider directly. Receive-path anonymity
-/// is a later increment.
+/// A [`MailboxStore`] that **sends through the mixnet** and **reads from this
+/// user's provider**. Mail is **sharded across providers**: a message for a
+/// recipient is onion-routed to the provider that recipient polls, chosen
+/// deterministically from the recipient's (public) view key — so senders and the
+/// recipient agree on where it lands without any node learning the pairing.
+/// `fetch_since` reads only this user's own provider.
+///
+/// All clients must see the same provider set (sorted by id) for the sharding to
+/// agree; the gossiped directory converges on it. Receive-path anonymity (not
+/// revealing which provider you poll) is a later increment.
 pub struct MixnetStore<P: MailboxStore> {
-    provider: P,
+    reader: P,
+    providers: Vec<NodeDescriptor>,
     pool: Vec<NodeDescriptor>,
-    exit: NodeDescriptor,
+    own_provider: NodeDescriptor,
     hops: usize,
 }
 
 impl<P: MailboxStore> MixnetStore<P> {
-    /// * `provider` — where received mail is polled from (e.g. a `CiphraStore`).
+    /// * `reader` — reads this user's mail from `own_provider`'s mailbox.
+    /// * `providers` — every provider in the network (sharding targets); sorted
+    ///   by id internally so all clients agree.
     /// * `pool` — candidate intermediate mixes to route through.
-    /// * `exit` — the provider node that stores the delivered envelope; its
-    ///   mailbox is what `provider` reads.
-    /// * `hops` — mixes to pick from `pool` before the exit, clamped to fit
-    ///   [`aegis_net::MAX_HOPS`].
-    pub fn new(provider: P, pool: Vec<NodeDescriptor>, exit: NodeDescriptor, hops: usize) -> Self {
+    /// * `own_provider` — the provider this user polls (its shard).
+    /// * `hops` — mixes before the exit, clamped to fit [`aegis_net::MAX_HOPS`].
+    pub fn new(
+        reader: P,
+        mut providers: Vec<NodeDescriptor>,
+        pool: Vec<NodeDescriptor>,
+        own_provider: NodeDescriptor,
+        hops: usize,
+    ) -> Self {
+        providers.sort_by_key(|p| p.id);
         let max_mid = aegis_net::MAX_HOPS.saturating_sub(1);
         let hops = hops.min(max_mid).min(pool.len());
         MixnetStore {
-            provider,
+            reader,
+            providers,
             pool,
-            exit,
+            own_provider,
             hops,
         }
     }
 
-    fn pick_route(&self) -> Vec<NodeDescriptor> {
-        let mut chosen = choose(&self.pool, self.hops);
-        chosen.push(self.exit.clone());
-        chosen
+    /// The provider a message for `recipient` should land at (its shard).
+    fn provider_for(&self, recipient: &aegis_mailbox::RecipientKey) -> NodeDescriptor {
+        if self.providers.is_empty() {
+            return self.own_provider.clone();
+        }
+        self.providers[provider_index(&recipient.0, self.providers.len())].clone()
     }
-}
 
-impl<P: MailboxStore> MailboxStore for MixnetStore<P> {
-    fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
-        let route = self.pick_route();
+    fn route(&self, exit: &NodeDescriptor, envelope: &Envelope) -> Result<(), MailboxError> {
+        let mut route = choose(&self.pool, self.hops);
+        route.push(exit.clone());
         let hops: Vec<Hop> = route.iter().map(NodeDescriptor::hop).collect();
         let packet = SphinxPacket::seal(&hops, &envelope.to_bytes())
             .map_err(|e| MailboxError(format!("sphinx seal: {e}")))?;
         dispatch(route[0].mix_addr, &packet).map_err(|e| MailboxError(format!("dispatch: {e}")))?;
         Ok(())
     }
+}
+
+impl<P: MailboxStore> MailboxStore for MixnetStore<P> {
+    fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
+        // No recipient hint — route to our own provider (correct for a reply the
+        // caller already addressed; `put_for` is the sharded path).
+        let exit = self.own_provider.clone();
+        self.route(&exit, &envelope)
+    }
+
+    fn put_for(
+        &mut self,
+        recipient: &aegis_mailbox::RecipientKey,
+        envelope: Envelope,
+    ) -> Result<(), MailboxError> {
+        let exit = self.provider_for(recipient);
+        self.route(&exit, &envelope)
+    }
 
     fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
-        self.provider.fetch_since(cursor)
+        self.reader.fetch_since(cursor)
     }
+}
+
+/// The index into a **sorted-by-id** provider list that a recipient's view key
+/// shards to. Deterministic, so every sender and the recipient pick the same
+/// provider. Returns 0 if there are no providers.
+pub fn provider_index(view_public: &[u8; 32], num_providers: usize) -> usize {
+    if num_providers == 0 {
+        return 0;
+    }
+    let h = aegis_crypto::sha256(view_public);
+    (u64::from_le_bytes(h[..8].try_into().unwrap()) as usize) % num_providers
 }
 
 /// Pick `k` distinct nodes from `pool` with OS randomness (partial Fisher–Yates).
@@ -586,7 +630,7 @@ mod tests {
         let exit_desc = dir.iter().find(|n| n.is_provider()).unwrap().clone();
 
         let reader = SharedRead(Arc::clone(&mailbox));
-        let mut store = MixnetStore::new(reader, pool, exit_desc, 1);
+        let mut store = MixnetStore::new(reader, vec![exit_desc.clone()], pool, exit_desc, 1);
         store
             .put(Envelope::from_bytes(&sample_envelope()).unwrap())
             .unwrap();
@@ -621,7 +665,7 @@ mod tests {
         send_cover(&pool, 1).unwrap();
 
         let reader = SharedRead(Arc::clone(&mailbox));
-        let mut store = MixnetStore::new(reader, pool, exit, 1);
+        let mut store = MixnetStore::new(reader, vec![exit.clone()], pool, exit, 1);
         store
             .put(Envelope::from_bytes(&sample_envelope()).unwrap())
             .unwrap();
@@ -630,6 +674,51 @@ mod tests {
             store.fetch_since(0).unwrap().1[0].to_bytes(),
             sample_envelope()
         );
+    }
+
+    #[test]
+    fn mail_is_sharded_to_the_recipients_provider() {
+        // Two providers with separate mailboxes; put_for a recipient must land on
+        // exactly the provider that recipient's view key shards to.
+        let mb_a = Arc::new(Mutex::new(InMemoryStore::new()));
+        let mb_b = Arc::new(Mutex::new(InMemoryStore::new()));
+        let (pa, _) = spawn_mix(
+            60,
+            &[],
+            Some("127.0.0.1:6400".parse().unwrap()),
+            MailboxDeliver(Arc::clone(&mb_a)),
+        );
+        let (pb, _) = spawn_mix(
+            61,
+            std::slice::from_ref(&pa),
+            Some("127.0.0.1:6401".parse().unwrap()),
+            MailboxDeliver(Arc::clone(&mb_b)),
+        );
+        let dir = discover(pb.mix_addr).unwrap();
+        let providers: Vec<_> = dir.iter().filter(|n| n.is_provider()).cloned().collect();
+        assert_eq!(providers.len(), 2);
+
+        let mut sorted = providers.clone();
+        sorted.sort_by_key(|p| p.id);
+        let recipient = aegis_mailbox::RecipientKey([9u8; 32]);
+        let expected = &sorted[provider_index(&recipient.0, 2)];
+        let (expected_mb, other_mb) = if expected.id == pa.id {
+            (&mb_a, &mb_b)
+        } else {
+            (&mb_b, &mb_a)
+        };
+
+        let reader = SharedRead(Arc::clone(&mb_a));
+        let mut store = MixnetStore::new(reader, providers, vec![], pa.clone(), 0);
+        store
+            .put_for(
+                &recipient,
+                Envelope::from_bytes(&sample_envelope()).unwrap(),
+            )
+            .unwrap();
+
+        wait_for_mailbox(expected_mb, 1);
+        assert_eq!(other_mb.lock().unwrap().fetch_since(0).unwrap().1.len(), 0);
     }
 
     // --- helpers ---
