@@ -71,6 +71,35 @@ fn derive(master: &[u8; 32], tag: &[u8]) -> [u8; 32] {
 /// Version tag on exported client state; bump on a format change.
 const STATE_VERSION: u8 = 1;
 
+/// Length buckets a plaintext is padded up to before ratchet encryption, so the
+/// **ciphertext length reveals only a bucket, not the exact message length** — a
+/// short "ok" and a longer sentence look the same on the wire. Messages larger
+/// than the top bucket are padded to their own `len+4` (no bucketing gain, but
+/// still correct).
+const PAD_BUCKETS: &[usize] = &[64, 256, 1024, 4096, 16384];
+
+/// Frame `msg` as `len(4 LE) ‖ msg ‖ zeros`, padded up to the smallest bucket
+/// that fits.
+fn pad(msg: &[u8]) -> Vec<u8> {
+    let need = msg.len() + 4;
+    let size = PAD_BUCKETS
+        .iter()
+        .copied()
+        .find(|&b| b >= need)
+        .unwrap_or(need);
+    let mut out = Vec::with_capacity(size);
+    out.extend_from_slice(&(msg.len() as u32).to_le_bytes());
+    out.extend_from_slice(msg);
+    out.resize(size, 0);
+    out
+}
+
+/// Recover the message from [`pad`] output. `None` if malformed.
+fn unpad(padded: &[u8]) -> Option<Vec<u8>> {
+    let len = u32::from_le_bytes(padded.get(..4)?.try_into().ok()?) as usize;
+    padded.get(4..4 + len).map(|s| s.to_vec())
+}
+
 /// Parsed client state (see [`AegisClient::export_state`]).
 struct ClientState {
     cursor: usize,
@@ -261,7 +290,7 @@ impl AegisClient {
         let (initial, mut ratchet) =
             establish_initiator(&identity_dh, bundle).map_err(|_| ClientError::Session)?;
         let first = ratchet
-            .encrypt(message, b"")
+            .encrypt(&pad(message), b"")
             .map_err(|_| ClientError::Encrypt)?;
 
         let inner = Inner::Handshake {
@@ -289,7 +318,7 @@ impl AegisClient {
             .get_mut(&peer.identity_dh_public())
             .ok_or(ClientError::NoSession)?;
         let message = ratchet
-            .encrypt(message, b"")
+            .encrypt(&pad(message), b"")
             .map_err(|_| ClientError::Encrypt)?;
         let inner = Inner::Chat {
             sender: self.identity.aegis_id(),
@@ -359,7 +388,10 @@ impl AegisClient {
                     else {
                         continue;
                     };
-                    let Ok(message) = ratchet.decrypt(&first, b"") else {
+                    let Ok(padded) = ratchet.decrypt(&first, b"") else {
+                        continue;
+                    };
+                    let Some(message) = unpad(&padded) else {
                         continue;
                     };
                     self.sessions.insert(sender.identity_dh_public(), ratchet);
@@ -373,11 +405,13 @@ impl AegisClient {
                     let Some(ratchet) = self.sessions.get_mut(&key) else {
                         continue; // no session — cannot decrypt
                     };
-                    if let Ok(plaintext) = ratchet.decrypt(&message, b"") {
-                        out.push(Received {
-                            from: sender,
-                            message: plaintext,
-                        });
+                    if let Ok(padded) = ratchet.decrypt(&message, b"") {
+                        if let Some(plaintext) = unpad(&padded) {
+                            out.push(Received {
+                                from: sender,
+                                message: plaintext,
+                            });
+                        }
                     }
                 }
             }
@@ -390,6 +424,52 @@ impl AegisClient {
 mod tests {
     use super::*;
     use aegis_mailbox::InMemoryStore;
+
+    #[test]
+    fn short_messages_are_padded_to_a_common_bucket() {
+        use aegis_mailbox::MailboxStore;
+        // Two messages of very different lengths (both < 60 bytes → same 64-byte
+        // bucket) must produce the same stored envelope size, so the relay can't
+        // tell them apart by length.
+        let mut alice = AegisClient::from_master_seed([1u8; 32]);
+        let bob = AegisClient::from_master_seed([2u8; 32]);
+
+        let mut relay_a = InMemoryStore::new();
+        alice
+            .start_conversation(&mut relay_a, &bob.aegis_id(), &bob.bundle(), b"ok")
+            .unwrap();
+        let mut relay_b = AegisClient::from_master_seed([1u8; 32]);
+        let mut relay_c = InMemoryStore::new();
+        relay_b
+            .start_conversation(
+                &mut relay_c,
+                &bob.aegis_id(),
+                &bob.bundle(),
+                b"a much longer hello",
+            )
+            .unwrap();
+
+        let a = relay_a.fetch_since(0).unwrap().1[0].to_bytes().len();
+        let b = relay_c.fetch_since(0).unwrap().1[0].to_bytes().len();
+        assert_eq!(
+            a, b,
+            "different-length messages should share an envelope size"
+        );
+
+        // And round-trip still works.
+        assert_eq!(bob_receive(b"ok"), b"ok");
+        assert_eq!(bob_receive(b"a much longer hello"), b"a much longer hello");
+    }
+
+    fn bob_receive(msg: &[u8]) -> Vec<u8> {
+        let mut alice = AegisClient::from_master_seed([1u8; 32]);
+        let mut bob = AegisClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+        alice
+            .start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), msg)
+            .unwrap();
+        bob.receive(&relay).unwrap().remove(0).message
+    }
 
     #[test]
     fn two_clients_hold_a_conversation() {
