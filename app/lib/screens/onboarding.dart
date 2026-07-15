@@ -5,8 +5,9 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'chats.dart';
 
-/// First run: explain what Aegis is, optionally point at a relay, and mint an
-/// identity. No email, no phone, no account — just a key pair.
+/// First run: explain what Aegis is and mint an identity. Defaults to the
+/// anonymous mixnet (zero setup); an "Advanced" sheet allows a specific relay or
+/// offline mode. No email, no phone, no account — just a key pair.
 class OnboardingScreen extends StatefulWidget {
   final AegisEngineController engine;
   const OnboardingScreen({super.key, required this.engine});
@@ -16,19 +17,12 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final _relay = TextEditingController();
   bool _busy = false;
 
-  @override
-  void dispose() {
-    _relay.dispose();
-    super.dispose();
-  }
-
-  Future<void> _create() async {
+  Future<void> _create(ConnMode mode, {String? relayAddr}) async {
     setState(() => _busy = true);
     try {
-      await widget.engine.createIdentity(relayAddr: _relay.text.trim());
+      await widget.engine.createIdentity(mode: mode, relayAddr: relayAddr);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => ChatsScreen(engine: widget.engine)),
@@ -40,6 +34,73 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         SnackBar(content: Text('Could not start: $e')),
       );
     }
+  }
+
+  Future<void> _advanced() async {
+    final relay = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Advanced',
+                style: TextStyle(
+                  color: AegisTheme.textHi,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                )),
+            const SizedBox(height: 4),
+            const Text(
+              'Most people should use the anonymous mixnet. These are for '
+              'running against your own server or trying it offline.',
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: relay,
+              style: const TextStyle(color: AegisTheme.textHi),
+              decoration: const InputDecoration(
+                hintText: 'your relay  ·  relay.example:5077',
+                prefixIcon: Icon(Icons.dns_rounded, color: AegisTheme.textLo),
+              ),
+            ),
+            const SizedBox(height: 12),
+            GradientButton(
+              label: 'Use this relay',
+              icon: Icons.dns_rounded,
+              onPressed: () {
+                final addr = relay.text.trim();
+                if (addr.isEmpty) return;
+                Navigator.pop(ctx);
+                _create(ConnMode.relay, relayAddr: addr);
+              },
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _create(ConnMode.memory);
+              },
+              child: const Text('Try offline (in-memory, no delivery)',
+                  style: TextStyle(color: AegisTheme.textLo)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -68,34 +129,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const Text(
                 'A message you cannot intercept —\nand if you do, cannot read.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 15,
-                  height: 1.4,
-                  color: AegisTheme.textLo,
-                ),
+                style: TextStyle(fontSize: 15, height: 1.4, color: AegisTheme.textLo),
               ),
               const Spacer(),
-              const Text(
-                'Relay server (optional)',
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 13),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _relay,
-                enabled: !_busy,
-                style: const TextStyle(color: AegisTheme.textHi),
-                decoration: const InputDecoration(
-                  hintText: 'relay.example:5077  ·  leave blank for offline',
-                  prefixIcon: Icon(Icons.dns_rounded, color: AegisTheme.textLo),
-                ),
-              ),
-              const SizedBox(height: 20),
               GradientButton(
                 label: _busy ? 'Creating…' : 'Create my identity',
                 icon: Icons.bolt_rounded,
-                onPressed: _busy ? null : _create,
+                onPressed: _busy ? null : () => _create(ConnMode.network),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.hub_rounded, size: 14, color: AegisTheme.accent),
+                  SizedBox(width: 6),
+                  Text('Connects to the anonymous mixnet — no setup',
+                      style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              TextButton(
+                onPressed: _busy ? null : _advanced,
+                child: const Text('Advanced',
+                    style: TextStyle(color: AegisTheme.textLo)),
+              ),
+              const SizedBox(height: 8),
               const Text(
                 'No phone number, no email. Your identity is a key that never '
                 'leaves this device.',

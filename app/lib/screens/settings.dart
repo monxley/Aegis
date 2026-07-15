@@ -1,0 +1,129 @@
+import 'package:flutter/material.dart';
+
+import '../engine.dart';
+import '../theme.dart';
+
+/// Settings: connection status and the opt-in "become a node" toggle.
+class SettingsScreen extends StatefulWidget {
+  final AegisEngineController engine;
+  const SettingsScreen({super.key, required this.engine});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _busy = false;
+
+  Future<void> _toggleNode(bool on) async {
+    setState(() => _busy = true);
+    await widget.engine.setNodeEnabled(on);
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.engine;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        children: [
+          _card(
+            icon: Icons.hub_rounded,
+            title: 'Connection',
+            child: Text(
+              e.connectionLabel,
+              style: const TextStyle(color: AegisTheme.textLo),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
+            icon: Icons.dns_rounded,
+            title: 'Run a node',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Help carry the network. Your device relays others’ '
+                  'onion traffic — it never sees who or what. Best on an '
+                  'always-on machine; on a phone, use Wi-Fi + power.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Node mode',
+                        style: TextStyle(color: AegisTheme.textHi, fontSize: 15)),
+                    Switch(
+                      value: e.nodeEnabled,
+                      onChanged: _busy ? null : _toggleNode,
+                      activeColor: AegisTheme.accent,
+                    ),
+                  ],
+                ),
+                if (e.nodeEnabled && e.node != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Running · id ${e.node!.nodeId.substring(0, 8)}…  ·  ${e.node!.address}',
+                    style: const TextStyle(
+                      color: AegisTheme.accent,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Center(
+            child: Text(
+              'All cryptography runs on this device. Aegis never sees your '
+              'messages, keys, or contacts.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _card({
+    required IconData icon,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AegisTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ShaderMask(
+                shaderCallback: (r) => AegisTheme.shield.createShader(r),
+                child: Icon(icon, size: 20, color: Colors.white),
+              ),
+              const SizedBox(width: 10),
+              Text(title,
+                  style: const TextStyle(
+                    color: AegisTheme.textHi,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
