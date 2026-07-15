@@ -18,8 +18,11 @@ handshake + Double Ratchet), ML-DSA-65 prekey-bundle signing (authenticity), an
 ongoing post-quantum ratchet, blind store-and-forward delivery with sealed-sender
 envelopes, **Sphinx onion routing** with a non-malleable **LIONESS** payload, and
 **Loopix** mixing + cover traffic. `AegisClient` ties them into one messenger API,
-and it runs over a **live Ciphra blind server** (`aegis-relay`). The protocol is
-specified first, so the code is an implementation of a *reviewed spec*.
+and it runs over a **live Ciphra blind server** (`aegis-relay`). `aegis-api`
+wraps it into a UI-facing engine (identity, contacts, chat history), and a
+**Flutter app** (`app/`) drives that engine over `flutter_rust_bridge` —
+Android-first, Linux next. The protocol is specified first, so the code is an
+implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
   identity & stealth addressing, PQXDH handshake, post-quantum Double Ratchet,
@@ -37,7 +40,11 @@ aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack messa
 aegis-net     : 16 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
 aegis-relay   :  2 ok   # a full conversation over a live in-process Ciphra blind server
 aegis-client  :  7 ok   # one-identity messenger: conversations, multi-peer, MITM rejection
+aegis-api     :  3 ok   # UI-facing engine: identity, contacts, chat history, send/poll
 ```
+
+The **Flutter app** (`app/`) is the interface on top of `aegis-api`; see
+[app/README.md](app/README.md) for the build.
 
 ## Quick start
 
@@ -86,8 +93,14 @@ Aegis/
     │   └── src/             #   lib.rs (Sphinx + LIONESS) · loopix.rs (mix + cover) · rng.rs
     ├── aegis-relay/         # CiphraStore: MailboxStore over a live Ciphra blind server
     │   └── src/             #   lib.rs (CiphraStore) · tests/ (live in-process server)
-    └── aegis-client/        # the messenger: one identity, one API over all layers
-        └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
+    ├── aegis-client/        # the messenger: one identity, one API over all layers
+    │   └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
+    └── aegis-api/           # UI-facing engine (AegisApp): identity, contacts, chat, poll
+        └── src/             #   lib.rs (AegisApp) · wire.rs (prekey-bundle byte format)
+
+app/                         # Flutter interface (Android-first, Linux next)
+├── rust/                    #   flutter_rust_bridge crate wrapping aegis-api
+└── lib/                     #   Dart UI: theme, engine wrapper, screens
 ```
 
 Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; `aegis-client`
@@ -109,13 +122,17 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Hardening: non-malleable LIONESS onion payload (anti-tagging) | ✅ implemented |
 | — | `aegis-relay`: `MailboxStore` over a live Ciphra blind server | ✅ implemented |
 | — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
+| — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ scaffold |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
 messenger, and `aegis-relay` runs a full conversation over a **live Ciphra blind
-server** (an in-process `ciphra-server` in the test). What remains is hardening,
-not new layers: an external security audit (a release blocker, as for Ciphra),
-the SPQR KEM-chunking size optimization, and group messaging.
+server** (an in-process `ciphra-server` in the test). On top, `aegis-api` exposes
+a UI-facing engine and a **Flutter app** (`app/`) provides the interface. What
+remains is hardening, not new layers: an external security audit (a release
+blocker, as for Ciphra), the SPQR KEM-chunking size optimization, group
+messaging, and finishing the app (push wake-ups, QR scanning, persisted ratchet
+state).
 
 ## Design in brief
 
