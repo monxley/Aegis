@@ -30,6 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use aegis_client::{AegisClient, ClientError};
 use aegis_identity::AegisId;
 use aegis_mailbox::{Envelope, InMemoryStore, MailboxError, MailboxStore};
+use aegis_mix::MixnetStore;
 use aegis_relay::CiphraStore;
 
 fn now_ms() -> u64 {
@@ -215,10 +216,12 @@ impl From<ClientError> for AppError {
     }
 }
 
-/// The relay backing a client: a local in-memory store, or a live Ciphra server.
+/// The relay backing a client: a local in-memory store, a single live Ciphra
+/// server, or the **mixnet** (onion-routed sends + provider reads).
 enum Store {
     Memory(InMemoryStore),
     Ciphra(Box<CiphraStore>),
+    Mixnet(Box<MixnetStore<CiphraStore>>),
 }
 
 impl MailboxStore for Store {
@@ -226,12 +229,14 @@ impl MailboxStore for Store {
         match self {
             Store::Memory(s) => s.put(envelope),
             Store::Ciphra(s) => s.put(envelope),
+            Store::Mixnet(s) => s.put(envelope),
         }
     }
     fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
         match self {
             Store::Memory(s) => s.fetch_since(cursor),
             Store::Ciphra(s) => s.fetch_since(cursor),
+            Store::Mixnet(s) => s.fetch_since(cursor),
         }
     }
 }
@@ -273,6 +278,55 @@ impl AegisApp {
         let store = CiphraStore::connect(relay_addr.as_str(), None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
         Ok(Self::from_parts(client, Store::Ciphra(Box::new(store))))
+    }
+
+    /// Create an app that **auto-discovers the mixnet** and routes over it — the
+    /// zero-setup path. Given one or more `bootstrap` node addresses, it asks the
+    /// network for the current node set, then onion-routes every send through a
+    /// random path of mixes to a provider (so no single node links the sender to
+    /// the message) and polls that provider for mail. The user runs nothing.
+    ///
+    /// All clients on the same bootstrap converge on the same provider (the
+    /// lowest-id one), so messages land where the recipient polls. Sharding mail
+    /// across providers and receive-path anonymity are later increments.
+    pub fn create_on_network(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+    ) -> Result<AegisApp, AppError> {
+        let client = AegisClient::from_master_seed(seed_array(master_seed)?);
+
+        // Discover the node set from the first reachable bootstrap node.
+        let mut nodes = None;
+        let mut last_err = String::from("no bootstrap nodes given");
+        for addr in &bootstrap {
+            match aegis_mix::discover(addr.as_str()) {
+                Ok(n) => {
+                    nodes = Some(n);
+                    break;
+                }
+                Err(e) => last_err = e.to_string(),
+            }
+        }
+        let nodes =
+            nodes.ok_or_else(|| AppError::Relay(format!("discovery failed: {last_err}")))?;
+
+        // Pick the provider everyone agrees on (lowest id) as the exit; the rest
+        // are the mix pool.
+        let mut providers: Vec<_> = nodes.iter().filter(|n| n.is_provider()).cloned().collect();
+        providers.sort_by_key(|n| n.id);
+        let exit = providers
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::Relay("network has no provider".into()))?;
+        let pool: Vec<_> = nodes.iter().filter(|n| !n.is_provider()).cloned().collect();
+        let provider_addr = exit
+            .provider_addr
+            .ok_or_else(|| AppError::Relay("provider has no mailbox address".into()))?;
+
+        let reader = CiphraStore::connect(provider_addr, None)
+            .map_err(|e| AppError::Relay(e.to_string()))?;
+        let store = MixnetStore::new(reader, pool, exit, 2);
+        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store))))
     }
 
     fn from_parts(client: AegisClient, store: Store) -> Self {
@@ -434,6 +488,57 @@ impl AegisApp {
         }
         Ok(out)
     }
+}
+
+/// A running opt-in mix node (a background forwarder). Dropping it does not stop
+/// the node — it runs for the process lifetime; hold it to keep the id/address.
+pub struct NodeHandle {
+    /// The node's mixnet address (`host:port`) others route through.
+    pub address: String,
+    /// The node's id, hex-encoded (`SHA-256(sphinx_public)[..16]`).
+    pub node_id: String,
+}
+
+/// Turn this device into an **opt-in mix node**: a light forwarder that carries
+/// others' onion traffic to strengthen the network (it runs no mailbox). Bind
+/// `listen` (e.g. `"0.0.0.0:0"`), learn the network from `bootstrap`, announce
+/// itself, and gossip. Good as a default on always-on desktop/Linux; on Android
+/// enable it only on Wi-Fi + power, since a phone behind NAT is a poor node.
+///
+/// The node uses a **fresh random identity**, unlinked to your Aegis ID, so
+/// running it does not tie the messaging identity to your address.
+pub fn run_forwarder_node(
+    bootstrap: Vec<String>,
+    listen: String,
+    delay_rate: Option<f64>,
+) -> Result<NodeHandle, AppError> {
+    use std::net::ToSocketAddrs;
+
+    let mut seeds = [0u8; 32];
+    aegis_crypto::fill_random(&mut seeds);
+
+    // Resolve bootstrap addresses; skip any that do not parse/resolve.
+    let boots: Vec<std::net::SocketAddr> = bootstrap
+        .iter()
+        .filter_map(|b| b.to_socket_addrs().ok())
+        .flatten()
+        .collect();
+
+    let desc = aegis_mix::spawn_forwarder(seeds, listen.as_str(), &boots, delay_rate)
+        .map_err(|e| AppError::Relay(e.to_string()))?;
+
+    Ok(NodeHandle {
+        address: desc.mix_addr.to_string(),
+        node_id: hex(&desc.id),
+    })
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
 }
 
 #[cfg(test)]

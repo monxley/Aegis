@@ -130,7 +130,10 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | `aegis-relay-server`: run your own blind relay (persistent, pinnable) | ✅ implemented |
 | — | Session persistence: sessions, contacts & history survive a restart | ✅ implemented |
 | — | `aegis-mix`: networked Sphinx mixnet + onion-routed send path (`MixnetStore`) | ✅ implemented |
-| — | Opt-in node: any client can also be a mix node (app wiring next) | 🔨 in progress |
+| — | Node auto-discovery: gossiped directory, clients bootstrap onto the net | ✅ implemented |
+| — | `AegisApp::create_on_network`: zero-setup, auto-discover + route over mixnet | ✅ implemented |
+| — | Opt-in node: any client can also be a mix forwarder (in-app toggle) | ✅ implemented |
+| — | Loopix mix delays + client cover traffic | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -148,12 +151,19 @@ size optimization, group messaging, wiring `MixnetStore` into `aegis-api` with a
 node directory, receive-path anonymity + Loopix cover traffic, and finishing the
 app (push wake-ups, QR scanning).
 
-**Who runs the nodes.** End users run nothing — a fresh install just connects.
-The node layer is **opt-in**: any client *can* also be a mix node (great as a
-default on always-on desktop/Linux, opt-in and constrained on battery-powered
-Android), so the network is powered by volunteers, not forced onto every phone.
-This keeps a stable, less Sybil-prone node set — the same reason Session, Tor,
-and Nym use vetted/staked nodes rather than "every phone is a relay".
+**Who runs the nodes.** End users run nothing — a fresh install calls
+`create_on_network`, **auto-discovers** the node set from a bootstrap address
+(the directory gossips between nodes, so it stays current without a new build),
+and routes over the mixnet. The node layer is **opt-in**: any client *can* also
+be a mix forwarder (a Settings toggle, on by default on always-on desktop/Linux,
+off + constrained on battery-powered Android), so the network is powered by
+volunteers, not forced onto every phone. This keeps a stable, less Sybil-prone
+node set — the same reason Session, Tor, and Nym use vetted/staked nodes rather
+than "every phone is a relay".
+
+Still open on this layer: **receive-path anonymity** (a recipient still polls its
+provider directly) and cross-provider mail sharding; those are the next mixnet
+increments.
 
 ## Build & run it yourself
 

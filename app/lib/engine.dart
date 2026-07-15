@@ -11,9 +11,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/rust/api/aegis.dart';
 import 'src/rust/frb_generated.dart';
 
+import 'config.dart';
+
 const _seedKey = 'aegis.master_seed';
-const _relayKey = 'aegis.relay_addr';
+const _modeKey = 'aegis.mode'; // 'network' | 'relay:<addr>' | 'memory'
 const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
+const _nodeKey = 'aegis.node_enabled';
+
+/// How this device reaches the network.
+enum ConnMode { network, relay, memory }
 
 /// Owns the one Rust [AegisEngine] and the app's chat state. Screens listen to
 /// this and call into it; the seed lives in [SharedPreferences] and all crypto
@@ -21,12 +27,26 @@ const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 class AegisEngineController extends ChangeNotifier {
   AegisEngine? _engine;
   Timer? _pollTimer;
-  String? _relayAddr;
+  String _mode = 'network';
+  bool _nodeEnabled = false;
+  NodeInfo? _node;
 
   bool get isReady => _engine != null;
   String get myAegisId => _engine!.myAegisId();
   Uint8List get myBundle => _engine!.myBundle();
-  String? get relayAddr => _relayAddr;
+
+  /// Whether this device is also running an opt-in mix node.
+  bool get nodeEnabled => _nodeEnabled;
+
+  /// The running node's address + id, if node mode is on.
+  NodeInfo? get node => _node;
+
+  /// A human label for the current connection mode.
+  String get connectionLabel {
+    if (_mode == 'network') return 'Mixnet (anonymous)';
+    if (_mode.startsWith('relay:')) return 'Relay ${_mode.substring(6)}';
+    return 'Offline (in-memory)';
+  }
 
   /// Initialize the bridge and, if a seed was saved, restore the engine.
   /// Returns true if an engine is now live (existing account).
@@ -35,8 +55,8 @@ class AegisEngineController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final seed = prefs.getString(_seedKey);
     if (seed == null) return false;
-    _relayAddr = prefs.getString(_relayKey);
-    _start(_decodeSeed(seed), _relayAddr);
+    _mode = prefs.getString(_modeKey) ?? 'network';
+    _start(_decodeSeed(seed));
     // Restore sessions, contacts, and history saved on the last run.
     final blob = prefs.getString(_stateKey);
     if (blob != null) {
@@ -46,32 +66,72 @@ class AegisEngineController extends ChangeNotifier {
         debugPrint('state restore failed (starting fresh): $e');
       }
     }
+    // Resume node mode (defaults per platform on first run).
+    _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
+    if (_nodeEnabled) _startNode();
     return true;
   }
 
   /// Create a brand-new identity from fresh randomness and persist the seed.
-  /// `relayAddr` null → local in-memory relay (offline demo).
-  Future<void> createIdentity({String? relayAddr}) async {
+  /// [mode] picks how it connects; [relayAddr] is required for [ConnMode.relay].
+  Future<void> createIdentity({
+    ConnMode mode = ConnMode.network,
+    String? relayAddr,
+  }) async {
     final seed = _randomSeed();
+    _mode = switch (mode) {
+      ConnMode.network => 'network',
+      ConnMode.relay => 'relay:${relayAddr ?? ''}',
+      ConnMode.memory => 'memory',
+    };
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_seedKey, _encodeSeed(seed));
+    await prefs.setString(_modeKey, _mode);
     await prefs.remove(_stateKey); // a fresh identity has no prior sessions
-    if (relayAddr != null && relayAddr.isNotEmpty) {
-      await prefs.setString(_relayKey, relayAddr);
-    } else {
-      await prefs.remove(_relayKey);
-    }
-    _relayAddr = relayAddr;
-    _start(seed, relayAddr);
+    _start(seed);
+    _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
+    if (_nodeEnabled) _startNode();
   }
 
-  void _start(Uint8List seed, String? relayAddr) {
-    _engine = (relayAddr != null && relayAddr.isNotEmpty)
-        ? AegisEngine.newWithRelay(masterSeed: seed, relayAddr: relayAddr)
-        : AegisEngine.newInMemory(masterSeed: seed);
+  void _start(Uint8List seed) {
+    _engine = switch (_mode) {
+      'network' =>
+        AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: kBootstrapNodes),
+      _ when _mode.startsWith('relay:') =>
+        AegisEngine.newWithRelay(masterSeed: seed, relayAddr: _mode.substring(6)),
+      _ => AegisEngine.newInMemory(masterSeed: seed),
+    };
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
     notifyListeners();
+  }
+
+  /// Turn opt-in node mode on or off (persisted). When on, this device also runs
+  /// a mix forwarder that carries others' traffic. Best on desktop/Linux.
+  Future<void> setNodeEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_nodeKey, enabled);
+    _nodeEnabled = enabled;
+    if (enabled) {
+      _startNode();
+    } else {
+      // The Rust node runs for the process lifetime; it fully stops on restart.
+      _node = null;
+    }
+    notifyListeners();
+  }
+
+  void _startNode() {
+    try {
+      _node = startForwarderNode(
+        bootstrap: kBootstrapNodes,
+        listen: '0.0.0.0:0',
+        delayRate: null,
+      );
+    } catch (e) {
+      debugPrint('node start failed: $e');
+      _nodeEnabled = false;
+    }
   }
 
   List<Contact> contacts() => _engine?.contacts() ?? const [];
