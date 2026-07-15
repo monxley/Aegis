@@ -53,6 +53,7 @@ name = "aegis-mix"
 version = "0.0.0"
 dependencies = [
  "aegis-crypto",
+ "aegis-identity",
  "aegis-mailbox",
  "aegis-net",
 ]
