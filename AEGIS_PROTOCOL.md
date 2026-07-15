@@ -375,56 +375,65 @@ know recipient Aegis ID (IK,V)
 | Blind store-and-forward relay | ✅ exists | `ciphra-server` |
 | Multi-node replication (swarm) | ✅ exists | Ciphra log shipping |
 | Deterministic keyed tags | ✅ exists | `MasterKey::keyed_tag` |
-| **Stealth addressing (DH-only)** | 🔨 build | new `aegis-identity` |
-| **PQXDH session setup** | 🔨 build (adapt `hybrid.rs`) | new `aegis-session` |
-| **PQ Double Ratchet** | 🔨 build | new `aegis-session` |
-| **Sealed-sender envelope + mailbox** | 🔨 build | new `aegis-mailbox` |
-| **Sphinx onion routing** | 🔨 build (X25519+ChaCha) | new `aegis-net` |
-| **Loopix mixing + cover traffic** | 🔨 build | `aegis-net` (phase B) |
+| **Stealth addressing (DH-only)** | ✅ done | `aegis-identity` |
+| **PQXDH session setup** | ✅ done | `aegis-session` |
+| **PQ Double Ratchet (ongoing ML-KEM)** | ✅ done | `aegis-session` |
+| **ML-DSA-signed prekey bundles (G8)** | ✅ done | `aegis-session` + `aegis-identity` |
+| **Sealed-sender envelope + mailbox** | ✅ done | `aegis-mailbox` |
+| **Sphinx onion routing (LIONESS payload)** | ✅ done | `aegis-net` |
+| **Loopix mixing + cover traffic** | ✅ done | `aegis-net` |
+| **Live Ciphra blind-server relay** | ✅ done | `aegis-relay` (Ciphra `RemoteStorage`) |
+| **One-identity client API** | ✅ done | `aegis-client` |
 | Ed25519 / CryptoNote signable one-time keys | ⏳ optional/future | would extend `ciphra-crypto` (§2.5) |
 
-**Read of the table:** every *primitive* Aegis needs already exists in Ciphra
-and is test-vector-verified. Aegis is protocol-assembly work, not
-cryptographic-primitive work — except the network-anonymity layer (§6), which
-is new but needs no new primitives.
+**Read of the table:** every *primitive* Aegis needs already existed in Ciphra
+and is test-vector-verified; the Aegis crates re-implement the small subset not
+publicly exported. Aegis is protocol-assembly work, not cryptographic-primitive
+work — except the network-anonymity layer (§6), which is new but needs no new
+primitives. **All rows above are implemented and tested.**
 
 ---
 
-## 9. Proposed crate layout
+## 9. Crate layout (as built)
 
 ```
 aegis/
 ├── crates/
-│   ├── aegis-identity/   # Aegis ID, keypairs, stealth addressing (§2)
-│   ├── aegis-session/    # PQXDH handshake (§3) + PQ Double Ratchet (§4)
-│   ├── aegis-mailbox/    # sealed-sender envelope, send/fetch over Ciphra (§5)
-│   ├── aegis-net/        # Sphinx onion routing, then Loopix mixing (§6)
-│   ├── aegis-client/     # CLI/daemon tying it together
-│   └── aegis-relay/      # thin layer over ciphra-server (mix behavior)
-└── AEGIS_PROTOCOL.md     # this document
+│   ├── aegis-crypto/     # zero-dep primitives (x25519, ml_kem, ml_dsa, aead, …)
+│   ├── aegis-identity/   # Aegis ID, keypairs, signing, stealth addressing (§2)
+│   ├── aegis-session/    # PQXDH handshake (§3) + ongoing-PQ Double Ratchet (§4)
+│   ├── aegis-mailbox/    # sealed-sender envelope + blind MailboxStore (§5)
+│   ├── aegis-net/        # Sphinx onion routing (LIONESS) + Loopix mixing (§6)
+│   ├── aegis-relay/      # CiphraStore: MailboxStore over a live Ciphra server
+│   └── aegis-client/     # AegisClient — one identity, one API over all layers
+├── AEGIS_PROTOCOL.md     # this document
+└── docs/CRYPTO_MATH.md   # the exact mathematics
 ```
 
-Depends on the Ciphra workspace for `ciphra-crypto` (primitives) and
-`ciphra-server`/`ciphra-net` (the blind relay + transport).
+`aegis-relay` depends on Ciphra's `ciphra-net` (`RemoteStorage`) to reach a live
+blind server; everything else is self-contained zero-dependency Rust.
 
 ---
 
-## 10. Phased roadmap
+## 10. Phased roadmap — status
 
-- **Phase 0 — identity.** `aegis-identity`: keygen, Aegis ID encoding, DH-only
-  stealth address derive + scan with view tags (§2). Testable in isolation.
-- **Phase 1 — sessions.** `aegis-session`: PQXDH from prekey bundles (§3) +
-  Double Ratchet (§4). Delivers G1–G4, G8. Two local clients can talk E2EE.
-- **Phase 2 — delivery.** `aegis-mailbox` over a real `ciphra-server`:
-  sealed-sender envelopes, send/fetch/scan, TTL (§5). Delivers G5, G6.
-  End-to-end async messaging between two machines, relay fully blind.
-- **Phase 3 — network anonymity.** `aegis-net`: Sphinx onion routing (§6.1),
-  then Loopix mixing + cover traffic (§6.2). Delivers G7.
-- **Phase 4 — hardening.** PQ ratchet re-encapsulation cadence (§4.2), groups
-  (§4.3), anti-Sybil toll (§2.4), external security audit (blocker for any
-  "secure" claim — same stance as Ciphra).
+- **Phase 0 — identity.** ✅ `aegis-identity`: keygen, Aegis ID encoding, DH-only
+  stealth address derive + scan with view tags (§2), ML-DSA signing.
+- **Phase 1 — sessions.** ✅ `aegis-session`: PQXDH from signed prekey bundles
+  (§3) + ongoing-PQ Double Ratchet (§4). Delivers G1–G4, G8.
+- **Phase 2 — delivery.** ✅ `aegis-mailbox` (sealed-sender envelopes, blind
+  `MailboxStore`) + `aegis-relay` (`CiphraStore` over a **live Ciphra blind
+  server**, tested end-to-end). Delivers G5, G6.
+- **Phase 3 — network anonymity.** ✅ `aegis-net`: Sphinx onion routing with a
+  non-malleable LIONESS payload (§6.1), and Loopix Poisson mixing + cover
+  traffic (§6.2). Delivers G7.
+- **Integration.** ✅ `aegis-client`: one identity, one messenger API over all
+  layers.
+- **Remaining hardening.** ⏳ SPQR KEM-chunking to shrink the ratchet header
+  (§4.2), groups (§4.3), anti-Sybil toll (§2.4), and an external security audit
+  (blocker for any "secure" claim — same stance as Ciphra).
 
-Each phase is independently testable and leaves Aegis in a working state.
+Each phase is independently tested and leaves Aegis in a working state.
 
 ---
 
@@ -440,5 +449,7 @@ Each phase is independently testable and leaves Aegis in a working state.
 
 ---
 
-*Status: v0 design draft for discussion. Nothing here is implemented yet;
-this document is the contract the implementation will be reviewed against.*
+*Status: v0. This document was written as the design contract first; **all five
+layers are now implemented and tested** against it (see the crate map and the
+per-crate test counts in the [README](README.md)). What remains is hardening and
+an external security audit, not new protocol layers.*
