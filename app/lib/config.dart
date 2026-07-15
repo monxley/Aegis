@@ -1,18 +1,26 @@
 import 'dart:io' show Platform;
 
-/// Built-in **bootstrap nodes**: the addresses a fresh install contacts to
-/// discover the mixnet. The user configures nothing — this is what makes it
-/// "download and use". The set only needs one reachable entry; from it the app
-/// learns the whole current node directory (which then changes as volunteers
-/// join, without shipping a new build).
+/// Built-in **bootstrap nodes**: the mix addresses a fresh install contacts to
+/// discover the network. From one reachable entry the app learns the whole
+/// current node directory (which then changes as volunteers join, without a new
+/// build).
 ///
-/// These are operated by the project as seed nodes. Add or replace them with
-/// your own if you run a private network.
-const List<String> kBootstrapNodes = <String>[
-  // TODO: point these at real, project-operated seed nodes before release.
-  'bootstrap1.aegis.example:5077',
-  'bootstrap2.aegis.example:5077',
-];
+/// These are injected at build time so a real deployment bakes in its own seed
+/// nodes without editing source:
+///
+/// ```sh
+/// flutter build apk --dart-define=AEGIS_BOOTSTRAP=seed1.example:5078,seed2.example:5078
+/// ```
+///
+/// If none are compiled in, the app asks the user for a node address on first
+/// run (Advanced → "mixnet node"), so there are no fake/placeholder hosts that
+/// look real but go nowhere.
+const String _envBootstrap =
+    String.fromEnvironment('AEGIS_BOOTSTRAP', defaultValue: '');
+
+List<String> get kBootstrapNodes => _envBootstrap.isEmpty
+    ? const <String>[]
+    : _envBootstrap.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
 
 /// Whether this platform should run an opt-in mix node **by default**.
 /// Always-on, reachable machines (desktop/Linux) make good nodes; battery-

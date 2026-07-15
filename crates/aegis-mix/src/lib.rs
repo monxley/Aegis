@@ -188,6 +188,12 @@ pub fn announce(peer: impl ToSocketAddrs, nodes: &[NodeDescriptor]) -> io::Resul
 /// envelope and store it in the node's mailbox.
 pub trait Deliver: Send + Sync {
     fn deliver(&self, payload: Vec<u8>);
+
+    /// Handle a **SURB reply** that arrived at this node (still onion-wrapped).
+    /// A node that issues SURBs (to receive its own mail anonymously) overrides
+    /// this to match the reply to an outstanding SURB and recover it; the default
+    /// drops it.
+    fn deliver_reply(&self, _payload: Vec<u8>) {}
 }
 
 /// A [`Deliver`] that drops payloads — a pure **forwarder** mix that carries
@@ -337,6 +343,7 @@ impl<D: Deliver + 'static> MixService<D> {
                 }
             }
             Ok(ProcessedPacket::Deliver { payload }) => self.deliver.deliver(payload),
+            Ok(ProcessedPacket::DeliverReply { payload }) => self.deliver.deliver_reply(payload),
             Err(_) => {} // bad MAC / degenerate — drop
         }
     }
