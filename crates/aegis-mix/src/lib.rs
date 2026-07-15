@@ -442,6 +442,48 @@ pub fn spawn_forwarder(
     Ok(desc)
 }
 
+/// Run a **receiver node**: like [`spawn_forwarder`], but its delivery sink is a
+/// [`SurbInbox`] so it can receive its own mail anonymously (SURB replies land
+/// here). It announces itself to every known node immediately, so mixes can route
+/// replies back to it without waiting for a gossip round. `advertise` is the
+/// public address others reach it at (default: the bound address).
+pub fn spawn_receiver(
+    seed: [u8; 32],
+    listen: impl ToSocketAddrs,
+    bootstrap: &[SocketAddr],
+    inbox: SurbInbox,
+    advertise: Option<SocketAddr>,
+) -> io::Result<NodeDescriptor> {
+    let node = MixNode::from_seed(&seed);
+    let listener = TcpListener::bind(listen)?;
+    let addr = match advertise {
+        Some(a) => a,
+        None => listener.local_addr()?,
+    };
+    let desc = NodeDescriptor::new(node.public_hop(), addr, None);
+
+    let dir = DirectoryState::new();
+    for b in bootstrap {
+        if let Ok(nodes) = discover(b) {
+            dir.merge(&nodes);
+        }
+    }
+    dir.merge(std::slice::from_ref(&desc));
+    // Announce ourselves now so others can route SURB replies to us.
+    for peer in dir.snapshot() {
+        if peer.id != desc.id {
+            let _ = announce(peer.mix_addr, std::slice::from_ref(&desc));
+        }
+    }
+
+    let service = MixService::new(node, dir.clone(), inbox);
+    thread::spawn(move || {
+        let _ = service.serve(listener);
+    });
+    run_gossip(dir, desc.clone(), Duration::from_secs(30));
+    Ok(desc)
+}
+
 /// Send one **cover packet** into the mixnet: a decoy routed through a random
 /// path of mixes whose exit discards it, indistinguishable on the wire from a
 /// real send. Call it on a Poisson schedule so a network observer cannot tell
@@ -606,6 +648,17 @@ pub struct MixnetStore<P: MailboxStore> {
     pool: Vec<NodeDescriptor>,
     own_provider: NodeDescriptor,
     hops: usize,
+    anon: Option<AnonReceive>,
+}
+
+/// Anonymous-receive state: instead of polling the provider directly,
+/// `fetch_since` onion-routes a fetch and harvests SURB replies, so the provider
+/// never learns who is polling. Requires this user to run a reachable node
+/// (`own_node`) whose delivery sink is `inbox`.
+struct AnonReceive {
+    inbox: SurbInbox,
+    own_node: NodeDescriptor,
+    cursor: Mutex<usize>,
 }
 
 impl<P: MailboxStore> MixnetStore<P> {
@@ -631,7 +684,46 @@ impl<P: MailboxStore> MixnetStore<P> {
             pool,
             own_provider,
             hops,
+            anon: None,
         }
+    }
+
+    /// Enable **anonymous receive**: `fetch_since` will onion-route a fetch to
+    /// the provider and collect the replies via SURBs routed back to `own_node`,
+    /// instead of polling the provider directly. `inbox` must be the delivery
+    /// sink of the running [`MixService`] for `own_node`, and `own_node` must be
+    /// reachable and in the directory. Falls back to a direct read if there are
+    /// no mixes to route through.
+    pub fn with_anon_receive(mut self, inbox: SurbInbox, own_node: NodeDescriptor) -> Self {
+        self.anon = Some(AnonReceive {
+            inbox,
+            own_node,
+            cursor: Mutex::new(0),
+        });
+        self
+    }
+
+    /// Issue a batch of return SURBs (routed back to our own node) and onion-route
+    /// a fetch request to our provider from `cursor`. Replies land in the inbox.
+    fn issue_anon_fetch(&self, anon: &AnonReceive, cursor: usize) {
+        let batch = MAX_FETCH_SURBS.min(4);
+        let mut headers = Vec::with_capacity(batch);
+        for _ in 0..batch {
+            let mut back = choose(&self.pool, self.hops);
+            back.push(anon.own_node.clone());
+            let hops: Vec<Hop> = back.iter().map(NodeDescriptor::hop).collect();
+            if let Ok(surb) = Surb::create(&hops) {
+                headers.push(surb.header.clone());
+                anon.inbox.issue(surb);
+            }
+        }
+        if headers.is_empty() {
+            return;
+        }
+        let mut route = choose(&self.pool, self.hops);
+        route.push(self.own_provider.clone());
+        let hops: Vec<Hop> = route.iter().map(NodeDescriptor::hop).collect();
+        let _ = anonymous_fetch(&hops, route[0].mix_addr, cursor, &headers);
     }
 
     /// The provider a message for `recipient` should land at (its shard).
@@ -674,7 +766,21 @@ impl<P: MailboxStore> MailboxStore for MixnetStore<P> {
     }
 
     fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
-        self.reader.fetch_since(cursor)
+        let Some(anon) = &self.anon else {
+            return self.reader.fetch_since(cursor);
+        };
+        // Anonymous receive: harvest replies from the previous fetch, advance the
+        // cursor by what came back, then issue the next fetch. Each poll both
+        // collects and re-asks, so mail streams in over successive polls without
+        // the provider ever seeing who we are.
+        let mut cur = anon.cursor.lock().unwrap();
+        let mut envelopes = Vec::new();
+        for (cursor_after, env) in anon.inbox.drain() {
+            *cur = (*cur).max(cursor_after);
+            envelopes.push(env);
+        }
+        self.issue_anon_fetch(anon, *cur);
+        Ok((*cur, envelopes))
     }
 }
 

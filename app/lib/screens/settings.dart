@@ -74,6 +74,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+                if (e.nodeEnabled && e.anonReceive) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Running · receiving anonymously through the mixnet',
+                    style: TextStyle(color: AegisTheme.accent, fontSize: 12),
+                  ),
+                ],
               ],
             ),
           ),
