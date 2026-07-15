@@ -53,6 +53,61 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _showSafetyNumber() {
+    String number;
+    try {
+      number = widget.engine.safetyNumber(widget.contact.aegisId);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not compute: $e')),
+      );
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: Row(
+          children: const [
+            Icon(Icons.verified_user_rounded, color: AegisTheme.accent, size: 20),
+            SizedBox(width: 8),
+            Text('Safety number',
+                style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SelectableText(
+              number,
+              style: const TextStyle(
+                color: AegisTheme.textHi,
+                fontFamily: 'monospace',
+                fontSize: 18,
+                letterSpacing: 1.5,
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Compare these digits with ${widget.contact.name} over a channel '
+              'you trust (in person, a call). If they match, no one is in the '
+              'middle of your conversation.',
+              style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done', style: TextStyle(color: AegisTheme.accent)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _send() {
     final text = _input.text.trim();
     if (text.isEmpty) return;
@@ -96,6 +151,13 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Verify safety number',
+            icon: const Icon(Icons.verified_user_rounded, color: AegisTheme.textHi),
+            onPressed: _showSafetyNumber,
+          ),
+        ],
       ),
       body: Column(
         children: [

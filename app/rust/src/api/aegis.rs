@@ -168,6 +168,14 @@ impl AegisEngine {
             .collect()
     }
 
+    /// The safety number shared with `aegis_id` — compare it with the contact
+    /// out of band to rule out a key substitution (MITM).
+    #[frb(sync)]
+    pub fn safety_number(&self, aegis_id: String) -> Result<String, String> {
+        self.with(|app| app.safety_number(aegis_id))
+            .map_err(|e| e.to_string())
+    }
+
     /// The conversation history with `aegis_id`, oldest first.
     #[frb(sync)]
     pub fn history(&self, aegis_id: String) -> Vec<ChatMessage> {
