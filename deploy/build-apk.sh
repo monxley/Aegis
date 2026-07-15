@@ -82,8 +82,10 @@ fi
 cd "$SRC/app"
 
 log "generating bindings + platform folders"
+export FLUTTER_ALLOW_ROOT=true   # this VPS session runs as root; that's fine here
 flutter create --platforms=android --project-name aegis . >/dev/null
 flutter pub get >/dev/null
+mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
 flutter_rust_bridge_codegen generate
 
 log "cross-compiling the Rust engine for Android (a few minutes)"
