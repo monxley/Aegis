@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -12,6 +13,7 @@ import 'src/rust/frb_generated.dart';
 
 const _seedKey = 'aegis.master_seed';
 const _relayKey = 'aegis.relay_addr';
+const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 
 /// Owns the one Rust [AegisEngine] and the app's chat state. Screens listen to
 /// this and call into it; the seed lives in [SharedPreferences] and all crypto
@@ -35,6 +37,15 @@ class AegisEngineController extends ChangeNotifier {
     if (seed == null) return false;
     _relayAddr = prefs.getString(_relayKey);
     _start(_decodeSeed(seed), _relayAddr);
+    // Restore sessions, contacts, and history saved on the last run.
+    final blob = prefs.getString(_stateKey);
+    if (blob != null) {
+      try {
+        _engine!.restoreState(blob: base64Decode(blob));
+      } catch (e) {
+        debugPrint('state restore failed (starting fresh): $e');
+      }
+    }
     return true;
   }
 
@@ -44,6 +55,7 @@ class AegisEngineController extends ChangeNotifier {
     final seed = _randomSeed();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_seedKey, _encodeSeed(seed));
+    await prefs.remove(_stateKey); // a fresh identity has no prior sessions
     if (relayAddr != null && relayAddr.isNotEmpty) {
       await prefs.setString(_relayKey, relayAddr);
     } else {
@@ -73,11 +85,13 @@ class AegisEngineController extends ChangeNotifier {
     required Uint8List bundle,
   }) {
     _engine!.addContact(name: name, aegisId: aegisId, bundle: bundle);
+    _persist();
     notifyListeners();
   }
 
   void send({required String aegisId, required String text}) {
     _engine!.send(aegisId: aegisId, text: text);
+    _persist();
     notifyListeners();
   }
 
@@ -86,10 +100,28 @@ class AegisEngineController extends ChangeNotifier {
     if (engine == null) return;
     try {
       final incoming = await engine.poll();
-      if (incoming.isNotEmpty) notifyListeners();
+      if (incoming.isNotEmpty) {
+        _persist();
+        notifyListeners();
+      }
     } catch (e) {
       // Relay unreachable — stay quiet; the next tick retries.
       debugPrint('poll failed: $e');
+    }
+  }
+
+  /// Save the engine's state (sessions, contacts, history) so the next launch
+  /// resumes where this one left off. Fire-and-forget; a missed save just means
+  /// the last few messages re-sync from the relay.
+  Future<void> _persist() async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      final blob = engine.exportState();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_stateKey, base64Encode(blob));
+    } catch (e) {
+      debugPrint('state save failed: $e');
     }
   }
 
