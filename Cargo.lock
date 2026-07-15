@@ -65,6 +65,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-relay-server"
+version = "0.0.0"
+dependencies = [
+ "ciphra-crypto",
+ "ciphra-net",
+ "ciphra-storage",
+]
+
+[[package]]
 name = "aegis-session"
 version = "0.0.0"
 dependencies = [
