@@ -12,12 +12,14 @@ cannot read — and cannot tell who it was between.**
 
 ## Status
 
-**Phases 0–3.5 implemented:** identity & stealth addressing, the post-quantum
-session core (PQXDH handshake + Double Ratchet), ML-DSA-65 prekey-bundle
-signing (authenticity), an ongoing post-quantum ratchet, blind store-and-forward
-delivery with sealed-sender envelopes, **Sphinx onion routing**, and **Loopix**
-mixing + cover traffic — completing the network-anonymity layer. The protocol is
-specified first, so the code is an implementation of a *reviewed spec*.
+**All five protocol layers are implemented, and folded into one client.** Under
+the hood: identity & stealth addressing, the post-quantum session core (PQXDH
+handshake + Double Ratchet), ML-DSA-65 prekey-bundle signing (authenticity), an
+ongoing post-quantum ratchet, blind store-and-forward delivery with sealed-sender
+envelopes, **Sphinx onion routing** with a non-malleable **LIONESS** payload, and
+**Loopix** mixing + cover traffic. `AegisClient` ties them into one messenger API.
+The protocol is specified first, so the code is an implementation of a *reviewed
+spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
   identity & stealth addressing, PQXDH handshake, post-quantum Double Ratchet,
@@ -33,6 +35,34 @@ aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key bin
 aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
 aegis-net     : 16 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
+aegis-client  :  7 ok   # one-identity messenger: conversations, multi-peer, MITM rejection
+```
+
+## Quick start
+
+`AegisClient` is the whole messenger behind one type — one identity backs the
+shareable Aegis ID, the view key, the handshake key, and the signing key; PQXDH
+sessions and the Double Ratchet are established and reused automatically; every
+message goes out as a sealed-sender envelope over a blind relay.
+
+```rust
+use aegis_client::AegisClient;
+use aegis_mailbox::InMemoryStore;
+
+let mut alice = AegisClient::generate();
+let mut bob   = AegisClient::generate();
+let mut relay = InMemoryStore::new();          // a blind store-and-forward relay
+
+// Alice starts a conversation from Bob's published Aegis ID + prekey bundle.
+alice.start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"hi bob").unwrap();
+
+// Bob scans the relay (which learns neither who it is for nor from) and reads it.
+let inbox = bob.receive(&relay);
+assert_eq!(inbox[0].message, b"hi bob");
+
+// Bob replies on the now-established session; Alice reads it.
+bob.send(&mut relay, &inbox[0].from, b"hi alice").unwrap();
+assert_eq!(alice.receive(&relay)[0].message, b"hi alice");
 ```
 
 ### Project map
@@ -51,12 +81,15 @@ Aegis/
     │   └── src/             #   bundle.rs (signed prekeys) · pqxdh.rs · ratchet.rs (PQ)
     ├── aegis-mailbox/       # Phase 2 — Layer 4a
     │   └── src/             #   sealed-sender envelopes over a blind store-and-forward relay
-    └── aegis-net/           # Phases 3–3.5 — Layer 4b
-        └── src/             #   lib.rs (Sphinx) · loopix.rs (Poisson mix + cover) · rng.rs
+    ├── aegis-net/           # Phases 3–3.5 — Layer 4b
+    │   └── src/             #   lib.rs (Sphinx + LIONESS) · loopix.rs (mix + cover) · rng.rs
+    └── aegis-client/        # the messenger: one identity, one API over all layers
+        └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
 ```
 
-Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; nothing
-depends on a third-party crate.
+Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; `aegis-client`
+sits on top of identity + session + mailbox. Nothing depends on a third-party
+crate.
 
 ### Roadmap
 
@@ -69,13 +102,15 @@ depends on a third-party crate.
 | 2 | Blind store-and-forward delivery, sealed sender | ✅ implemented |
 | 3 | Sphinx onion routing (fixed-size layered packets) | ✅ implemented |
 | 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ✅ implemented |
+| — | Hardening: non-malleable LIONESS onion payload (anti-tagging) | ✅ implemented |
+| — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
 
-All five protocol layers now have a working, tested implementation, with a
-non-malleable **LIONESS** onion payload (tagging-attack resistant). What remains
-is hardening and integration, not new layers: an external security audit (a
-release blocker, as for Ciphra), the SPQR KEM-chunking size optimization, wiring
-`MailboxStore` to a live Ciphra blind server, and folding the
-identity/session/mailbox keys into one client type.
+All five protocol layers have a working, tested implementation with a
+non-malleable **LIONESS** onion payload, and `AegisClient` unifies them into one
+messenger. What remains is hardening and integration, not new layers: an external
+security audit (a release blocker, as for Ciphra), the SPQR KEM-chunking size
+optimization, and wiring `MailboxStore` to a live Ciphra blind server (today the
+included `InMemoryStore` is a local blind relay; the trait is the seam).
 
 ## Design in brief
 

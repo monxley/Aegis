@@ -1,0 +1,13 @@
+[package]
+name = "aegis-client"
+description = "Aegis client: one identity, one API tying together stealth addressing, PQXDH sessions, the Double Ratchet, and the blind mailbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-crypto = { path = "../aegis-crypto" }
+aegis-identity = { path = "../aegis-identity" }
+aegis-session = { path = "../aegis-session" }
+aegis-mailbox = { path = "../aegis-mailbox" }
