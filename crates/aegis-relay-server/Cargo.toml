@@ -1,0 +1,18 @@
+[package]
+name = "aegis-relay-server"
+description = "Run your own Aegis relay: a Ciphra blind server that stores sealed envelopes it can neither read nor attribute"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "aegis-relay-server"
+path = "src/main.rs"
+
+[dependencies]
+# The relay IS a Ciphra blind server. We reuse Ciphra's networked store,
+# on-disk storage, and static transport identity — nothing new is invented.
+ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "981e29cef84cb04a1fe05c49b98a04375c2b1ca5" }
+ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "981e29cef84cb04a1fe05c49b98a04375c2b1ca5" }
+ciphra-crypto = { git = "https://github.com/monxley/ciphra", rev = "981e29cef84cb04a1fe05c49b98a04375c2b1ca5" }

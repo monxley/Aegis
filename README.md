@@ -93,6 +93,8 @@ Aegis/
     │   └── src/             #   lib.rs (Sphinx + LIONESS) · loopix.rs (mix + cover) · rng.rs
     ├── aegis-relay/         # CiphraStore: MailboxStore over a live Ciphra blind server
     │   └── src/             #   lib.rs (CiphraStore) · tests/ (live in-process server)
+    ├── aegis-relay-server/  # `aegis-relay-server` binary: run your own blind relay
+    │   └── src/             #   main.rs (persistent, pinnable Ciphra blind server)
     ├── aegis-client/        # the messenger: one identity, one API over all layers
     │   └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
     └── aegis-api/           # UI-facing engine (AegisApp): identity, contacts, chat, poll
@@ -158,10 +160,33 @@ Sphinx/Loopix, the live-relay integration). The `## Quick start` snippet above i
 a runnable program: drop it into `fn main()` of a crate that depends on
 `aegis-client` + `aegis-mailbox`.
 
-Want a real relay? The relay is Ciphra's blind server. `create_with_relay("host:port")`
-in `aegis-api` connects an app to one (trust-on-first-use).
+### 2. Run your own relay
 
-### 2. The app, on your phone (Android)
+To message someone on another network you need a **relay both of you can
+reach** — a Ciphra blind server that stores sealed envelopes it can neither read
+nor attribute. `aegis-relay-server` is that, turnkey:
+
+```sh
+# On a host with a public IP / forwarded port (a VPS, a home server):
+cargo run -p aegis-relay-server --release -- --listen 0.0.0.0:5077 --data /var/lib/aegis-relay
+```
+
+On first run it creates a persistent transport identity in `<data>/relay_key`
+and prints its **public key** — clients can pin that to defeat a
+first-connection MITM. Restarting keeps the same key and all stored envelopes.
+The process holds no data keys; everything it stores or serves is ciphertext.
+
+Then both participants point their client at it:
+
+```rust
+let mut me = aegis_api::AegisApp::create_with_relay(seed, "relay.example:5077".into())?;
+```
+
+In the app, put `relay.example:5077` in the **relay** field on first launch.
+Both sides must use the **same** relay; a message is stored there until the
+recipient polls for it.
+
+### 3. The app, on your phone (Android)
 
 **Prerequisites**, once:
 
