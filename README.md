@@ -12,9 +12,10 @@ cannot read — and cannot tell who it was between.**
 
 ## Status
 
-**Phases 0–1.6 implemented:** identity & stealth addressing, the post-quantum
+**Phases 0–2 implemented:** identity & stealth addressing, the post-quantum
 session core (PQXDH handshake + Double Ratchet), ML-DSA-65 prekey-bundle
-signing (authenticity), and an ongoing post-quantum ratchet. The protocol is
+signing (authenticity), an ongoing post-quantum ratchet, and blind
+store-and-forward delivery with sealed-sender envelopes. The protocol is
 specified first, so the code is an implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
@@ -29,6 +30,7 @@ $ cargo test --all
 aegis-crypto  : 36 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202/203/204, ML-KEM + ML-DSA
 aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key binding
 aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
+aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
 ```
 
 ### Project map
@@ -43,12 +45,14 @@ Aegis/
     │                        #   keccak · sha256 · hmac/hkdf · rand
     ├── aegis-identity/      # Phase 0 — Layer 1
     │   └── src/             #   identity.rs (keys, signing, Aegis ID) · stealth.rs
-    └── aegis-session/       # Phases 1–1.6 — Layers 2–3
-        └── src/             #   bundle.rs (signed prekeys) · pqxdh.rs · ratchet.rs (PQ)
+    ├── aegis-session/       # Phases 1–1.6 — Layers 2–3
+    │   └── src/             #   bundle.rs (signed prekeys) · pqxdh.rs · ratchet.rs (PQ)
+    └── aegis-mailbox/       # Phase 2 — Layer 4a
+        └── src/             #   sealed-sender envelopes over a blind store-and-forward relay
 ```
 
-Dependency flow: `aegis-identity` and `aegis-session` both build on
-`aegis-crypto`; nothing depends on a third-party crate.
+Dependency flow: `aegis-identity`, `aegis-session` and `aegis-mailbox` all
+build on `aegis-crypto`; nothing depends on a third-party crate.
 
 ### Roadmap
 
@@ -58,8 +62,8 @@ Dependency flow: `aegis-identity` and `aegis-session` both build on
 | 1 | PQXDH handshake + post-quantum Double Ratchet | ✅ implemented |
 | 1.5 | ML-DSA-65 prekey-bundle signing, Aegis ID key binding (authenticity, G8) | ✅ implemented |
 | 1.6 | Ongoing PQ ratchet — ML-KEM re-encapsulation into the root KDF (§4) | ✅ implemented |
-| 2 | Blind store-and-forward delivery, sealed sender | ⏳ next |
-| 3 | Sphinx onion routing → Loopix mixnet | ⏳ |
+| 2 | Blind store-and-forward delivery, sealed sender | ✅ implemented |
+| 3 | Sphinx onion routing → Loopix mixnet | ⏳ next |
 
 ## Design in brief
 
