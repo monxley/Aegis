@@ -400,6 +400,17 @@ impl AegisApp {
         wire::encode_bundle(&self.client.bundle())
     }
 
+    /// The **safety number** shared with the contact `aegis_id`: a short decimal
+    /// fingerprint both sides compute identically. If it matches theirs (compared
+    /// out of band), no one substituted a key — human-verified authentication.
+    pub fn safety_number(&self, aegis_id: String) -> Result<String, AppError> {
+        let peer = AegisId::decode(&aegis_id).map_err(|_| AppError::BadContact)?;
+        Ok(aegis_identity::safety_number(
+            &self.client.aegis_id(),
+            &peer,
+        ))
+    }
+
     /// Add a contact from their Aegis ID and bundle bytes (both malformation
     /// checked). Adding an existing Aegis ID updates its name.
     pub fn add_contact(
