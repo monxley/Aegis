@@ -47,6 +47,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-mix"
+version = "0.0.0"
+dependencies = [
+ "aegis-crypto",
+ "aegis-mailbox",
+ "aegis-net",
+]
+
+[[package]]
 name = "aegis-net"
 version = "0.0.0"
 dependencies = [

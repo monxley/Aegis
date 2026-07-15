@@ -1,0 +1,12 @@
+[package]
+name = "aegis-mix"
+description = "The Aegis mixnet: networked Sphinx mix nodes and a MailboxStore that onion-routes sends through them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-net = { path = "../aegis-net" }
+aegis-mailbox = { path = "../aegis-mailbox" }
+aegis-crypto = { path = "../aegis-crypto" }

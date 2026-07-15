@@ -13,6 +13,7 @@ members = [
     "crates/aegis-client",
     "crates/aegis-relay",
     "crates/aegis-relay-server",
+    "crates/aegis-mix",
     "crates/aegis-api",
 ]
 
