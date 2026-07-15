@@ -239,6 +239,18 @@ impl MailboxStore for Store {
             Store::Mixnet(s) => s.fetch_since(cursor),
         }
     }
+    fn put_for(
+        &mut self,
+        recipient: &aegis_mailbox::RecipientKey,
+        envelope: Envelope,
+    ) -> Result<(), MailboxError> {
+        // Forward to the mixnet's sharded routing; others use the default.
+        match self {
+            Store::Memory(s) => s.put_for(recipient, envelope),
+            Store::Ciphra(s) => s.put_for(recipient, envelope),
+            Store::Mixnet(s) => s.put_for(recipient, envelope),
+        }
+    }
 }
 
 struct StoredContact {
@@ -310,22 +322,25 @@ impl AegisApp {
         let nodes =
             nodes.ok_or_else(|| AppError::Relay(format!("discovery failed: {last_err}")))?;
 
-        // Pick the provider everyone agrees on (lowest id) as the exit; the rest
-        // are the mix pool.
+        // The provider set (sorted by id so all clients agree) shards the mail;
+        // this user reads from its own shard, chosen from its view key.
         let mut providers: Vec<_> = nodes.iter().filter(|n| n.is_provider()).cloned().collect();
         providers.sort_by_key(|n| n.id);
-        let exit = providers
-            .into_iter()
-            .next()
-            .ok_or_else(|| AppError::Relay("network has no provider".into()))?;
+        if providers.is_empty() {
+            return Err(AppError::Relay("network has no provider".into()));
+        }
         let pool: Vec<_> = nodes.iter().filter(|n| !n.is_provider()).cloned().collect();
-        let provider_addr = exit
+
+        let view = client.aegis_id().view_public();
+        let own_idx = aegis_mix::provider_index(&view.0, providers.len());
+        let own_provider = providers[own_idx].clone();
+        let provider_addr = own_provider
             .provider_addr
             .ok_or_else(|| AppError::Relay("provider has no mailbox address".into()))?;
 
         let reader = CiphraStore::connect(provider_addr, None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
-        let store = MixnetStore::new(reader, pool, exit, 2);
+        let store = MixnetStore::new(reader, providers, pool, own_provider, 2);
         Ok(Self::from_parts(client, Store::Mixnet(Box::new(store))))
     }
 
