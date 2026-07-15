@@ -137,7 +137,8 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Cross-provider mail sharding (recipient's provider from its view key) | ✅ implemented |
 | — | Turnkey full node (`--mix`) + Docker/systemd deploy + Flutter CI | ✅ implemented |
 | — | Sphinx reply blocks (SURBs): create / wrap / recover primitive | ✅ implemented |
-| — | Receive-path anonymity: SURB poll-through-mixnet protocol | 🔨 next |
+| — | Receive-path anonymity: SURB poll-through-mixnet protocol | ✅ implemented |
+| — | Console VPS deploy (`deploy/install.sh`): one-command headless node | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -172,14 +173,17 @@ command — `aegis-relay-server --mix` (see [`deploy/`](deploy/) for Docker /
 systemd) — and CI compiles both the Rust workspace and the Flutter app on every
 push.
 
-The Sphinx **reply-block (SURB) primitive** — `Surb::create` / `wrap` /
-`recover`, with a distinct `SURB_MARKER` exit that returns the reply still
-onion-wrapped for the creator to peel — is implemented and tested. What remains
-is the **receive protocol** built on it: a recipient sends SURBs to its provider
-through the mixnet so a poll is answered without the provider learning who is
-asking. (This needs the recipient to be reachable to receive the SURB reply, so
-it pairs with node mode; NATed phones keep the direct poll until a poll-through-
-mixnet circuit lands.)
+**Receive-path anonymity** is implemented on the Sphinx **reply-block (SURB)**
+primitive (`Surb::create` / `SurbHeader::wrap` / `Surb::recover`, with a distinct
+`SURB_MARKER` exit that returns the reply still onion-wrapped for the creator to
+peel). A recipient issues SURBs routed back to its own node and onion-routes a
+fetch request to its provider; the provider answers each with an envelope routed
+back through a SURB, so it **never learns who is asking** (`aegis-mix` proves the
+whole flow end to end in a test: the recipient recovers and opens its mail with
+its view key). This needs the recipient reachable to receive the reply, so it
+pairs with node mode; NATed phones keep the direct poll until a bidirectional
+poll-through-mixnet circuit lands. Wiring it into `AegisApp`'s receive path
+(anonymous receive whenever node mode is on) is the remaining app-side step.
 
 ## Build & run it yourself
 

@@ -10,3 +10,7 @@ repository.workspace = true
 aegis-net = { path = "../aegis-net" }
 aegis-mailbox = { path = "../aegis-mailbox" }
 aegis-crypto = { path = "../aegis-crypto" }
+
+[dev-dependencies]
+# For the anonymous-receive test: seal/open envelopes with a real view keypair.
+aegis-identity = { path = "../aegis-identity" }

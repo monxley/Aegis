@@ -377,13 +377,12 @@ fn build_header(
     (beta, gamma)
 }
 
-/// A **single-use reply block**: a Sphinx header a recipient pre-builds to route
-/// a reply back to itself through a chosen path, plus the keys to recover that
-/// reply. The recipient gives the header (and the first hop's address) to
-/// whoever will reply — a provider answering an anonymous poll — so the reply
-/// finds its way back **without the replier learning the recipient's location**.
-/// Use each SURB once.
-pub struct Surb {
+/// The **public half** of a SURB: the routing header a recipient hands to
+/// whoever will reply. It carries no secret, so it is safe to send to a provider
+/// answering an anonymous poll; the replier uses it to [`wrap`](Self::wrap) a
+/// message and learns nothing about the destination.
+#[derive(Clone, Debug)]
+pub struct SurbHeader {
     /// The mix id the reply enters at (route the wrapped packet to its address).
     pub first_hop: [u8; NODE_ID_LEN],
     /// The reply packet's initial group element.
@@ -392,6 +391,69 @@ pub struct Surb {
     pub beta: [u8; BETA_LEN],
     /// The reply packet's header MAC.
     pub gamma: [u8; MAC_LEN],
+}
+
+/// The fixed byte length of a serialized [`SurbHeader`].
+pub const SURB_HEADER_LEN: usize = NODE_ID_LEN + 32 + BETA_LEN + MAC_LEN;
+
+impl SurbHeader {
+    /// A replier wraps `message` into a reply packet using this header, then
+    /// routes it to [`first_hop`](Self::first_hop). The message must fit
+    /// `PAYLOAD_LEN - 4` bytes.
+    pub fn wrap(&self, message: &[u8]) -> Result<SphinxPacket, SphinxError> {
+        let delta = pad(message)?;
+        Ok(SphinxPacket {
+            alpha: self.alpha,
+            beta: self.beta,
+            gamma: self.gamma,
+            delta,
+        })
+    }
+
+    /// Serialize to the fixed [`SURB_HEADER_LEN`] wire form.
+    pub fn to_bytes(&self) -> [u8; SURB_HEADER_LEN] {
+        let mut out = [0u8; SURB_HEADER_LEN];
+        let mut o = 0;
+        out[o..o + NODE_ID_LEN].copy_from_slice(&self.first_hop);
+        o += NODE_ID_LEN;
+        out[o..o + 32].copy_from_slice(&self.alpha);
+        o += 32;
+        out[o..o + BETA_LEN].copy_from_slice(&self.beta);
+        o += BETA_LEN;
+        out[o..o + MAC_LEN].copy_from_slice(&self.gamma);
+        out
+    }
+
+    /// Parse the fixed wire form from [`to_bytes`](Self::to_bytes).
+    pub fn from_bytes(bytes: &[u8]) -> Option<SurbHeader> {
+        if bytes.len() != SURB_HEADER_LEN {
+            return None;
+        }
+        let mut o = 0;
+        let first_hop = bytes[o..o + NODE_ID_LEN].try_into().ok()?;
+        o += NODE_ID_LEN;
+        let alpha = bytes[o..o + 32].try_into().ok()?;
+        o += 32;
+        let mut beta = [0u8; BETA_LEN];
+        beta.copy_from_slice(&bytes[o..o + BETA_LEN]);
+        o += BETA_LEN;
+        let gamma = bytes[o..o + MAC_LEN].try_into().ok()?;
+        Some(SurbHeader {
+            first_hop,
+            alpha,
+            beta,
+            gamma,
+        })
+    }
+}
+
+/// A **single-use reply block**: the public [`SurbHeader`] a recipient gives out,
+/// plus the secret per-hop keys it keeps to [`recover`](Self::recover) the reply.
+/// The reply finds its way back **without the replier learning the recipient's
+/// location**. Use each SURB once.
+pub struct Surb {
+    /// The public header to hand to a replier.
+    pub header: SurbHeader,
     /// Per-hop shared secrets, kept secret, to peel the returned payload.
     shared: Vec<[u8; 32]>,
 }
@@ -410,24 +472,13 @@ impl Surb {
         let (alphas, shared) = blinding_chain(&ephemeral, path);
         let (beta, gamma) = build_header(path, &shared, SURB_MARKER);
         Ok(Surb {
-            first_hop: path[0].id,
-            alpha: alphas[0],
-            beta,
-            gamma,
+            header: SurbHeader {
+                first_hop: path[0].id,
+                alpha: alphas[0],
+                beta,
+                gamma,
+            },
             shared,
-        })
-    }
-
-    /// A replier wraps `message` into a reply packet using this SURB, then routes
-    /// it to [`first_hop`](Self::first_hop). The message must fit
-    /// `PAYLOAD_LEN - 4` bytes. The replier learns nothing about the destination.
-    pub fn wrap(&self, message: &[u8]) -> Result<SphinxPacket, SphinxError> {
-        let delta = pad(message)?;
-        Ok(SphinxPacket {
-            alpha: self.alpha,
-            beta: self.beta,
-            gamma: self.gamma,
-            delta,
         })
     }
 
@@ -650,9 +701,9 @@ mod tests {
         let mixes = mixes(3);
         let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
         let surb = Surb::create(&path).unwrap();
-        assert_eq!(surb.first_hop, mixes[0].id);
+        assert_eq!(surb.header.first_hop, mixes[0].id);
 
-        let mut pkt = surb.wrap(b"anonymous reply").unwrap();
+        let mut pkt = surb.header.wrap(b"anonymous reply").unwrap();
         let mut recovered = None;
         for (i, mix) in mixes.iter().enumerate() {
             match mix.process(&pkt).unwrap() {
@@ -677,7 +728,7 @@ mod tests {
         let mixes = mixes(2);
         let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
         let surb = Surb::create(&path).unwrap();
-        let mut pkt = surb.wrap(b"reply over the wire").unwrap();
+        let mut pkt = surb.header.wrap(b"reply over the wire").unwrap();
         let mut recovered = None;
         for mix in &mixes {
             let bytes = pkt.to_bytes();
@@ -699,7 +750,7 @@ mod tests {
         let mixes = mixes(1);
         let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
         let surb = Surb::create(&path).unwrap();
-        let pkt = surb.wrap(b"one hop").unwrap();
+        let pkt = surb.header.wrap(b"one hop").unwrap();
         match mixes[0].process(&pkt).unwrap() {
             ProcessedPacket::DeliverReply { payload } => {
                 assert_eq!(surb.recover(&payload).unwrap(), b"one hop");
