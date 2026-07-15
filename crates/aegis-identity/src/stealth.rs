@@ -23,6 +23,7 @@ pub const ADDR_TAG_LEN: usize = 16;
 /// HKDF output: 16-byte address tag + 1-byte view tag.
 const DERIVE_LEN: usize = ADDR_TAG_LEN + 1;
 const ADDR_INFO_PREFIX: &[u8] = b"aegis/addr/v1";
+const ENVELOPE_INFO_PREFIX: &[u8] = b"aegis/envelope/v1";
 
 /// A recipient's published view public key `V = v·G`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -119,4 +120,64 @@ pub fn create_with_ephemeral(
     let shared = checked_shared(r.diffie_hellman(&recipient.0))?;
     let address = tags_from_shared(&shared, &big_r, &recipient.0);
     Ok((address, EphemeralPublic(big_r)))
+}
+
+/// A per-message envelope key `K_env = HKDF(S, "aegis/envelope/v1" ‖ R ‖ V, 32)`,
+/// derived from the same stealth shared secret `S` as the address (a different
+/// `info`, so it is an independent key). A recipient who matches the address
+/// can derive it; the relay cannot. Used to seal the message envelope so even
+/// the ratchet header and sender identity are hidden from the relay.
+pub(crate) fn envelope_key_from_shared(
+    shared: &[u8; 32],
+    ephemeral: &[u8; 32],
+    view_public: &[u8; 32],
+) -> [u8; 32] {
+    let prk = hkdf_extract(&[], shared);
+    let mut info = Vec::with_capacity(ENVELOPE_INFO_PREFIX.len() + 64);
+    info.extend_from_slice(ENVELOPE_INFO_PREFIX);
+    info.extend_from_slice(ephemeral);
+    info.extend_from_slice(view_public);
+    let mut key = [0u8; 32];
+    hkdf_expand(&prk, &info, &mut key);
+    key
+}
+
+/// A sealed-envelope addressing result: the one-time [`StealthAddress`], the
+/// ephemeral public `R` to publish, and the per-message envelope key with which
+/// to seal the payload for the recipient.
+#[derive(Clone)]
+pub struct SealedStealth {
+    /// One-time relay address.
+    pub address: StealthAddress,
+    /// Ephemeral public `R`, published with the message.
+    pub ephemeral: EphemeralPublic,
+    /// Per-message key to AEAD-seal the envelope payload.
+    pub envelope_key: [u8; 32],
+}
+
+/// Sender side: like [`create`], but also derives the per-message envelope key
+/// so the caller can seal the payload (sender identity, ratchet header, …) for
+/// the recipient's eyes only. Draws a random ephemeral from the OS CSPRNG.
+pub fn create_sealed(recipient: &ViewPublicKey) -> Result<SealedStealth, StealthError> {
+    let mut r = [0u8; 32];
+    fill_random(&mut r);
+    create_sealed_with_ephemeral(recipient, r)
+}
+
+/// [`create_sealed`] with a caller-supplied ephemeral scalar (deterministic
+/// testing; clamped internally).
+pub fn create_sealed_with_ephemeral(
+    recipient: &ViewPublicKey,
+    ephemeral_scalar: [u8; 32],
+) -> Result<SealedStealth, StealthError> {
+    let r = SecretKey::from_bytes(ephemeral_scalar);
+    let big_r = r.public_key();
+    let shared = checked_shared(r.diffie_hellman(&recipient.0))?;
+    let address = tags_from_shared(&shared, &big_r, &recipient.0);
+    let envelope_key = envelope_key_from_shared(&shared, &big_r, &recipient.0);
+    Ok(SealedStealth {
+        address,
+        ephemeral: EphemeralPublic(big_r),
+        envelope_key,
+    })
 }
