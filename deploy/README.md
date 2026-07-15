@@ -20,6 +20,24 @@ Expose both on a public IP / forwarded port. `--advertise-mix` and
 `--advertise-provider` are the **public** `host:port` other nodes and clients use
 (not `0.0.0.0`).
 
+## One-command install (plain VPS, console only)
+
+No GUI, no Docker — just SSH into the box and run:
+
+```sh
+# First seed node of a new network:
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh \
+  | sudo PUBLIC_HOST=your.host bash
+
+# Any other node joins an existing one:
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh \
+  | sudo PUBLIC_HOST=node2.host BOOTSTRAP=seed.host:5078 bash
+```
+
+It installs Rust if needed, builds `aegis-relay-server`, creates a service user,
+and installs + starts the systemd unit. Open ports 5077 and 5078, then
+`journalctl -u aegis-node -f`.
+
 ## Quick start (Docker)
 
 ```sh
