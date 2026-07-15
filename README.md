@@ -17,9 +17,9 @@ the hood: identity & stealth addressing, the post-quantum session core (PQXDH
 handshake + Double Ratchet), ML-DSA-65 prekey-bundle signing (authenticity), an
 ongoing post-quantum ratchet, blind store-and-forward delivery with sealed-sender
 envelopes, **Sphinx onion routing** with a non-malleable **LIONESS** payload, and
-**Loopix** mixing + cover traffic. `AegisClient` ties them into one messenger API.
-The protocol is specified first, so the code is an implementation of a *reviewed
-spec*.
+**Loopix** mixing + cover traffic. `AegisClient` ties them into one messenger API,
+and it runs over a **live Ciphra blind server** (`aegis-relay`). The protocol is
+specified first, so the code is an implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
   identity & stealth addressing, PQXDH handshake, post-quantum Double Ratchet,
@@ -35,6 +35,7 @@ aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key bin
 aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
 aegis-net     : 16 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
+aegis-relay   :  2 ok   # a full conversation over a live in-process Ciphra blind server
 aegis-client  :  7 ok   # one-identity messenger: conversations, multi-peer, MITM rejection
 ```
 
@@ -83,13 +84,16 @@ Aegis/
     │   └── src/             #   sealed-sender envelopes over a blind store-and-forward relay
     ├── aegis-net/           # Phases 3–3.5 — Layer 4b
     │   └── src/             #   lib.rs (Sphinx + LIONESS) · loopix.rs (mix + cover) · rng.rs
+    ├── aegis-relay/         # CiphraStore: MailboxStore over a live Ciphra blind server
+    │   └── src/             #   lib.rs (CiphraStore) · tests/ (live in-process server)
     └── aegis-client/        # the messenger: one identity, one API over all layers
         └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
 ```
 
 Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; `aegis-client`
-sits on top of identity + session + mailbox. Nothing depends on a third-party
-crate.
+sits on identity + session + mailbox. The only outside dependency is
+`aegis-relay` → Ciphra's `ciphra-net` (the companion project, reached as a git
+dependency) for the live blind-server client — still nothing from crates.io.
 
 ### Roadmap
 
@@ -103,14 +107,15 @@ crate.
 | 3 | Sphinx onion routing (fixed-size layered packets) | ✅ implemented |
 | 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ✅ implemented |
 | — | Hardening: non-malleable LIONESS onion payload (anti-tagging) | ✅ implemented |
+| — | `aegis-relay`: `MailboxStore` over a live Ciphra blind server | ✅ implemented |
 | — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
-non-malleable **LIONESS** onion payload, and `AegisClient` unifies them into one
-messenger. What remains is hardening and integration, not new layers: an external
-security audit (a release blocker, as for Ciphra), the SPQR KEM-chunking size
-optimization, and wiring `MailboxStore` to a live Ciphra blind server (today the
-included `InMemoryStore` is a local blind relay; the trait is the seam).
+non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
+messenger, and `aegis-relay` runs a full conversation over a **live Ciphra blind
+server** (an in-process `ciphra-server` in the test). What remains is hardening,
+not new layers: an external security audit (a release blocker, as for Ciphra),
+the SPQR KEM-chunking size optimization, and group messaging.
 
 ## Design in brief
 

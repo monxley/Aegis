@@ -27,7 +27,9 @@
 
 use aegis_crypto::aead;
 use aegis_identity::stealth;
-use aegis_identity::{EphemeralPublic, StealthAddress, StealthError, ViewKeypair, ViewPublicKey};
+use aegis_identity::{
+    EphemeralPublic, StealthAddress, StealthError, ViewKeypair, ViewPublicKey, ADDR_TAG_LEN,
+};
 
 /// The envelope AEAD binds the address and ephemeral so a relay cannot move a
 /// ciphertext to a different address undetected.
@@ -50,6 +52,50 @@ pub struct Envelope {
     /// AEAD-sealed payload, openable only by the addressed recipient.
     pub ciphertext: Vec<u8>,
 }
+
+impl Envelope {
+    /// Serialize to bytes for a backing store: `addr_tag(16) ‖ view_tag(1) ‖
+    /// R(32) ‖ ciphertext`.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(16 + 1 + 32 + self.ciphertext.len());
+        out.extend_from_slice(&self.address.addr_tag);
+        out.push(self.address.view_tag);
+        out.extend_from_slice(&self.ephemeral.0);
+        out.extend_from_slice(&self.ciphertext);
+        out
+    }
+
+    /// Parse the encoding produced by [`to_bytes`](Self::to_bytes). Returns
+    /// `None` if the buffer is too short to hold the fixed prefix.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Envelope> {
+        if bytes.len() < 16 + 1 + 32 {
+            return None;
+        }
+        let mut addr_tag = [0u8; ADDR_TAG_LEN];
+        addr_tag.copy_from_slice(&bytes[..16]);
+        let view_tag = bytes[16];
+        let mut ephemeral = [0u8; 32];
+        ephemeral.copy_from_slice(&bytes[17..49]);
+        Some(Envelope {
+            address: StealthAddress { addr_tag, view_tag },
+            ephemeral: EphemeralPublic(ephemeral),
+            ciphertext: bytes[49..].to_vec(),
+        })
+    }
+}
+
+/// An error from a [`MailboxStore`] backend (e.g. a network relay). Opaque:
+/// the local `InMemoryStore` never produces one, but a remote store can fail.
+#[derive(Debug)]
+pub struct MailboxError(pub String);
+
+impl core::fmt::Display for MailboxError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "mailbox store error: {}", self.0)
+    }
+}
+
+impl std::error::Error for MailboxError {}
 
 fn envelope_aad(address: &StealthAddress, ephemeral: &EphemeralPublic) -> Vec<u8> {
     let mut aad = Vec::with_capacity(ENVELOPE_AAD_DOMAIN.len() + 16 + 1 + 32);
@@ -87,12 +133,12 @@ pub fn open(view: &ViewKeypair, envelope: &Envelope) -> Option<Vec<u8>> {
 /// A store-and-forward relay: an append-only log of sealed envelopes. Blind by
 /// construction — it never sees a key.
 pub trait MailboxStore {
-    /// Store an envelope. Returns nothing; the relay cannot read it.
-    fn put(&mut self, envelope: Envelope);
+    /// Store an envelope. The relay cannot read it. May fail on a remote store.
+    fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError>;
 
     /// Return every envelope with index `>= cursor`, and the new cursor. A
     /// recipient scans these with its view key.
-    fn fetch_since(&self, cursor: usize) -> (usize, Vec<Envelope>);
+    fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError>;
 }
 
 /// A simple in-memory [`MailboxStore`] for local use and tests.
@@ -118,13 +164,14 @@ impl InMemoryStore {
 }
 
 impl MailboxStore for InMemoryStore {
-    fn put(&mut self, envelope: Envelope) {
+    fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
         self.log.push(envelope);
+        Ok(())
     }
 
-    fn fetch_since(&self, cursor: usize) -> (usize, Vec<Envelope>) {
+    fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
         let cursor = cursor.min(self.log.len());
-        (self.log.len(), self.log[cursor..].to_vec())
+        Ok((self.log.len(), self.log[cursor..].to_vec()))
     }
 }
 
@@ -133,9 +180,9 @@ pub fn send(
     store: &mut impl MailboxStore,
     recipient: &ViewPublicKey,
     inner: &[u8],
-) -> Result<(), StealthError> {
-    store.put(seal(recipient, inner)?);
-    Ok(())
+) -> Result<(), MailboxError> {
+    let envelope = seal(recipient, inner).map_err(|e| MailboxError(e.to_string()))?;
+    store.put(envelope)
 }
 
 /// Scan the store from `cursor` and return the new cursor plus the `inner`
@@ -145,10 +192,10 @@ pub fn receive(
     store: &impl MailboxStore,
     view: &ViewKeypair,
     cursor: usize,
-) -> (usize, Vec<Vec<u8>>) {
-    let (next, envelopes) = store.fetch_since(cursor);
+) -> Result<(usize, Vec<Vec<u8>>), MailboxError> {
+    let (next, envelopes) = store.fetch_since(cursor)?;
     let mine = envelopes.iter().filter_map(|e| open(view, e)).collect();
-    (next, mine)
+    Ok((next, mine))
 }
 
 #[cfg(test)]
@@ -217,11 +264,11 @@ mod tests {
         send(&mut store, &carol.view_public(), b"carol-1").unwrap();
         send(&mut store, &bob.view_public(), b"bob-2").unwrap();
 
-        let (cursor, bob_msgs) = receive(&store, bob.view(), 0);
+        let (cursor, bob_msgs) = receive(&store, bob.view(), 0).unwrap();
         assert_eq!(bob_msgs, vec![b"bob-1".to_vec(), b"bob-2".to_vec()]);
         assert_eq!(cursor, 3);
 
-        let (_, carol_msgs) = receive(&store, carol.view(), 0);
+        let (_, carol_msgs) = receive(&store, carol.view(), 0).unwrap();
         assert_eq!(carol_msgs, vec![b"carol-1".to_vec()]);
     }
 
@@ -230,11 +277,11 @@ mod tests {
         let bob = identity(1, 2);
         let mut store = InMemoryStore::new();
         send(&mut store, &bob.view_public(), b"first").unwrap();
-        let (cursor, first) = receive(&store, bob.view(), 0);
+        let (cursor, first) = receive(&store, bob.view(), 0).unwrap();
         assert_eq!(first, vec![b"first".to_vec()]);
 
         send(&mut store, &bob.view_public(), b"second").unwrap();
-        let (_, second) = receive(&store, bob.view(), cursor);
+        let (_, second) = receive(&store, bob.view(), cursor).unwrap();
         assert_eq!(second, vec![b"second".to_vec()]);
     }
 }
