@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "aegis-api"
+version = "0.0.0"
+dependencies = [
+ "aegis-client",
+ "aegis-crypto",
+ "aegis-identity",
+ "aegis-mailbox",
+ "aegis-relay",
+ "aegis-session",
+]
+
+[[package]]
 name = "aegis-client"
 version = "0.0.0"
 dependencies = [
