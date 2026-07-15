@@ -1,11 +1,18 @@
 [workspace]
 resolver = "2"
+# app/rust is the flutter_rust_bridge crate (Flutter-side; depends on
+# flutter_rust_bridge + generated code), built by the Flutter toolchain, not
+# this workspace.
+exclude = ["app/rust"]
 members = [
     "crates/aegis-crypto",
     "crates/aegis-identity",
     "crates/aegis-session",
     "crates/aegis-mailbox",
     "crates/aegis-net",
+    "crates/aegis-client",
+    "crates/aegis-relay",
+    "crates/aegis-api",
 ]
 
 [workspace.package]

@@ -68,7 +68,7 @@ fn message_travels_through_the_blind_mailbox() {
     assert_eq!(store.len(), 1);
 
     // Bob scans the relay, recovers the ratchet message, and decrypts it.
-    let (_cursor, inners) = receive(&store, bob_identity.view(), 0);
+    let (_cursor, inners) = receive(&store, bob_identity.view(), 0).unwrap();
     assert_eq!(inners.len(), 1);
     let recovered = deserialize(&inners[0]);
     assert_eq!(
@@ -96,7 +96,7 @@ fn a_stranger_scanning_the_mailbox_learns_nothing() {
 
     // A different identity scanning the same relay recovers nothing.
     let stranger = Identity::from_secret_bytes([90u8; 32], [91u8; 32], [92u8; 32]);
-    let (_, inners) = receive(&store, stranger.view(), 0);
+    let (_, inners) = receive(&store, stranger.view(), 0).unwrap();
     assert!(inners.is_empty());
 }
 
@@ -118,7 +118,7 @@ fn a_multi_message_conversation_flows_through_the_mailbox() {
     for i in 0..4u8 {
         let a = alice.encrypt(&[i; 8], b"").unwrap();
         send(&mut store, &bob_identity.view_public(), &serialize(&a)).unwrap();
-        let (c, got) = receive(&store, bob_identity.view(), bob_cursor);
+        let (c, got) = receive(&store, bob_identity.view(), bob_cursor).unwrap();
         bob_cursor = c;
         assert_eq!(got.len(), 1);
         assert_eq!(
@@ -128,7 +128,7 @@ fn a_multi_message_conversation_flows_through_the_mailbox() {
 
         let b = bob_session.encrypt(&[i ^ 0xff; 8], b"").unwrap();
         send(&mut store, &alice_view.view_public(), &serialize(&b)).unwrap();
-        let (c, got) = receive(&store, alice_view.view(), alice_cursor);
+        let (c, got) = receive(&store, alice_view.view(), alice_cursor).unwrap();
         alice_cursor = c;
         assert_eq!(got.len(), 1);
         assert_eq!(

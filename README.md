@@ -12,11 +12,16 @@ cannot read — and cannot tell who it was between.**
 
 ## Status
 
-**Phases 0–3 implemented:** identity & stealth addressing, the post-quantum
-session core (PQXDH handshake + Double Ratchet), ML-DSA-65 prekey-bundle
-signing (authenticity), an ongoing post-quantum ratchet, blind store-and-forward
-delivery with sealed-sender envelopes, and **Sphinx onion routing** for
-network-layer anonymity. The protocol is specified first, so the code is an
+**All five protocol layers are implemented, and folded into one client.** Under
+the hood: identity & stealth addressing, the post-quantum session core (PQXDH
+handshake + Double Ratchet), ML-DSA-65 prekey-bundle signing (authenticity), an
+ongoing post-quantum ratchet, blind store-and-forward delivery with sealed-sender
+envelopes, **Sphinx onion routing** with a non-malleable **LIONESS** payload, and
+**Loopix** mixing + cover traffic. `AegisClient` ties them into one messenger API,
+and it runs over a **live Ciphra blind server** (`aegis-relay`). `aegis-api`
+wraps it into a UI-facing engine (identity, contacts, chat history), and a
+**Flutter app** (`app/`) drives that engine over `flutter_rust_bridge` —
+Android-first, Linux next. The protocol is specified first, so the code is an
 implementation of a *reviewed spec*.
 
 - 📄 **[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md)** — the full protocol design:
@@ -32,7 +37,40 @@ aegis-crypto  : 36 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202/203/204, ML-KE
 aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key binding
 aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
-aegis-net     :  7 ok   # Sphinx onion routing: round-trip all path lengths, fixed size, MAC
+aegis-net     : 16 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
+aegis-relay   :  2 ok   # a full conversation over a live in-process Ciphra blind server
+aegis-client  :  7 ok   # one-identity messenger: conversations, multi-peer, MITM rejection
+aegis-api     :  3 ok   # UI-facing engine: identity, contacts, chat history, send/poll
+```
+
+The **Flutter app** (`app/`) is the interface on top of `aegis-api`; see
+[app/README.md](app/README.md) for the build.
+
+## Quick start
+
+`AegisClient` is the whole messenger behind one type — one identity backs the
+shareable Aegis ID, the view key, the handshake key, and the signing key; PQXDH
+sessions and the Double Ratchet are established and reused automatically; every
+message goes out as a sealed-sender envelope over a blind relay.
+
+```rust
+use aegis_client::AegisClient;
+use aegis_mailbox::InMemoryStore;
+
+let mut alice = AegisClient::generate();
+let mut bob   = AegisClient::generate();
+let mut relay = InMemoryStore::new();          // a blind store-and-forward relay
+
+// Alice starts a conversation from Bob's published Aegis ID + prekey bundle.
+alice.start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"hi bob").unwrap();
+
+// Bob scans the relay (which learns neither who it is for nor from) and reads it.
+let inbox = bob.receive(&relay);
+assert_eq!(inbox[0].message, b"hi bob");
+
+// Bob replies on the now-established session; Alice reads it.
+bob.send(&mut relay, &inbox[0].from, b"hi alice").unwrap();
+assert_eq!(alice.receive(&relay)[0].message, b"hi alice");
 ```
 
 ### Project map
@@ -51,12 +89,24 @@ Aegis/
     │   └── src/             #   bundle.rs (signed prekeys) · pqxdh.rs · ratchet.rs (PQ)
     ├── aegis-mailbox/       # Phase 2 — Layer 4a
     │   └── src/             #   sealed-sender envelopes over a blind store-and-forward relay
-    └── aegis-net/           # Phase 3 — Layer 4b
-        └── src/             #   Sphinx onion routing (blinding chain · filler · onion payload)
+    ├── aegis-net/           # Phases 3–3.5 — Layer 4b
+    │   └── src/             #   lib.rs (Sphinx + LIONESS) · loopix.rs (mix + cover) · rng.rs
+    ├── aegis-relay/         # CiphraStore: MailboxStore over a live Ciphra blind server
+    │   └── src/             #   lib.rs (CiphraStore) · tests/ (live in-process server)
+    ├── aegis-client/        # the messenger: one identity, one API over all layers
+    │   └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
+    └── aegis-api/           # UI-facing engine (AegisApp): identity, contacts, chat, poll
+        └── src/             #   lib.rs (AegisApp) · wire.rs (prekey-bundle byte format)
+
+app/                         # Flutter interface (Android-first, Linux next)
+├── rust/                    #   flutter_rust_bridge crate wrapping aegis-api
+└── lib/                     #   Dart UI: theme, engine wrapper, screens
 ```
 
-Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; nothing
-depends on a third-party crate.
+Dependency flow: every `aegis-*` crate builds on `aegis-crypto`; `aegis-client`
+sits on identity + session + mailbox. The only outside dependency is
+`aegis-relay` → Ciphra's `ciphra-net` (the companion project, reached as a git
+dependency) for the live blind-server client — still nothing from crates.io.
 
 ### Roadmap
 
@@ -68,7 +118,21 @@ depends on a third-party crate.
 | 1.6 | Ongoing PQ ratchet — ML-KEM re-encapsulation into the root KDF (§4) | ✅ implemented |
 | 2 | Blind store-and-forward delivery, sealed sender | ✅ implemented |
 | 3 | Sphinx onion routing (fixed-size layered packets) | ✅ implemented |
-| 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ⏳ next |
+| 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ✅ implemented |
+| — | Hardening: non-malleable LIONESS onion payload (anti-tagging) | ✅ implemented |
+| — | `aegis-relay`: `MailboxStore` over a live Ciphra blind server | ✅ implemented |
+| — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
+| — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ scaffold |
+
+All five protocol layers have a working, tested implementation with a
+non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
+messenger, and `aegis-relay` runs a full conversation over a **live Ciphra blind
+server** (an in-process `ciphra-server` in the test). On top, `aegis-api` exposes
+a UI-facing engine and a **Flutter app** (`app/`) provides the interface. What
+remains is hardening, not new layers: an external security audit (a release
+blocker, as for Ciphra), the SPQR KEM-chunking size optimization, group
+messaging, and finishing the app (push wake-ups, QR scanning, persisted ratchet
+state).
 
 ## Design in brief
 

@@ -3,6 +3,28 @@
 version = 4
 
 [[package]]
+name = "aegis-api"
+version = "0.0.0"
+dependencies = [
+ "aegis-client",
+ "aegis-crypto",
+ "aegis-identity",
+ "aegis-mailbox",
+ "aegis-relay",
+ "aegis-session",
+]
+
+[[package]]
+name = "aegis-client"
+version = "0.0.0"
+dependencies = [
+ "aegis-crypto",
+ "aegis-identity",
+ "aegis-mailbox",
+ "aegis-session",
+]
+
+[[package]]
 name = "aegis-crypto"
 version = "0.0.0"
 
@@ -30,9 +52,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-relay"
+version = "0.0.0"
+dependencies = [
+ "aegis-client",
+ "aegis-crypto",
+ "aegis-mailbox",
+ "ciphra-net",
+ "ciphra-storage",
+]
+
+[[package]]
 name = "aegis-session"
 version = "0.0.0"
 dependencies = [
  "aegis-crypto",
  "aegis-identity",
 ]
+
+[[package]]
+name = "ciphra-crypto"
+version = "0.0.1"
+source = "git+https://github.com/monxley/ciphra?rev=981e29cef84cb04a1fe05c49b98a04375c2b1ca5#981e29cef84cb04a1fe05c49b98a04375c2b1ca5"
+
+[[package]]
+name = "ciphra-net"
+version = "0.0.1"
+source = "git+https://github.com/monxley/ciphra?rev=981e29cef84cb04a1fe05c49b98a04375c2b1ca5#981e29cef84cb04a1fe05c49b98a04375c2b1ca5"
+dependencies = [
+ "ciphra-crypto",
+ "ciphra-storage",
+]
+
+[[package]]
+name = "ciphra-storage"
+version = "0.0.1"
+source = "git+https://github.com/monxley/ciphra?rev=981e29cef84cb04a1fe05c49b98a04375c2b1ca5#981e29cef84cb04a1fe05c49b98a04375c2b1ca5"
