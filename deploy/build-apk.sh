@@ -6,11 +6,12 @@
 #
 # It installs a JDK, the Flutter SDK, the Android command-line SDK + NDK, and
 # Rust, then builds an installable debug APK and tells you how to copy it to
-# your phone. Everything lands under $HOME; nothing needs root except the one
-# apt-get for the JDK (uses sudo if available).
+# your phone. FULLY ROOTLESS: everything lands under $HOME, no sudo/apt needed
+# (a portable JDK is downloaded if `java` is absent). Only needs git + curl,
+# which you already have if this script was fetched.
 #
-# Needs ~8 GB free disk and ~2 GB RAM (add swap if the box is smaller — see the
-# note printed at the end if the build is killed).
+# Needs ~8 GB free disk and ~2 GB RAM. On a <2 GB box the build may be OOM-killed
+# ("Killed"); without root you can't add swap, so build on a bigger box.
 set -euo pipefail
 
 REPO="${REPO:-https://github.com/monxley/Aegis}"
@@ -24,15 +25,36 @@ FRB_VERSION="2.0.0"
 
 log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
-SUDO=""; [ "$(id -u)" -ne 0 ] && have sudo && SUDO="sudo"
 
-# 1. JDK + basic tools (the only thing needing apt).
-if ! have java; then
-  log "installing JDK + tools (apt)"
-  $SUDO apt-get update -y
-  $SUDO apt-get install -y openjdk-17-jdk-headless git curl unzip xz-utils
+# Extract a zip without requiring `unzip` (portable, no root): unzip if present,
+# else python3, else the JDK's `jar`.
+extract_zip() { # $1=zip  $2=dest_dir
+  if have unzip; then unzip -q "$1" -d "$2"
+  elif have python3; then python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$1" "$2"
+  else ( mkdir -p "$2" && cd "$2" && jar xf "$1" ); fi
+}
+
+# 1. JDK — NO ROOT. Use an existing java, else drop a portable Temurin 17 under
+#    $HOME. (git/curl are already present since this script was fetched + can
+#    clone.)
+if have java; then
+  export JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
+else
+  if [ ! -x "$HOME/jdk/bin/java" ]; then
+    log "installing a portable JDK 17 under \$HOME (no root)"
+    case "$(uname -m)" in
+      x86_64|amd64) JARCH=x64 ;;
+      aarch64|arm64) JARCH=aarch64 ;;
+      *) JARCH=x64 ;;
+    esac
+    mkdir -p "$HOME/jdk"; tmp="$(mktemp -d)"
+    curl -fsSL "https://api.adoptium.net/v3/binary/latest/17/ga/linux/$JARCH/jdk/hotspot/normal/eclipse?project=jdk" -o "$tmp/jdk.tar.gz"
+    tar -xzf "$tmp/jdk.tar.gz" -C "$tmp"
+    jdir="$(find "$tmp" -maxdepth 1 -type d -name 'jdk-17*' | head -1)"
+    rm -rf "$HOME/jdk"; mv "$jdir" "$HOME/jdk"; rm -rf "$tmp"
+  fi
+  export JAVA_HOME="$HOME/jdk"; export PATH="$HOME/jdk/bin:$PATH"
 fi
-export JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
 
 # 2. Rust + Android targets + tooling.
 if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
@@ -61,7 +83,7 @@ if [ ! -x "$SDK/cmdline-tools/latest/bin/sdkmanager" ]; then
   mkdir -p "$SDK/cmdline-tools"
   tmp="$(mktemp -d)"
   curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o "$tmp/clt.zip"
-  unzip -q "$tmp/clt.zip" -d "$tmp"
+  extract_zip "$tmp/clt.zip" "$tmp"
   rm -rf "$SDK/cmdline-tools/latest"; mv "$tmp/cmdline-tools" "$SDK/cmdline-tools/latest"
   rm -rf "$tmp"
 fi
