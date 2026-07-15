@@ -295,6 +295,39 @@ impl AegisId {
             signing_key_hash,
         })
     }
+
+    /// A stable 32-byte fingerprint of everything this identity commits to.
+    pub fn fingerprint(&self) -> [u8; 32] {
+        let mut input = Vec::with_capacity(96);
+        input.extend_from_slice(&self.identity_dh_public);
+        input.extend_from_slice(&self.view_public);
+        input.extend_from_slice(&self.signing_key_hash);
+        sha256(&input)
+    }
+}
+
+const SAFETY_DOMAIN: &[u8] = b"aegis/safety-number/v1";
+
+/// A **safety number** (SAS): a short, order-independent decimal fingerprint of
+/// two identities that both parties compute identically and compare out of band
+/// (read it aloud, scan a QR). If the numbers match, no one substituted a key in
+/// the middle — it turns a self-consistent handshake into human-verified
+/// authentication of *these two* identities.
+pub fn safety_number(a: &AegisId, b: &AegisId) -> String {
+    let (fa, fb) = (a.fingerprint(), b.fingerprint());
+    let (x, y) = if fa <= fb { (fa, fb) } else { (fb, fa) };
+    let mut input = Vec::with_capacity(SAFETY_DOMAIN.len() + 64);
+    input.extend_from_slice(SAFETY_DOMAIN);
+    input.extend_from_slice(&x);
+    input.extend_from_slice(&y);
+    let h = sha256(&input);
+    // 8 groups of 5 digits (each 4 hash bytes → u32 mod 100000).
+    let mut groups = Vec::with_capacity(8);
+    for chunk in h.chunks_exact(4).take(8) {
+        let n = u32::from_be_bytes(chunk.try_into().unwrap()) % 100_000;
+        groups.push(format!("{n:05}"));
+    }
+    groups.join(" ")
 }
 
 impl core::fmt::Display for AegisId {
