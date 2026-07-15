@@ -134,6 +134,89 @@ blocker, as for Ciphra), the SPQR KEM-chunking size optimization, group
 messaging, and finishing the app (push wake-ups, QR scanning, persisted ratchet
 state).
 
+## Build & run it yourself
+
+Aegis is two things: a **Rust core** (the crypto + protocol, buildable anywhere
+Rust runs) and a **Flutter app** on top of it. You can exercise the core from a
+terminal in seconds; the app needs the Flutter toolchain.
+
+### 1. The core, in a terminal
+
+Only [Rust](https://rustup.rs) (stable) is required — nothing from crates.io; the
+one external dependency (Ciphra) is fetched as a git dependency.
+
+```sh
+git clone https://github.com/monxley/Aegis
+cd Aegis
+
+cargo test --all        # run every layer's test vectors + end-to-end tests
+cargo build --release    # build all crates
+```
+
+That builds and verifies the whole protocol (identity, PQXDH, ratchet, mailbox,
+Sphinx/Loopix, the live-relay integration). The `## Quick start` snippet above is
+a runnable program: drop it into `fn main()` of a crate that depends on
+`aegis-client` + `aegis-mailbox`.
+
+Want a real relay? The relay is Ciphra's blind server. `create_with_relay("host:port")`
+in `aegis-api` connects an app to one (trust-on-first-use).
+
+### 2. The app, on your phone (Android)
+
+**Prerequisites**, once:
+
+- [Flutter SDK](https://docs.flutter.dev/get-started/install) (3.3+) and the
+  Android SDK + NDK (installed via Android Studio, or `sdkmanager`).
+- Rust with the Android targets and the bridge tooling:
+
+  ```sh
+  rustup target add aarch64-linux-android armv7-linux-androideabi \
+                    x86_64-linux-android i686-linux-android
+  cargo install flutter_rust_bridge_codegen cargo-ndk
+  ```
+
+**Build & run** (from the repo root):
+
+```sh
+cd app
+
+# 1. Scaffold the platform folders the first time (android/, linux/ …).
+flutter create --platforms=android,linux .
+
+# 2. Generate the Dart↔Rust bindings from aegis-api (writes lib/src/rust/).
+flutter_rust_bridge_codegen generate
+
+# 3. Compile the Rust engine for Android into the app's jniLibs.
+cd rust
+cargo ndk -o ../android/app/src/main/jniLibs build --release
+cd ..
+
+# 4. Plug in a phone (USB debugging on) or start an emulator, then:
+flutter devices        # confirm your phone is listed
+flutter run --release  # builds the APK, installs it, and launches Aegis
+```
+
+To leave an installed APK you can sideload later:
+
+```sh
+flutter build apk --release
+# → build/app/outputs/flutter-apk/app-release.apk
+```
+
+**Linux desktop** (same engine, no Android tooling needed):
+
+```sh
+cd app
+flutter create --platforms=linux .     # first time only
+flutter_rust_bridge_codegen generate
+flutter run -d linux
+```
+
+On first launch the app mints an identity locally (no phone number, no email).
+Leave the relay field blank to try it offline, or point it at a Ciphra server to
+actually send. Share your code from **My identity**; add a contact by pasting
+theirs. See [app/README.md](app/README.md) for the architecture.
+
 ## Design in brief
 
 | Layer | Protocol (published, not invented) | Property |
@@ -157,3 +240,14 @@ Ciphra's primitives. It does not design new cryptography. See
 ## License
 
 [Apache-2.0](LICENSE)
+
+## Support Aegis
+
+Aegis is free, open, and built to keep private conversations private. If it's
+worth something to you, a donation funds the work — especially the external
+security audit that stands between the code and a real release.
+
+- **BTC** — `bc1qlakzxqgaahuqf7newzfc4dfnhk4knnm4pht6q3`
+- **ETH** — `0x6be4c971f7c7e765ab92a9f1eed4098ffdf77805`
+
+Thank you. 🛡️
