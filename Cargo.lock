@@ -23,6 +23,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-net"
+version = "0.0.0"
+dependencies = [
+ "aegis-crypto",
+]
+
+[[package]]
 name = "aegis-session"
 version = "0.0.0"
 dependencies = [

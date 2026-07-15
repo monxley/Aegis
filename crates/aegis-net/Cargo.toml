@@ -1,0 +1,10 @@
+[package]
+name = "aegis-net"
+description = "Aegis network anonymity: Sphinx onion routing over the mixnet (Phase 3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-crypto = { path = "../aegis-crypto" }
