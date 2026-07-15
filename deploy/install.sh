@@ -52,13 +52,22 @@ if [ -z "$PUBLIC_HOST" ]; then
 fi
 BOOTSTRAP="${BOOTSTRAP:-$DEFAULT_BOOTSTRAP}"
 
-# 1. Toolchain: install Rust if cargo is absent.
-if ! command -v cargo >/dev/null 2>&1; then
-  log "installing Rust toolchain"
-  curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
-  # shellcheck disable=SC1091
-  . "$HOME/.cargo/env"
+# 1. Toolchain: ensure a MODERN Rust via rustup. A distro-packaged `cargo` is
+#    often too old to read the workspace lock file (lock version 4), so we always
+#    prefer rustup's toolchain even when some `cargo` already exists.
+if ! command -v rustup >/dev/null 2>&1; then
+  log "installing Rust toolchain (rustup)"
+  curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 fi
+# Put rustup's cargo first on PATH for this shell.
+# shellcheck disable=SC1091
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+export PATH="$HOME/.cargo/bin:$PATH"
+rustup toolchain install stable --profile minimal >/dev/null 2>&1 || true
+rustup default stable >/dev/null 2>&1 || true
+CARGO="$HOME/.cargo/bin/cargo"
+[ -x "$CARGO" ] || CARGO="$(command -v cargo)"
+log "using $($CARGO --version)"
 
 # 2. Build the node binary.
 WORK="$(mktemp -d)"
@@ -69,7 +78,7 @@ else
   git clone --depth 1 "$REPO" "$WORK/src"
   SRC="$WORK/src"
 fi
-( cd "$SRC" && cargo build --release -p aegis-relay-server )
+( cd "$SRC" && "$CARGO" build --release -p aegis-relay-server )
 install -m 0755 "$SRC/target/release/aegis-relay-server" /usr/local/bin/aegis-relay-server
 
 # 3. Service user + data dir.
