@@ -39,6 +39,120 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Version tag on exported app state; bump on a format change.
+const APP_STATE_VERSION: u8 = 1;
+
+/// A little length-prefixing writer for [`AegisApp::export_state`].
+struct StateWriter(Vec<u8>);
+
+impl StateWriter {
+    fn new() -> Self {
+        StateWriter(Vec::new())
+    }
+    fn push_u8(&mut self, v: u8) {
+        self.0.push(v);
+    }
+    fn push_u32(&mut self, v: u32) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
+    fn push_u64(&mut self, v: u64) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
+    fn push_bytes(&mut self, b: &[u8]) {
+        self.push_u32(b.len() as u32);
+        self.0.extend_from_slice(b);
+    }
+    fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+/// Parsed app state (see [`AegisApp::export_state`]).
+struct AppState {
+    client: Vec<u8>,
+    contacts: Vec<StoredContact>,
+    history: HashMap<String, Vec<ChatMessage>>,
+}
+
+/// A bounds-checked reader for [`AegisApp::restore_state`].
+struct StateReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> StateReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        StateReader { buf, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+    fn bytes(&mut self) -> Option<&'a [u8]> {
+        let n = self.u32()? as usize;
+        self.take(n)
+    }
+    fn string(&mut self) -> Option<String> {
+        String::from_utf8(self.bytes()?.to_vec()).ok()
+    }
+}
+
+fn parse_app_state(blob: &[u8]) -> Option<AppState> {
+    let mut r = StateReader::new(blob);
+    if r.u8()? != APP_STATE_VERSION {
+        return None;
+    }
+    let client = r.bytes()?.to_vec();
+
+    let contact_count = r.u32()? as usize;
+    let mut contacts = Vec::with_capacity(contact_count);
+    for _ in 0..contact_count {
+        let name = r.string()?;
+        let aegis_id = r.string()?;
+        let bundle = r.bytes()?.to_vec();
+        contacts.push(StoredContact {
+            name,
+            aegis_id,
+            bundle,
+        });
+    }
+
+    let convo_count = r.u32()? as usize;
+    let mut history = HashMap::with_capacity(convo_count);
+    for _ in 0..convo_count {
+        let aegis_id = r.string()?;
+        let msg_count = r.u32()? as usize;
+        let mut msgs = Vec::with_capacity(msg_count);
+        for _ in 0..msg_count {
+            let from_me = r.u8()? != 0;
+            let text = r.string()?;
+            let timestamp_ms = r.u64()?;
+            msgs.push(ChatMessage {
+                from_me,
+                text,
+                timestamp_ms,
+            });
+        }
+        history.insert(aegis_id, msgs);
+    }
+    Some(AppState {
+        client,
+        contacts,
+        history,
+    })
+}
+
 /// A contact in the address book.
 #[derive(Clone, Debug)]
 pub struct Contact {
@@ -247,6 +361,50 @@ impl AegisApp {
         Ok(())
     }
 
+    /// Snapshot everything worth keeping across a restart: the live sessions and
+    /// mailbox cursor (from the client), the address book, and the conversation
+    /// history. The blob holds ratchet secrets and plaintext history — persist it
+    /// only in the app's private storage, never on the relay. Restore it into an
+    /// app built from the **same master seed** with [`restore_state`](Self::restore_state).
+    pub fn export_state(&self) -> Vec<u8> {
+        let mut w = StateWriter::new();
+        w.push_u8(APP_STATE_VERSION);
+        w.push_bytes(&self.client.export_state());
+
+        w.push_u32(self.contacts.len() as u32);
+        for c in &self.contacts {
+            w.push_bytes(c.name.as_bytes());
+            w.push_bytes(c.aegis_id.as_bytes());
+            w.push_bytes(&c.bundle);
+        }
+
+        w.push_u32(self.history.len() as u32);
+        for (aegis_id, msgs) in &self.history {
+            w.push_bytes(aegis_id.as_bytes());
+            w.push_u32(msgs.len() as u32);
+            for m in msgs {
+                w.push_u8(m.from_me as u8);
+                w.push_bytes(m.text.as_bytes());
+                w.push_u64(m.timestamp_ms);
+            }
+        }
+        w.into_bytes()
+    }
+
+    /// Restore state produced by [`export_state`](Self::export_state). Returns
+    /// [`AppError::Protocol`] (leaving the app unchanged) if the blob is
+    /// malformed or from an unknown version.
+    pub fn restore_state(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        let parsed =
+            parse_app_state(&blob).ok_or_else(|| AppError::Protocol("bad state".into()))?;
+        if !self.client.import_state(&parsed.client) {
+            return Err(AppError::Protocol("bad session state".into()));
+        }
+        self.contacts = parsed.contacts;
+        self.history = parsed.history;
+        Ok(())
+    }
+
     /// Poll the relay for new messages, decrypt them, append to history, and
     /// return what arrived. Call this on a timer or a push wake-up.
     pub fn poll(&mut self) -> Result<Vec<IncomingMessage>, AppError> {
@@ -339,6 +497,51 @@ mod tests {
         assert_eq!(got[0].text, "hi alice");
 
         assert_eq!(alice.history(bob.my_aegis_id()).len(), 2); // sent + received
+    }
+
+    #[test]
+    fn state_survives_a_restart() {
+        // Alice talks to Bob, then "restarts": a fresh app from the same seed
+        // that restores the saved blob must keep the contact, the history, and a
+        // working session.
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_aegis_id(), "hi bob".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        assert_eq!(bob.poll().unwrap().len(), 1);
+
+        // Save Alice, drop her, rebuild from the seed, and restore.
+        let blob = alice.export_state();
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        alice.restore_state(blob).unwrap();
+
+        // The restored app remembers the contact and the history…
+        assert_eq!(alice.contacts().len(), 1);
+        assert_eq!(alice.contacts()[0].name, "Bob");
+        assert_eq!(alice.history(bob.my_aegis_id()).len(), 1);
+
+        // …and the session still works: Bob replies, Alice reads it.
+        bob.send(alice.my_aegis_id(), "still connected".into())
+            .unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let got = alice.poll().unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "still connected");
+    }
+
+    #[test]
+    fn restore_rejects_garbage() {
+        let mut a = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        assert!(matches!(
+            a.restore_state(vec![9, 9, 9]),
+            Err(AppError::Protocol(_))
+        ));
     }
 
     /// Test helper: copy every envelope from one in-memory store into another,
