@@ -19,10 +19,15 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _busy = false;
 
-  Future<void> _create(ConnMode mode, {String? relayAddr}) async {
+  Future<void> _create(
+    ConnMode mode, {
+    String? relayAddr,
+    List<String> bootstrap = const [],
+  }) async {
     setState(() => _busy = true);
     try {
-      await widget.engine.createIdentity(mode: mode, relayAddr: relayAddr);
+      await widget.engine
+          .createIdentity(mode: mode, relayAddr: relayAddr, bootstrap: bootstrap);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => ChatsScreen(engine: widget.engine)),
@@ -34,6 +39,57 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         SnackBar(content: Text('Could not start: $e')),
       );
     }
+  }
+
+  /// Join the mixnet. If no bootstrap node is compiled in, ask for one.
+  Future<void> _createNetwork() async {
+    if (widget.engine.hasBootstrap) {
+      await _create(ConnMode.network);
+      return;
+    }
+    final node = await _askNode();
+    if (node != null && node.isNotEmpty) {
+      await _create(ConnMode.network, bootstrap: [node]);
+    }
+  }
+
+  Future<String?> _askNode() async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Add a mixnet node',
+            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "No node is built in. Enter a node's mix address to join the "
+              'network — you learn the rest automatically.',
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              style: const TextStyle(color: AegisTheme.textHi),
+              decoration: const InputDecoration(hintText: 'node.example:5078'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Join', style: TextStyle(color: AegisTheme.accent)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _advanced() async {
@@ -135,7 +191,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               GradientButton(
                 label: _busy ? 'Creating…' : 'Create my identity',
                 icon: Icons.bolt_rounded,
-                onPressed: _busy ? null : () => _create(ConnMode.network),
+                onPressed: _busy ? null : _createNetwork,
               ),
               const SizedBox(height: 10),
               Row(
