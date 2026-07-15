@@ -32,7 +32,10 @@ use aegis_crypto::fill_random;
 use aegis_mailbox::{Envelope, MailboxError, MailboxStore};
 use aegis_net::loopix::exp_delay;
 use aegis_net::rng::ChaChaRng;
-use aegis_net::{Hop, MixNode, ProcessedPacket, SphinxPacket, NODE_ID_LEN, PACKET_LEN};
+use aegis_net::{
+    Hop, MixNode, ProcessedPacket, SphinxPacket, Surb, SurbHeader, NODE_ID_LEN, PACKET_LEN,
+    SURB_HEADER_LEN,
+};
 
 /// Wire message types (first byte of every connection).
 const MSG_FORWARD: u8 = 0x01;
@@ -184,9 +187,16 @@ pub fn announce(peer: impl ToSocketAddrs, nodes: &[NodeDescriptor]) -> io::Resul
 
 // --- delivery sink -------------------------------------------------------
 
-/// What an exit mix does with a recovered payload — normally: decode the Aegis
-/// envelope and store it in the node's mailbox.
+/// A delivered payload's kind (first byte), so a provider exit can tell a stored
+/// message from an anonymous fetch request.
+const KIND_STORE: u8 = 0x00;
+const KIND_FETCH: u8 = 0x01;
+
+/// What a node does at a delivery exit. A provider stores envelopes and answers
+/// anonymous fetches; a recipient recovers SURB replies.
 pub trait Deliver: Send + Sync {
+    /// Store a delivered envelope (a normal send). `payload` is the envelope
+    /// bytes, kind byte already stripped.
     fn deliver(&self, payload: Vec<u8>);
 
     /// Handle a **SURB reply** that arrived at this node (still onion-wrapped).
@@ -194,6 +204,13 @@ pub trait Deliver: Send + Sync {
     /// this to match the reply to an outstanding SURB and recover it; the default
     /// drops it.
     fn deliver_reply(&self, _payload: Vec<u8>) {}
+
+    /// Provider read for an anonymous fetch: `(new_cursor, envelopes)` for
+    /// everything stored since `cursor`. The default returns `None` (not a
+    /// provider — cannot answer fetches).
+    fn fetch(&self, _cursor: usize) -> Option<(usize, Vec<Envelope>)> {
+        None
+    }
 }
 
 /// A [`Deliver`] that drops payloads — a pure **forwarder** mix that carries
@@ -206,7 +223,8 @@ impl Deliver for NullDeliver {
 }
 
 /// A [`Deliver`] that decodes the payload as an [`Envelope`] and puts it in a
-/// mailbox store (the node's blind provider).
+/// mailbox store (the node's blind provider). Also answers anonymous fetches by
+/// reading that same store.
 pub struct MailboxDeliver<S: MailboxStore + Send>(pub Arc<Mutex<S>>);
 
 impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
@@ -216,6 +234,9 @@ impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
                 let _ = store.put(envelope);
             }
         }
+    }
+    fn fetch(&self, cursor: usize) -> Option<(usize, Vec<Envelope>)> {
+        self.0.lock().ok()?.fetch_since(cursor).ok()
     }
 }
 
@@ -342,9 +363,46 @@ impl<D: Deliver + 'static> MixService<D> {
                     let _ = dispatch(addr, &packet); // best-effort
                 }
             }
-            Ok(ProcessedPacket::Deliver { payload }) => self.deliver.deliver(payload),
+            Ok(ProcessedPacket::Deliver { payload }) => self.handle_delivery(payload),
             Ok(ProcessedPacket::DeliverReply { payload }) => self.deliver.deliver_reply(payload),
             Err(_) => {} // bad MAC / degenerate — drop
+        }
+    }
+
+    /// A payload reached this node as the exit. Its first byte says whether it is
+    /// an envelope to store or an anonymous fetch request to answer.
+    fn handle_delivery(&self, payload: Vec<u8>) {
+        let Some((&kind, body)) = payload.split_first() else {
+            return;
+        };
+        match kind {
+            KIND_STORE => self.deliver.deliver(body.to_vec()),
+            KIND_FETCH => self.handle_fetch(body),
+            _ => {}
+        }
+    }
+
+    /// Answer an anonymous fetch: read this provider's mailbox from the requested
+    /// cursor and send each envelope back through one of the supplied SURBs, so
+    /// the reply reaches the recipient without us learning who they are.
+    fn handle_fetch(&self, body: &[u8]) {
+        let mut r = FetchReader::new(body);
+        let Some((cursor, headers)) = r.parse() else {
+            return;
+        };
+        let Some((_new_cursor, envelopes)) = self.deliver.fetch(cursor) else {
+            return;
+        };
+        for (i, env) in envelopes.iter().enumerate().take(headers.len()) {
+            // Reply payload: the cursor *after* this envelope ‖ the envelope, so
+            // the recipient can advance and re-fetch if more remain.
+            let mut reply = ((cursor + i + 1) as u64).to_le_bytes().to_vec();
+            reply.extend_from_slice(&env.to_bytes());
+            if let Ok(packet) = headers[i].wrap(&reply) {
+                if let Some(addr) = self.directory.addr(&headers[i].first_hop) {
+                    let _ = dispatch(addr, &packet);
+                }
+            }
         }
     }
 }
@@ -400,6 +458,119 @@ pub fn send_cover(pool: &[NodeDescriptor], hops: usize) -> io::Result<()> {
     // Send to a random entry among the pool.
     let entry = &pool[(random_u64() as usize) % pool.len()];
     dispatch(entry.mix_addr, &packet)
+}
+
+// --- anonymous receive (SURB poll-through-mixnet) ------------------------
+
+/// The most SURB headers that fit one fetch request's fixed payload.
+pub const MAX_FETCH_SURBS: usize = (aegis_net::PAYLOAD_LEN - 1 - 8 - 4) / SURB_HEADER_LEN;
+
+/// Reads a fetch request body: `cursor(8) ‖ count(4) ‖ [SurbHeader…]`.
+struct FetchReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+impl<'a> FetchReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        FetchReader { buf, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn parse(&mut self) -> Option<(usize, Vec<SurbHeader>)> {
+        let cursor = u64::from_le_bytes(self.take(8)?.try_into().ok()?) as usize;
+        let count = u32::from_le_bytes(self.take(4)?.try_into().ok()?) as usize;
+        let mut headers = Vec::with_capacity(count);
+        for _ in 0..count {
+            headers.push(SurbHeader::from_bytes(self.take(SURB_HEADER_LEN)?)?);
+        }
+        Some((cursor, headers))
+    }
+}
+
+/// Ask a provider — reached by onion-routing through `path` (whose exit is the
+/// provider) — to return mail since `cursor`, wrapping each envelope in one of
+/// `surbs` and routing it back. The provider **never learns who is asking**: the
+/// request arrives via mixes, and the replies leave via the SURBs. Send at most
+/// [`MAX_FETCH_SURBS`] headers. Dispatch enters the mixnet at `entry_addr`
+/// (`path[0]`'s address).
+pub fn anonymous_fetch(
+    path: &[Hop],
+    entry_addr: impl ToSocketAddrs,
+    cursor: usize,
+    surbs: &[SurbHeader],
+) -> io::Result<()> {
+    let mut body = vec![KIND_FETCH];
+    body.extend_from_slice(&(cursor as u64).to_le_bytes());
+    body.extend_from_slice(&(surbs.len() as u32).to_le_bytes());
+    for h in surbs {
+        body.extend_from_slice(&h.to_bytes());
+    }
+    let packet = SphinxPacket::seal(path, &body)
+        .map_err(|e| io::Error::other(format!("fetch seal: {e}")))?;
+    dispatch(entry_addr, &packet)
+}
+
+/// The recipient side of anonymous receive: a [`Deliver`] that holds the SURBs a
+/// recipient issued and, as replies arrive, recovers the envelopes they carry.
+/// A recipient runs this as its node's delivery sink and issues SURBs routed back
+/// to that node. Cloneable and shareable (its state is behind an `Arc`).
+#[derive(Clone, Default)]
+pub struct SurbInbox {
+    inner: Arc<SurbInboxInner>,
+}
+
+#[derive(Default)]
+struct SurbInboxInner {
+    outstanding: Mutex<Vec<Surb>>,
+    received: Mutex<Vec<(usize, Envelope)>>,
+}
+
+impl SurbInbox {
+    pub fn new() -> Self {
+        SurbInbox::default()
+    }
+
+    /// Register a SURB the recipient built (routed back to its own node), so a
+    /// reply carried by it can be recovered when it arrives.
+    pub fn issue(&self, surb: Surb) {
+        self.inner.outstanding.lock().unwrap().push(surb);
+    }
+
+    /// Take everything recovered so far: `(cursor_after, envelope)` pairs. Scan
+    /// the envelopes with the recipient's view key; advance the poll cursor to the
+    /// largest `cursor_after`.
+    pub fn drain(&self) -> Vec<(usize, Envelope)> {
+        std::mem::take(&mut *self.inner.received.lock().unwrap())
+    }
+}
+
+impl Deliver for SurbInbox {
+    fn deliver(&self, _payload: Vec<u8>) {} // a recipient is not a provider
+
+    fn deliver_reply(&self, payload: Vec<u8>) {
+        let mut outstanding = self.inner.outstanding.lock().unwrap();
+        // A single-use SURB matches exactly one reply; try each until one peels.
+        for i in 0..outstanding.len() {
+            if let Ok(msg) = outstanding[i].recover(&payload) {
+                if msg.len() >= 8 {
+                    let cursor_after = u64::from_le_bytes(msg[..8].try_into().unwrap()) as usize;
+                    if let Some(env) = Envelope::from_bytes(&msg[8..]) {
+                        self.inner
+                            .received
+                            .lock()
+                            .unwrap()
+                            .push((cursor_after, env));
+                    }
+                }
+                outstanding.remove(i);
+                return;
+            }
+        }
+    }
 }
 
 /// Periodically gossip `own` and everything known to every peer in `directory`,
@@ -475,7 +646,10 @@ impl<P: MailboxStore> MixnetStore<P> {
         let mut route = choose(&self.pool, self.hops);
         route.push(exit.clone());
         let hops: Vec<Hop> = route.iter().map(NodeDescriptor::hop).collect();
-        let packet = SphinxPacket::seal(&hops, &envelope.to_bytes())
+        // KIND_STORE ‖ envelope, so the exit provider stores it (vs. a fetch).
+        let mut body = vec![KIND_STORE];
+        body.extend_from_slice(&envelope.to_bytes());
+        let packet = SphinxPacket::seal(&hops, &body)
             .map_err(|e| MailboxError(format!("sphinx seal: {e}")))?;
         dispatch(route[0].mix_addr, &packet).map_err(|e| MailboxError(format!("dispatch: {e}")))?;
         Ok(())
@@ -572,7 +746,10 @@ mod tests {
         let (entry, _) = spawn_mix(1, std::slice::from_ref(&mid), None, Collect(got.clone()));
 
         let path = [entry.hop(), mid.hop(), exit.hop()];
-        let packet = SphinxPacket::seal(&path, b"routed hello").unwrap();
+        // Delivered payloads are kind-tagged; a stored message is KIND_STORE.
+        let mut body = vec![KIND_STORE];
+        body.extend_from_slice(b"routed hello");
+        let packet = SphinxPacket::seal(&path, &body).unwrap();
         dispatch(entry.mix_addr, &packet).unwrap();
 
         wait_for(&got, 1);
@@ -726,6 +903,80 @@ mod tests {
 
         wait_for_mailbox(expected_mb, 1);
         assert_eq!(other_mb.lock().unwrap().fetch_since(0).unwrap().1.len(), 0);
+    }
+
+    #[test]
+    fn anonymous_receive_over_surbs() {
+        use aegis_identity::Identity;
+
+        // Three nodes sharing one directory: a forwarder, a provider (mailbox),
+        // and the recipient's own node (its SURB exit).
+        let mailbox = Arc::new(Mutex::new(InMemoryStore::new()));
+        let inbox = SurbInbox::new();
+
+        let fwd_l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let prov_l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let recip_l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let fwd_node = MixNode::from_seed(&[70u8; 32]);
+        let prov_node = MixNode::from_seed(&[71u8; 32]);
+        let recip_node = MixNode::from_seed(&[72u8; 32]);
+        let fwd = NodeDescriptor::new(fwd_node.public_hop(), fwd_l.local_addr().unwrap(), None);
+        let prov = NodeDescriptor::new(
+            prov_node.public_hop(),
+            prov_l.local_addr().unwrap(),
+            Some("127.0.0.1:1".parse().unwrap()),
+        );
+        let recip =
+            NodeDescriptor::new(recip_node.public_hop(), recip_l.local_addr().unwrap(), None);
+
+        let dir = DirectoryState::with_nodes(&[fwd.clone(), prov.clone(), recip.clone()]);
+        {
+            let d = dir.clone();
+            thread::spawn(move || {
+                let _ = MixService::new(fwd_node, d, NullDeliver).serve(fwd_l);
+            });
+            let d = dir.clone();
+            let mb = MailboxDeliver(Arc::clone(&mailbox));
+            thread::spawn(move || {
+                let _ = MixService::new(prov_node, d, mb).serve(prov_l);
+            });
+            let d = dir.clone();
+            let ib = inbox.clone();
+            thread::spawn(move || {
+                let _ = MixService::new(recip_node, d, ib).serve(recip_l);
+            });
+        }
+
+        // A message was already stored for the recipient in the provider mailbox.
+        let bob = Identity::from_secret_bytes([9u8; 32], [8u8; 32], [7u8; 32]);
+        let envelope = aegis_mailbox::seal(&bob.view_public(), b"anonymous inbox!").unwrap();
+        mailbox.lock().unwrap().put(envelope).unwrap();
+
+        // Bob issues a SURB routed back to his own node (via the forwarder), and
+        // asks the provider (onion-routed via the forwarder) to reply through it.
+        let return_surb = Surb::create(&[fwd.hop(), recip.hop()]).unwrap();
+        let header = return_surb.header.clone();
+        inbox.issue(return_surb);
+
+        anonymous_fetch(&[fwd.hop(), prov.hop()], fwd.mix_addr, 0, &[header]).unwrap();
+
+        // The reply comes back through the mixnet into Bob's inbox.
+        let mut got = Vec::new();
+        for _ in 0..200 {
+            got = inbox.drain();
+            if !got.is_empty() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(got.len(), 1, "expected one envelope back over the SURB");
+        let (cursor_after, env) = &got[0];
+        assert_eq!(*cursor_after, 1);
+        // The provider never learned who Bob is; Bob opens it with his view key.
+        assert_eq!(
+            aegis_mailbox::open(bob.view(), env).as_deref(),
+            Some(&b"anonymous inbox!"[..])
+        );
     }
 
     // --- helpers ---
