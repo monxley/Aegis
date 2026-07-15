@@ -30,7 +30,7 @@
 pub mod identity;
 pub mod stealth;
 
-pub use identity::{AegisId, AegisIdError, Identity, ViewKeypair};
+pub use identity::{safety_number, AegisId, AegisIdError, Identity, ViewKeypair};
 pub use stealth::{
     EphemeralPublic, SealedStealth, StealthAddress, StealthError, ViewPublicKey, ADDR_TAG_LEN,
 };
@@ -49,6 +49,26 @@ mod tests {
         let bob = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a));
         let (address, ephemeral) = stealth::create(&bob.view_public()).unwrap();
         assert!(bob.view().matches(&ephemeral, &address));
+    }
+
+    #[test]
+    fn safety_number_is_symmetric_stable_and_binds_keys() {
+        let alice = Identity::from_secret_bytes(seed(1), seed(2), seed(3)).aegis_id();
+        let bob = Identity::from_secret_bytes(seed(4), seed(5), seed(6)).aegis_id();
+        let mallory = Identity::from_secret_bytes(seed(7), seed(8), seed(9)).aegis_id();
+
+        // Both parties compute the same number regardless of order, repeatably.
+        assert_eq!(safety_number(&alice, &bob), safety_number(&bob, &alice));
+        assert_eq!(safety_number(&alice, &bob), safety_number(&alice, &bob));
+        // A substituted peer key changes it (MITM would be visible).
+        assert_ne!(safety_number(&alice, &bob), safety_number(&alice, &mallory));
+        // Shape: 8 groups of 5 digits.
+        let sn = safety_number(&alice, &bob);
+        let groups: Vec<&str> = sn.split(' ').collect();
+        assert_eq!(groups.len(), 8);
+        assert!(groups
+            .iter()
+            .all(|g| g.len() == 5 && g.chars().all(|c| c.is_ascii_digit())));
     }
 
     #[test]

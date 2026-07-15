@@ -182,6 +182,10 @@ class AegisEngineController extends ChangeNotifier {
   List<ChatMessage> history(String aegisId) =>
       _engine?.history(aegisId: aegisId) ?? const [];
 
+  /// The safety number to compare with a contact out of band (MITM check).
+  String safetyNumber(String aegisId) =>
+      _engine!.safetyNumber(aegisId: aegisId);
+
   void addContact({
     required String name,
     required String aegisId,
