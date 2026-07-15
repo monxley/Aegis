@@ -139,6 +139,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Sphinx reply blocks (SURBs): create / wrap / recover primitive | ✅ implemented |
 | — | Receive-path anonymity: SURB poll-through-mixnet protocol | ✅ implemented |
 | — | Anonymous receive in the app (`create_on_network_with_receive`, node mode) | ✅ implemented |
+| — | Proof-of-work node admission (Sybil resistance, no stake/money) | ✅ implemented |
 | — | Console VPS deploy (`deploy/install.sh`): zero-config headless node | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
