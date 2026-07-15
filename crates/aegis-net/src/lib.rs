@@ -60,8 +60,16 @@ pub const MAX_HOPS: usize = 5;
 /// Fixed routing-header length.
 const BETA_LEN: usize = MAX_HOPS * HOP_META;
 /// Fixed payload length. Messages are padded to this; longer messages are
-/// rejected by [`SphinxPacket::seal`].
-pub const PAYLOAD_LEN: usize = 1024;
+/// rejected by [`SphinxPacket::seal`]. Sized to carry a full Aegis sealed
+/// envelope (a PQXDH handshake with an ML-KEM prekey is ~3.7 KB) so a whole
+/// message rides one fixed-size packet; every packet is identical in size
+/// regardless of the message, which is the point.
+pub const PAYLOAD_LEN: usize = 4096;
+
+/// The fixed on-the-wire size of a serialized [`SphinxPacket`]: `alpha (32) ‖
+/// beta (BETA_LEN) ‖ gamma (MAC_LEN) ‖ delta (PAYLOAD_LEN)`. Every packet is
+/// exactly this many bytes at every hop.
+pub const PACKET_LEN: usize = 32 + BETA_LEN + MAC_LEN + PAYLOAD_LEN;
 
 /// Reserved next-hop id meaning "you are the exit — the payload is yours".
 pub const DEST_MARKER: [u8; NODE_ID_LEN] = [0xff; NODE_ID_LEN];
@@ -267,6 +275,48 @@ impl SphinxPacket {
 
         Ok(SphinxPacket {
             alpha: alphas[0],
+            beta,
+            gamma,
+            delta,
+        })
+    }
+
+    /// Serialize to the fixed [`PACKET_LEN`] wire form so a mix can forward it to
+    /// the next hop. The layout — `alpha ‖ beta ‖ gamma ‖ delta` — is the same
+    /// length at every hop, so a packet's position on its path never leaks.
+    pub fn to_bytes(&self) -> [u8; PACKET_LEN] {
+        let mut out = [0u8; PACKET_LEN];
+        let mut o = 0;
+        out[o..o + 32].copy_from_slice(&self.alpha);
+        o += 32;
+        out[o..o + BETA_LEN].copy_from_slice(&self.beta);
+        o += BETA_LEN;
+        out[o..o + MAC_LEN].copy_from_slice(&self.gamma);
+        o += MAC_LEN;
+        out[o..o + PAYLOAD_LEN].copy_from_slice(&self.delta);
+        out
+    }
+
+    /// Parse the fixed-size wire form from [`to_bytes`](Self::to_bytes). Returns
+    /// `None` if `bytes` is not exactly [`PACKET_LEN`].
+    pub fn from_bytes(bytes: &[u8]) -> Option<SphinxPacket> {
+        if bytes.len() != PACKET_LEN {
+            return None;
+        }
+        let mut o = 0;
+        let mut alpha = [0u8; 32];
+        alpha.copy_from_slice(&bytes[o..o + 32]);
+        o += 32;
+        let mut beta = [0u8; BETA_LEN];
+        beta.copy_from_slice(&bytes[o..o + BETA_LEN]);
+        o += BETA_LEN;
+        let mut gamma = [0u8; MAC_LEN];
+        gamma.copy_from_slice(&bytes[o..o + MAC_LEN]);
+        o += MAC_LEN;
+        let mut delta = [0u8; PAYLOAD_LEN];
+        delta.copy_from_slice(&bytes[o..o + PAYLOAD_LEN]);
+        Some(SphinxPacket {
+            alpha,
             beta,
             gamma,
             delta,
@@ -509,6 +559,46 @@ mod tests {
             let packet = SphinxPacket::seal(&path, &msg).unwrap();
             assert_eq!(route(&mixes, packet), msg, "path length {n}");
         }
+    }
+
+    #[test]
+    fn packet_survives_wire_serialization_between_hops() {
+        // A mix forwards by serializing to bytes and the next hop parses them;
+        // the routed message must still arrive.
+        let mixes = mixes(3);
+        let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
+        let mut pkt = SphinxPacket::seal(&path, b"through the wire").unwrap();
+        let mut delivered = None;
+        for mix in &mixes {
+            // Round-trip through the wire form before this hop processes it.
+            let bytes = pkt.to_bytes();
+            assert_eq!(bytes.len(), PACKET_LEN);
+            pkt = SphinxPacket::from_bytes(&bytes).unwrap();
+            match mix.process(&pkt).unwrap() {
+                ProcessedPacket::Forward { packet, .. } => pkt = *packet,
+                ProcessedPacket::Deliver { payload } => {
+                    delivered = Some(payload);
+                    break;
+                }
+            }
+        }
+        assert_eq!(delivered.as_deref(), Some(&b"through the wire"[..]));
+    }
+
+    #[test]
+    fn from_bytes_rejects_wrong_length() {
+        assert!(SphinxPacket::from_bytes(&[0u8; 10]).is_none());
+        assert!(SphinxPacket::from_bytes(&[0u8; PACKET_LEN + 1]).is_none());
+    }
+
+    #[test]
+    fn an_aegis_sized_envelope_fits_one_packet() {
+        // A PQXDH handshake envelope is ~3.7 KB; it must ride a single packet.
+        let mixes = mixes(2);
+        let path: Vec<_> = mixes.iter().map(|m| m.public_hop()).collect();
+        let envelope = vec![7u8; 3800];
+        let packet = SphinxPacket::seal(&path, &envelope).unwrap();
+        assert_eq!(route(&mixes, packet), envelope);
     }
 
     #[test]
