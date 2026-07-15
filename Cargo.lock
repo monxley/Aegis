@@ -12,6 +12,8 @@ dependencies = [
  "aegis-mailbox",
  "aegis-relay",
  "aegis-session",
+ "ciphra-net",
+ "ciphra-storage",
 ]
 
 [[package]]
