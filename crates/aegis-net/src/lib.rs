@@ -43,6 +43,9 @@
 //! }
 //! ```
 
+pub mod loopix;
+pub mod rng;
+
 use aegis_crypto::x25519::SecretKey;
 use aegis_crypto::{chacha20, hmac_sha256, sha256};
 
