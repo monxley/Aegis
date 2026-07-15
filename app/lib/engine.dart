@@ -17,6 +17,7 @@ const _seedKey = 'aegis.master_seed';
 const _modeKey = 'aegis.mode'; // 'network' | 'relay:<addr>' | 'memory'
 const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 const _nodeKey = 'aegis.node_enabled';
+const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 
 /// How this device reaches the network.
 enum ConnMode { network, relay, memory }
@@ -30,6 +31,16 @@ class AegisEngineController extends ChangeNotifier {
   String _mode = 'network';
   bool _nodeEnabled = false;
   NodeInfo? _node;
+  List<String> _userBootstrap = const [];
+
+  /// The bootstrap nodes actually used: any compiled in (`--dart-define`) plus
+  /// any the user added, de-duplicated.
+  List<String> get _bootstrap =>
+      {...kBootstrapNodes, ..._userBootstrap}.toList();
+
+  /// Whether the app knows any node to bootstrap from (else it can't use the
+  /// mixnet and the user must add one).
+  bool get hasBootstrap => _bootstrap.isNotEmpty;
 
   bool get isReady => _engine != null;
   String get myAegisId => _engine!.myAegisId();
@@ -56,6 +67,7 @@ class AegisEngineController extends ChangeNotifier {
     final seed = prefs.getString(_seedKey);
     if (seed == null) return false;
     _mode = prefs.getString(_modeKey) ?? 'network';
+    _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
     _start(_decodeSeed(seed));
     // Restore sessions, contacts, and history saved on the last run.
     final blob = prefs.getString(_stateKey);
@@ -77,6 +89,7 @@ class AegisEngineController extends ChangeNotifier {
   Future<void> createIdentity({
     ConnMode mode = ConnMode.network,
     String? relayAddr,
+    List<String> bootstrap = const [],
   }) async {
     final seed = _randomSeed();
     _mode = switch (mode) {
@@ -85,6 +98,10 @@ class AegisEngineController extends ChangeNotifier {
       ConnMode.memory => 'memory',
     };
     final prefs = await SharedPreferences.getInstance();
+    if (bootstrap.isNotEmpty) {
+      _userBootstrap = bootstrap;
+      await prefs.setStringList(_bootstrapKey, bootstrap);
+    }
     await prefs.setString(_seedKey, _encodeSeed(seed));
     await prefs.setString(_modeKey, _mode);
     await prefs.remove(_stateKey); // a fresh identity has no prior sessions
@@ -96,7 +113,7 @@ class AegisEngineController extends ChangeNotifier {
   void _start(Uint8List seed) {
     _engine = switch (_mode) {
       'network' =>
-        AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: kBootstrapNodes),
+        AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: _bootstrap),
       _ when _mode.startsWith('relay:') =>
         AegisEngine.newWithRelay(masterSeed: seed, relayAddr: _mode.substring(6)),
       _ => AegisEngine.newInMemory(masterSeed: seed),
@@ -124,7 +141,7 @@ class AegisEngineController extends ChangeNotifier {
   void _startNode() {
     try {
       _node = startForwarderNode(
-        bootstrap: kBootstrapNodes,
+        bootstrap: _bootstrap,
         listen: '0.0.0.0:0',
         delayRate: null,
       );

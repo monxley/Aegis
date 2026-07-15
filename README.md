@@ -136,7 +136,8 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Loopix mix delays + client cover traffic | ✅ implemented |
 | — | Cross-provider mail sharding (recipient's provider from its view key) | ✅ implemented |
 | — | Turnkey full node (`--mix`) + Docker/systemd deploy + Flutter CI | ✅ implemented |
-| — | Receive-path anonymity via Sphinx reply blocks (SURBs) | 🔨 next |
+| — | Sphinx reply blocks (SURBs): create / wrap / recover primitive | ✅ implemented |
+| — | Receive-path anonymity: SURB poll-through-mixnet protocol | 🔨 next |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -171,11 +172,14 @@ command — `aegis-relay-server --mix` (see [`deploy/`](deploy/) for Docker /
 systemd) — and CI compiles both the Rust workspace and the Flutter app on every
 push.
 
-Still open on this layer: **receive-path anonymity** — a recipient still polls
-its provider directly, revealing which provider it uses (sender-side
-unlinkability is already covered). Closing it needs Sphinx single-use reply
-blocks (SURBs) so a poll can be answered without the provider learning who is
-asking; that is the next mixnet increment.
+The Sphinx **reply-block (SURB) primitive** — `Surb::create` / `wrap` /
+`recover`, with a distinct `SURB_MARKER` exit that returns the reply still
+onion-wrapped for the creator to peel — is implemented and tested. What remains
+is the **receive protocol** built on it: a recipient sends SURBs to its provider
+through the mixnet so a poll is answered without the provider learning who is
+asking. (This needs the recipient to be reachable to receive the SURB reply, so
+it pairs with node mode; NATed phones keep the direct poll until a poll-through-
+mixnet circuit lands.)
 
 ## Build & run it yourself
 
