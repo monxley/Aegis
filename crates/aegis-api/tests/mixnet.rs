@@ -16,7 +16,10 @@ use ciphra_net::{serve, SharedStorage};
 use ciphra_storage::Storage;
 
 /// Spawn a Ciphra blind server (the provider's mailbox); return its address.
+/// Also lowers node-admission PoW so the in-process tests stay fast (production
+/// difficulty is much higher); both tests call this before spawning any node.
 fn spawn_ciphra() -> std::net::SocketAddr {
+    aegis_mix::set_pow_difficulty(6);
     let mut rand = [0u8; 8];
     aegis_crypto::fill_random(&mut rand);
     let dir = std::env::temp_dir().join(format!("aegis-mixtest-{}", u64::from_le_bytes(rand)));
