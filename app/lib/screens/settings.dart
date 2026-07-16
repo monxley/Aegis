@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../engine.dart';
+import '../share.dart';
 import '../theme.dart';
+import '../widgets.dart';
+import 'identity.dart';
 
-/// Settings: connection status and the opt-in "become a node" toggle.
+/// Settings: your profile (share code), connection status, and the opt-in
+/// "become a node" toggle.
 class SettingsScreen extends StatefulWidget {
   final AegisEngineController engine;
   const SettingsScreen({super.key, required this.engine});
@@ -29,6 +34,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
+          _card(
+            icon: Icons.badge_rounded,
+            title: 'Your profile',
+            child: _ProfileCard(engine: e),
+          ),
+          const SizedBox(height: 14),
           _card(
             icon: Icons.hub_rounded,
             title: 'Connection',
@@ -131,6 +142,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child,
         ],
       ),
+    );
+  }
+}
+
+/// The profile card body: this device's Aegis ID and a one-tap copy of the full
+/// share code (ID + prekey bundle) to send a friend, who pastes it in Add
+/// contact. No QR — the post-quantum bundle is too large for one.
+class _ProfileCard extends StatelessWidget {
+  final AegisEngineController engine;
+  const _ProfileCard({required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    final aegisId = engine.myAegisId;
+    final code = ShareCode(aegisId, engine.myBundle).encode();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Your Aegis ID',
+            style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+        const SizedBox(height: 4),
+        SelectableText(
+          shortId(aegisId),
+          style: const TextStyle(
+            color: AegisTheme.textHi,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            fontFamily: 'monospace',
+          ),
+        ),
+        const SizedBox(height: 14),
+        GradientButton(
+          label: 'Copy share code',
+          icon: Icons.copy_rounded,
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: code));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Share code copied')),
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.tag_rounded, size: 18),
+                label: const Text('Copy ID only'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AegisTheme.textHi,
+                  side: const BorderSide(color: AegisTheme.surfaceHi),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: aegisId));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Aegis ID copied')),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                label: const Text('Full code'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AegisTheme.textHi,
+                  side: const BorderSide(color: AegisTheme.surfaceHi),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => IdentityScreen(engine: engine),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Send your share code to a friend over any channel. They paste it in '
+          '“Add contact” to message you. Your keys never leave this device.',
+          style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+        ),
+      ],
     );
   }
 }

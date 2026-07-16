@@ -29,7 +29,7 @@ class ChatsScreen extends StatelessWidget {
         actions: [
           IconButton(
             tooltip: 'My identity',
-            icon: const Icon(Icons.qr_code_rounded, color: AegisTheme.textHi),
+            icon: const Icon(Icons.badge_rounded, color: AegisTheme.textHi),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => IdentityScreen(engine: engine),
