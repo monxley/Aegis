@@ -6,6 +6,7 @@ import '../share.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'identity.dart';
+import 'onboarding.dart';
 
 /// Settings: your profile (share code), connection status, and the opt-in
 /// "become a node" toggle.
@@ -95,6 +96,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 14),
+          _card(
+            icon: Icons.restart_alt_rounded,
+            title: 'Reset identity',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Forget this identity and start fresh: a new key, and all '
+                  'contacts and history erased. Use this if you want a clean '
+                  'account. This cannot be undone.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.delete_forever_rounded, size: 18),
+                  label: const Text('Reset identity'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AegisTheme.danger,
+                    side: const BorderSide(color: AegisTheme.danger),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    minimumSize: const Size.fromHeight(0),
+                  ),
+                  onPressed: _busy ? null : _confirmReset,
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
           const Center(
             child: Text(
@@ -106,6 +135,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _confirmReset() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Reset identity?',
+            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+        content: const Text(
+          'Your key, contacts, and message history on this device will be '
+          'erased and a new identity created. This cannot be undone.',
+          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reset', style: TextStyle(color: AegisTheme.danger)),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    await widget.engine.resetIdentity();
+    if (!mounted) return;
+    // Drop every screen and land on onboarding to mint a fresh identity.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => OnboardingScreen(engine: widget.engine)),
+      (route) => false,
     );
   }
 
