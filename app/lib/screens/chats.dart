@@ -7,6 +7,7 @@ import '../widgets.dart';
 import 'add_contact.dart';
 import 'chat.dart';
 import 'identity.dart';
+import 'nodes.dart';
 import 'settings.dart';
 
 /// The home screen: the list of conversations. Rebuilds whenever the engine
@@ -40,6 +41,15 @@ class ChatsScreen extends StatelessWidget {
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => IdentityScreen(engine: engine),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Network nodes',
+            icon: const Icon(Icons.hub_rounded, color: AegisTheme.textHi),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => NodesScreen(engine: engine),
               ),
             ),
           ),
