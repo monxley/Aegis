@@ -70,10 +70,29 @@ class AegisEngineController extends ChangeNotifier {
     return 'Offline (in-memory)';
   }
 
+  /// The Rust bridge may be initialized only once per process. Guard it so a
+  /// second [boot] (e.g. the startup-error Retry) doesn't throw
+  /// "Should not initialize flutter_rust_bridge twice".
+  static bool _rustInited = false;
+
+  static Future<void> _ensureRustInit() async {
+    if (_rustInited) return;
+    try {
+      await RustLib.init();
+    } catch (e) {
+      // Already initialized by an earlier boot in this process — that's fine;
+      // rethrow anything else.
+      if (!e.toString().contains('initialize flutter_rust_bridge twice')) {
+        rethrow;
+      }
+    }
+    _rustInited = true;
+  }
+
   /// Initialize the bridge and, if a seed was saved, restore the engine.
   /// Returns true if an engine is now live (existing account).
   Future<bool> boot() async {
-    await RustLib.init();
+    await _ensureRustInit();
     final prefs = await SharedPreferences.getInstance();
     final seed = prefs.getString(_seedKey);
     if (seed == null) return false;
