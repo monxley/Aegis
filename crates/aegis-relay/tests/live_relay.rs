@@ -87,3 +87,34 @@ fn many_turns_persist_in_the_live_relay() {
         assert_eq!(bob.receive(&relay).unwrap()[0].message, vec![i ^ 0xff]);
     }
 }
+
+#[test]
+fn sweep_deletes_stored_messages_but_a_seq_cursor_survives_it() {
+    use aegis_mailbox::MailboxStore;
+    use std::time::Duration;
+    let addr = spawn_blind_server();
+    let mut store = CiphraStore::connect(addr, None).unwrap();
+
+    let mut alice = AegisClient::from_master_seed([1u8; 32]);
+    let bob = AegisClient::from_master_seed([2u8; 32]);
+    alice
+        .start_conversation(&mut store, &bob.aegis_id(), &bob.bundle(), b"hi")
+        .unwrap();
+
+    // The message is stored and fetchable from the start.
+    let (cursor, msgs) = store.fetch_since(0).unwrap();
+    assert_eq!(msgs.len(), 1, "one stored envelope");
+
+    // Sweeping everything older than 0ms removes it.
+    std::thread::sleep(Duration::from_millis(5));
+    assert_eq!(store.sweep(0).unwrap(), 1, "one message swept");
+    assert!(store.fetch_since(0).unwrap().1.is_empty(), "mailbox emptied");
+
+    // A caught-up recipient (cursor past the deleted seq) still receives the
+    // NEXT message — deletion doesn't shift the sequence-based cursor.
+    alice
+        .send(&mut store, &bob.aegis_id(), b"after sweep")
+        .unwrap();
+    let (_c2, msgs2) = store.fetch_since(cursor).unwrap();
+    assert_eq!(msgs2.len(), 1, "the post-sweep message arrives at the old cursor");
+}

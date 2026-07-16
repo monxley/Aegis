@@ -53,10 +53,21 @@ fn run() -> Result<(), String> {
     let mut advertise_mix: Option<String> = None;
     let mut advertise_provider: Option<String> = None;
     let mut bootstrap: Vec<String> = Vec::new();
+    // Auto-clean: delete a stored message this many seconds after it arrives, so
+    // the mailbox self-cleans and can't grow without bound. Recipients poll
+    // continuously and fetch within seconds; 0 keeps messages forever.
+    let mut ttl_secs: u64 = 600;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--message-ttl-secs" => {
+                ttl_secs = args
+                    .next()
+                    .ok_or("--message-ttl-secs requires a number (0 = keep forever)")?
+                    .parse()
+                    .map_err(|_| "--message-ttl-secs must be a number")?;
+            }
             "--listen" | "-l" => {
                 listen = args
                     .next()
@@ -123,6 +134,7 @@ fn run() -> Result<(), String> {
         advertise_mix,
         advertise_provider,
         &bootstrap,
+        ttl_secs,
     )?;
     // Block on the mailbox server; the mix + gossip run on their own threads.
     match mailbox_thread.join() {
@@ -141,6 +153,7 @@ fn start_mix_node(
     advertise_mix: Option<String>,
     advertise_provider: Option<String>,
     bootstrap: &[String],
+    ttl_secs: u64,
 ) -> Result<(), String> {
     let seed = load_or_create_mix_key(data_dir)?;
     let node = MixNode::from_seed(&seed);
@@ -184,8 +197,36 @@ fn start_mix_node(
     println!("  advertised   : mix {mix_public}  ·  provider {provider_public}");
     println!("  node id      : {}", hex(&desc.id));
     println!("  bootstrap    : {}", bootstrap.join(", "));
+    println!(
+        "  message TTL  : {}",
+        if ttl_secs == 0 {
+            "kept forever".to_string()
+        } else {
+            format!("{ttl_secs}s (mailbox self-cleans)")
+        }
+    );
 
-    let deliver = MailboxDeliver(Arc::new(Mutex::new(mailbox)));
+    let mailbox = Arc::new(Mutex::new(mailbox));
+    // Self-cleaning: periodically delete messages older than the TTL, so the
+    // mailbox can't grow without bound (a full disk silently breaks delivery).
+    if ttl_secs > 0 {
+        let sweeper = mailbox.clone();
+        let ttl_ms = ttl_secs.saturating_mul(1000);
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(60));
+            let deleted = match sweeper.lock() {
+                Ok(store) => store.sweep(ttl_ms),
+                Err(_) => continue,
+            };
+            match deleted {
+                Ok(n) if n > 0 => println!("mailbox: swept {n} expired message(s)"),
+                Err(e) => eprintln!("mailbox: sweep error: {e}"),
+                _ => {}
+            }
+        });
+    }
+
+    let deliver = MailboxDeliver(mailbox);
     let service = MixService::new(node, directory.clone(), deliver);
     thread::spawn(move || {
         let _ = service.serve(mix_listener);
@@ -264,6 +305,9 @@ OPTIONS:
         --advertise-mix <H:P>      Public mix address others route to
         --advertise-provider <H:P> Public mailbox address clients poll
     -b, --bootstrap <ADDR>         A known node to learn the network from (repeatable)
+        --message-ttl-secs <N>     Delete a stored message N seconds after it
+                                   arrives (default 600; 0 = keep forever). The
+                                   mailbox self-cleans so it can't fill the disk.
     -h, --help                     Show this help
 
 Without --mix it is a blind mailbox only. With --mix the same process is a full
