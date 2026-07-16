@@ -34,7 +34,7 @@ pub mod sha256;
 pub mod x25519;
 pub(crate) mod zeroize;
 
-pub use hmac::{hkdf_expand, hkdf_extract, hmac_sha256, MAC_LEN};
+pub use hmac::{hkdf_expand, hkdf_extract, hmac_sha256, pbkdf2_sha256, MAC_LEN};
 pub use rand::fill_random;
 pub use sha256::{sha256, Sha256};
 
