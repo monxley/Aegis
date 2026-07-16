@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 /// A shareable identity token: the Aegis ID and prekey bundle bundled into one
-/// string you can paste or turn into a QR code.
+/// string you copy and send to a friend, who pastes it to add you. (The
+/// post-quantum bundle is a few KB — too large for a QR code — so sharing is by
+/// copy/paste.)
 ///
 /// Format: `<aegis:…>#<base64url(bundle)>`. The Aegis ID keeps its `aegis:`
 /// prefix so a token is self-describing.
