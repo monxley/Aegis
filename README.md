@@ -149,6 +149,9 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Delivery & read receipts (sent · delivered · read), inside the ratchet | ✅ implemented |
 | — | Self-healing mailbox connection (survives dropped / half-open mobile links) | ✅ implemented |
 | — | In-app profile & identity reset; connection status, message times in the UI | ✅ implemented |
+| — | App-lock password: master seed encrypted at rest (PBKDF2 + ChaCha20-Poly1305) | ✅ implemented |
+| — | Network nodes view: browse the gossiped directory, star preferred nodes | ✅ implemented |
+| — | Opt-in new-message notifications (content-free, privacy-preserving) | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
