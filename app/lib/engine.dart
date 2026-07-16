@@ -28,6 +28,8 @@ enum ConnMode { network, relay, memory }
 class AegisEngineController extends ChangeNotifier {
   AegisEngine? _engine;
   Timer? _pollTimer;
+  Timer? _coverTimer;
+  final _rng = Random.secure();
   String _mode = 'network';
   bool _nodeEnabled = false;
   NodeInfo? _node;
@@ -134,7 +136,23 @@ class AegisEngineController extends ChangeNotifier {
     };
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
+    // On the mixnet, emit cover traffic on a Poisson schedule so an observer
+    // can't tell real sends from silence.
+    _coverTimer?.cancel();
+    if (_mode == 'network') _scheduleCover();
     notifyListeners();
+  }
+
+  /// Schedule the next cover packet after an Exp(mean 45s) delay, then repeat.
+  void _scheduleCover() {
+    final u = 1.0 - _rng.nextDouble(); // (0,1]
+    final secs = (-log(u) * 45).clamp(2.0, 600.0);
+    _coverTimer = Timer(Duration(milliseconds: (secs * 1000).round()), () {
+      try {
+        _engine?.sendCover();
+      } catch (_) {}
+      _scheduleCover();
+    });
   }
 
   /// Turn opt-in node mode on or off (persisted). On desktop/Linux this both
@@ -235,6 +253,7 @@ class AegisEngineController extends ChangeNotifier {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _coverTimer?.cancel();
     super.dispose();
   }
 
