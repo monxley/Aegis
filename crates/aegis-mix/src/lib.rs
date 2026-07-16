@@ -328,10 +328,22 @@ pub struct MailboxDeliver<S: MailboxStore + Send>(pub Arc<Mutex<S>>);
 
 impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
     fn deliver(&self, payload: Vec<u8>) {
-        if let Some(envelope) = Envelope::from_bytes(&payload) {
-            if let Ok(mut store) = self.0.lock() {
-                let _ = store.put(envelope);
+        let Some(envelope) = Envelope::from_bytes(&payload) else {
+            eprintln!("aegis: delivery dropped — undecodable envelope ({} bytes)", payload.len());
+            return;
+        };
+        match self.0.lock() {
+            // A failed put means the mailbox couldn't STORE the message (a full
+            // or read-only disk, a dead backend) — the message is lost. Log it
+            // loudly: a silent drop here looks exactly like "messages never
+            // arrive" with a healthy-looking node.
+            Ok(mut store) => {
+                if let Err(e) = store.put(envelope) {
+                    eprintln!("aegis: DELIVERY FAILED — mailbox put error: {e} \
+                        (is the data disk full or read-only?)");
+                }
             }
+            Err(_) => eprintln!("aegis: delivery dropped — mailbox lock poisoned"),
         }
     }
     fn fetch(&self, cursor: usize) -> Option<(usize, Vec<Envelope>)> {
