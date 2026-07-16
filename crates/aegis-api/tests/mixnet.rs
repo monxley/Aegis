@@ -127,3 +127,45 @@ fn bob_receives_anonymously_over_surbs() {
     assert_eq!(got.len(), 1, "bob should receive one message anonymously");
     assert_eq!(got[0].text, "anon hello");
 }
+
+fn poll_until_status(app: &mut AegisApp, peer: &str, want: u8) {
+    for _ in 0..100 {
+        let _ = app.poll();
+        if app
+            .history(peer.to_string())
+            .iter()
+            .any(|m| m.from_me && m.status >= want)
+        {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("status {want} not reached for {peer}");
+}
+
+#[test]
+fn delivery_and_read_receipts() {
+    let ciphra = spawn_ciphra();
+    let provider = spawn_provider(230, ciphra);
+    let boot = vec![provider.mix_addr.to_string()];
+    let mut alice = AegisApp::create_on_network(vec![1u8; 32], boot.clone()).unwrap();
+    let mut bob = AegisApp::create_on_network(vec![2u8; 32], boot).unwrap();
+    alice
+        .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+        .unwrap();
+    bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+        .unwrap();
+
+    alice.send(bob.my_aegis_id(), "hi".into()).unwrap();
+    assert_eq!(alice.history(bob.my_aegis_id())[0].status, 0, "starts sent");
+
+    // Bob receives the text and auto-emits a delivered receipt.
+    assert_eq!(poll_until(&mut bob, 1).len(), 1);
+
+    // Alice polls and sees "delivered".
+    poll_until_status(&mut alice, &bob.my_aegis_id(), 1);
+
+    // Bob opens the chat -> read receipt -> Alice sees "read".
+    bob.mark_read(alice.my_aegis_id()).unwrap();
+    poll_until_status(&mut alice, &bob.my_aegis_id(), 2);
+}
