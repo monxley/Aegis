@@ -208,6 +208,13 @@ impl AegisEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Emit one cover-traffic packet into the mixnet (a decoy), so an observer
+    /// can't tell when this device is actually sending. Call on a Poisson
+    /// schedule; no-op unless on the mixnet.
+    pub fn send_cover(&self) -> Result<(), String> {
+        self.with(|app| app.send_cover()).map_err(|e| e.to_string())
+    }
+
     /// Poll the relay for new messages, decrypt them, append to history, and
     /// return what arrived. Call on a timer or a push wake-up.
     pub fn poll(&self) -> Result<Vec<IncomingMessage>, String> {
