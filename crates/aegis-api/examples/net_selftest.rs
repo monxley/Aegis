@@ -20,12 +20,28 @@ use aegis_api::AegisApp;
 
 fn main() {
     let boot = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: net_selftest <bootstrap mix addr, e.g. host:5078>");
+        eprintln!("usage: net_selftest <bootstrap mix addr host:5078> [mailbox host:5077]");
         std::process::exit(2);
     });
     // The live network mines admission PoW at the production difficulty; match it
     // so the node's descriptor validates on discovery.
     aegis_mix::set_pow_difficulty(20);
+
+    // Layer A — the mailbox alone (no mixnet): connect two clients DIRECTLY to
+    // the provider's Ciphra server and pass a message. This isolates whether the
+    // blind mailbox read/write works over the real network from whether the
+    // onion path does. Mailbox addr defaults to the bootstrap host on :5077.
+    let mailbox = std::env::args().nth(2).unwrap_or_else(|| {
+        let host = boot.rsplit_once(':').map(|(h, _)| h).unwrap_or("127.0.0.1");
+        format!("{host}:5077")
+    });
+    println!("── Layer A: direct mailbox round-trip via {mailbox} ──");
+    match direct_mailbox_check(&mailbox) {
+        Ok(true) => println!("✓ direct mailbox works — the blind server stores & serves fine."),
+        Ok(false) => println!("✗ direct mailbox FAILED — the message never came back. The problem is the mailbox/network, not the mixnet."),
+        Err(e) => println!("✗ direct mailbox errored: {e}"),
+    }
+    println!("── Layer B: full mixnet (onion-routed) round-trip ──");
 
     let mut seed_a = [0u8; 32];
     let mut seed_b = [0u8; 32];
@@ -94,4 +110,29 @@ fn main() {
         1 => println!("~ delivered, but the read receipt didn't return (partial)."),
         _ => println!("~ message arrived but no delivery receipt came back (partial)."),
     }
+}
+
+/// Layer A: two clients connected straight to the provider's Ciphra mailbox
+/// (no mixnet) exchange one message. Returns Ok(true) if it round-trips.
+fn direct_mailbox_check(mailbox: &str) -> Result<bool, String> {
+    let mut sa = [0u8; 32];
+    let mut sb = [0u8; 32];
+    aegis_crypto::fill_random(&mut sa);
+    aegis_crypto::fill_random(&mut sb);
+    let mut a = AegisApp::create_with_relay(sa.to_vec(), mailbox.to_string())
+        .map_err(|e| e.to_string())?;
+    let mut b = AegisApp::create_with_relay(sb.to_vec(), mailbox.to_string())
+        .map_err(|e| e.to_string())?;
+    a.add_contact("B".into(), b.my_aegis_id(), b.my_bundle())
+        .map_err(|e| e.to_string())?;
+    a.send(b.my_aegis_id(), "direct ping".into())
+        .map_err(|e| e.to_string())?;
+    for _ in 0..50 {
+        let got = b.poll().unwrap_or_default();
+        if got.iter().any(|m| m.text == "direct ping") {
+            return Ok(true);
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    Ok(false)
 }
