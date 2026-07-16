@@ -116,3 +116,45 @@ String shortId(String aegisId) {
   if (body.length <= 12) return aegisId;
   return 'aegis:${body.substring(0, 6)}…${body.substring(body.length - 4)}';
 }
+
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// A 24-hour clock, `14:07`.
+String formatClock(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+  return '${d.hour.toString().padLeft(2, '0')}:'
+      '${d.minute.toString().padLeft(2, '0')}';
+}
+
+/// A day label for a chat separator: `Today`, `Yesterday`, `12 Jul`, or
+/// `12 Jul 2024` for other years.
+String formatDayLabel(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+  final now = DateTime.now();
+  final days = DateTime(now.year, now.month, now.day)
+      .difference(DateTime(d.year, d.month, d.day))
+      .inDays;
+  if (days == 0) return 'Today';
+  if (days == 1) return 'Yesterday';
+  final base = '${d.day} ${_months[d.month - 1]}';
+  return d.year == now.year ? base : '$base ${d.year}';
+}
+
+/// A compact stamp for a chat-list row: the clock if today, else the day.
+String formatListTime(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+  final now = DateTime.now();
+  final today = d.year == now.year && d.month == now.month && d.day == now.day;
+  return today ? formatClock(ms) : formatDayLabel(ms);
+}
+
+/// Whether two timestamps fall on different calendar days (a day separator goes
+/// between them in a chat).
+bool differentDay(int aMs, int bMs) {
+  final a = DateTime.fromMillisecondsSinceEpoch(aMs).toLocal();
+  final b = DateTime.fromMillisecondsSinceEpoch(bMs).toLocal();
+  return a.year != b.year || a.month != b.month || a.day != b.day;
+}

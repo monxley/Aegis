@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
@@ -113,6 +114,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     try {
       widget.engine.send(aegisId: widget.contact.aegisId, text: text);
+      HapticFeedback.lightImpact();
       _input.clear();
       _scrollToEnd();
     } catch (e) {
@@ -168,7 +170,19 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
                     itemCount: history.length,
-                    itemBuilder: (context, i) => _Bubble(message: history[i]),
+                    itemBuilder: (context, i) {
+                      final msg = history[i];
+                      final showDay = i == 0 ||
+                          differentDay(
+                              history[i - 1].timestampMs, msg.timestampMs);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (showDay) _DaySeparator(ms: msg.timestampMs),
+                          _Bubble(message: msg),
+                        ],
+                      );
+                    },
                   ),
           ),
           _Composer(controller: _input, onSend: _send),
@@ -182,33 +196,86 @@ class _Bubble extends StatelessWidget {
   final ChatMessage message;
   const _Bubble({required this.message});
 
+  void _copy(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    Clipboard.setData(ClipboardData(text: message.text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Message copied')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mine = message.fromMe;
+    final onBubble = mine ? const Color(0xFF06110F) : AegisTheme.textHi;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.76,
-        ),
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: mine ? AegisTheme.shield : null,
-          color: mine ? null : AegisTheme.surfaceHi,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(mine ? 18 : 4),
-            bottomRight: Radius.circular(mine ? 4 : 18),
+      child: GestureDetector(
+        onLongPress: () => _copy(context),
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.76,
+          ),
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
+          decoration: BoxDecoration(
+            gradient: mine ? AegisTheme.shield : null,
+            color: mine ? null : AegisTheme.surfaceHi,
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(mine ? 18 : 4),
+              bottomRight: Radius.circular(mine ? 4 : 18),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                message.text,
+                style: TextStyle(color: onBubble, fontSize: 15, height: 1.3),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                formatClock(message.timestampMs),
+                style: TextStyle(
+                  // Dimmed: dark-on-gradient for mine, muted grey for theirs.
+                  color: mine ? const Color(0x9906110F) : AegisTheme.textLo,
+                  fontSize: 10,
+                  height: 1.0,
+                ),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A centered day marker (`Today`, `12 Jul`) between messages from different
+/// days.
+class _DaySeparator extends StatelessWidget {
+  final int ms;
+  const _DaySeparator({required this.ms});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: AegisTheme.surface,
+          borderRadius: BorderRadius.circular(10),
+        ),
         child: Text(
-          message.text,
-          style: TextStyle(
-            color: mine ? const Color(0xFF06110F) : AegisTheme.textHi,
-            fontSize: 15,
-            height: 1.3,
+          formatDayLabel(ms),
+          style: const TextStyle(
+            color: AegisTheme.textLo,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
