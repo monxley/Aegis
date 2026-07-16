@@ -42,6 +42,10 @@ pub struct ChatMessage {
     pub from_me: bool,
     pub text: String,
     pub timestamp_ms: u64,
+    /// Per-message id (matches a delivery/read receipt to its message).
+    pub id: u64,
+    /// For our own messages: 0 sent, 1 delivered, 2 read. Unused when received.
+    pub status: u8,
 }
 
 /// A message just delivered by [`AegisEngine::poll`].
@@ -66,6 +70,8 @@ impl From<ApiChatMessage> for ChatMessage {
             from_me: m.from_me,
             text: m.text,
             timestamp_ms: m.timestamp_ms,
+            id: m.id,
+            status: m.status,
         }
     }
 }
@@ -189,6 +195,14 @@ impl AegisEngine {
     /// the first message, then reuses it.
     pub fn send(&self, aegis_id: String, text: String) -> Result<(), String> {
         self.with(|app| app.send(aegis_id, text))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Mark the conversation with `aegis_id` as read — sends read receipts for
+    /// the messages received in it, so the sender's copies show as read. Call
+    /// when the user opens the chat.
+    pub fn mark_read(&self, aegis_id: String) -> Result<(), String> {
+        self.with(|app| app.mark_read(aegis_id))
             .map_err(|e| e.to_string())
     }
 

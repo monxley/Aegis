@@ -25,12 +25,16 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     widget.engine.addListener(_onEngine);
+    // Opening the chat marks its received messages read (sends read receipts).
+    widget.engine.markRead(widget.contact.aegisId);
   }
 
   void _onEngine() {
     if (mounted) {
       setState(() {});
       _scrollToEnd();
+      // New mail may have arrived while we're looking — receipt it as read.
+      widget.engine.markRead(widget.contact.aegisId);
     }
   }
 
@@ -238,19 +242,47 @@ class _Bubble extends StatelessWidget {
                 style: TextStyle(color: onBubble, fontSize: 15, height: 1.3),
               ),
               const SizedBox(height: 2),
-              Text(
-                formatClock(message.timestampMs.toInt()),
-                style: TextStyle(
-                  // Dimmed: dark-on-gradient for mine, muted grey for theirs.
-                  color: mine ? const Color(0x9906110F) : AegisTheme.textLo,
-                  fontSize: 10,
-                  height: 1.0,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    formatClock(message.timestampMs.toInt()),
+                    style: TextStyle(
+                      // Dimmed: dark-on-gradient for mine, muted grey for theirs.
+                      color: mine ? const Color(0x9906110F) : AegisTheme.textLo,
+                      fontSize: 10,
+                      height: 1.0,
+                    ),
+                  ),
+                  if (mine) ...[
+                    const SizedBox(width: 4),
+                    _StatusTick(status: message.status),
+                  ],
+                ],
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The delivery indicator on one of our own bubbles:
+/// `✓` sent · `✓✓` delivered · bright `✓✓` read.
+class _StatusTick extends StatelessWidget {
+  final int status;
+  const _StatusTick({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final delivered = status >= 1;
+    final read = status >= 2;
+    return Icon(
+      delivered ? Icons.done_all_rounded : Icons.check_rounded,
+      size: 13,
+      // On the gradient bubble: dark-dim until read, then bright white.
+      color: read ? Colors.white : const Color(0x9906110F),
     );
   }
 }

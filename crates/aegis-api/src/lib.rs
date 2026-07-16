@@ -40,8 +40,45 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Version tag on exported app state; bump on a format change.
-const APP_STATE_VERSION: u8 = 1;
+/// Version tag on exported app state; bump on a format change. v2 adds the
+/// per-message id and delivery status; v1 blobs still load (id 0, status sent).
+const APP_STATE_VERSION: u8 = 2;
+
+// --- app-level message framing (inside the E2E plaintext) ----------------
+//
+// Every plaintext the ratchet carries starts with a kind byte and an 8-byte
+// message id, so the two sides can tell a chat message from a delivery receipt
+// and match a receipt back to the message it acknowledges.
+const MSG_TEXT: u8 = 0;
+const MSG_DELIVERED: u8 = 1;
+const MSG_READ: u8 = 2;
+
+/// Delivery status of one of *our* sent messages (mirrored to the UI as ticks).
+const STATUS_SENT: u8 = 0;
+const STATUS_DELIVERED: u8 = 1;
+const STATUS_READ: u8 = 2;
+
+fn frame(kind: u8, id: u64, content: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(9 + content.len());
+    v.push(kind);
+    v.extend_from_slice(&id.to_le_bytes());
+    v.extend_from_slice(content);
+    v
+}
+
+fn parse_frame(bytes: &[u8]) -> Option<(u8, u64, &[u8])> {
+    if bytes.len() < 9 {
+        return None;
+    }
+    let id = u64::from_le_bytes(bytes[1..9].try_into().ok()?);
+    Some((bytes[0], id, &bytes[9..]))
+}
+
+fn rand_u64() -> u64 {
+    let mut b = [0u8; 8];
+    aegis_crypto::fill_random(&mut b);
+    u64::from_le_bytes(b)
+}
 
 /// A little length-prefixing writer for [`AegisApp::export_state`].
 struct StateWriter(Vec<u8>);
@@ -111,7 +148,8 @@ impl<'a> StateReader<'a> {
 
 fn parse_app_state(blob: &[u8]) -> Option<AppState> {
     let mut r = StateReader::new(blob);
-    if r.u8()? != APP_STATE_VERSION {
+    let version = r.u8()?;
+    if version != 1 && version != APP_STATE_VERSION {
         return None;
     }
     let client = r.bytes()?.to_vec();
@@ -139,10 +177,18 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
             let from_me = r.u8()? != 0;
             let text = r.string()?;
             let timestamp_ms = r.u64()?;
+            // v2 adds id + status; v1 messages default to id 0, status sent.
+            let (id, status) = if version >= 2 {
+                (r.u64()?, r.u8()?)
+            } else {
+                (0, STATUS_SENT)
+            };
             msgs.push(ChatMessage {
                 from_me,
                 text,
                 timestamp_ms,
+                id,
+                status,
             });
         }
         history.insert(aegis_id, msgs);
@@ -167,6 +213,11 @@ pub struct ChatMessage {
     pub from_me: bool,
     pub text: String,
     pub timestamp_ms: u64,
+    /// Per-message id, so a delivery receipt can be matched back to it.
+    pub id: u64,
+    /// For our own sent messages: [`STATUS_SENT`] / `_DELIVERED` / `_READ`.
+    /// Meaningless for received messages.
+    pub status: u8,
 }
 
 /// A message just delivered by [`AegisApp::poll`].
@@ -265,6 +316,10 @@ pub struct AegisApp {
     store: Store,
     contacts: Vec<StoredContact>,
     history: HashMap<String, Vec<ChatMessage>>,
+    /// Ids of received messages we have already sent a read receipt for, so
+    /// re-opening a chat doesn't re-send. In-memory only (re-sending after a
+    /// restart is harmless — a read receipt is idempotent).
+    read_acked: std::collections::HashSet<u64>,
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -387,6 +442,7 @@ impl AegisApp {
             store,
             contacts: Vec::new(),
             history: HashMap::new(),
+            read_acked: std::collections::HashSet::new(),
         }
     }
 
@@ -461,7 +517,8 @@ impl AegisApp {
     }
 
     /// Send `text` to the contact with `aegis_id`. Establishes the session on
-    /// first message, then reuses it. Appends to the local history.
+    /// first message, then reuses it. Appends to the local history with a fresh
+    /// id and a "sent" status that later delivery/read receipts advance.
     pub fn send(&mut self, aegis_id: String, text: String) -> Result<(), AppError> {
         let contact = self
             .contacts
@@ -471,11 +528,13 @@ impl AegisApp {
         let peer = AegisId::decode(&contact.aegis_id).map_err(|_| AppError::BadContact)?;
         let bundle = wire::decode_bundle(&contact.bundle).ok_or(AppError::BadContact)?;
 
-        match self.client.send(&mut self.store, &peer, text.as_bytes()) {
+        let id = rand_u64();
+        let payload = frame(MSG_TEXT, id, text.as_bytes());
+        match self.client.send(&mut self.store, &peer, &payload) {
             Ok(()) => {}
             Err(ClientError::NoSession) => {
                 self.client
-                    .start_conversation(&mut self.store, &peer, &bundle, text.as_bytes())?;
+                    .start_conversation(&mut self.store, &peer, &bundle, &payload)?;
             }
             Err(e) => return Err(e.into()),
         }
@@ -484,7 +543,52 @@ impl AegisApp {
             from_me: true,
             text,
             timestamp_ms: now_ms(),
+            id,
+            status: STATUS_SENT,
         });
+        Ok(())
+    }
+
+    /// Send a receipt (delivered/read) for message `id` back to `peer` on the
+    /// existing session. Best-effort: never starts a conversation, and a missing
+    /// session or transient relay error is swallowed (the receipt just retries
+    /// implicitly on the next event). Receipts carry no text.
+    fn send_receipt(&mut self, peer: &AegisId, id: u64, kind: u8) {
+        let payload = frame(kind, id, &[]);
+        let _ = self.client.send(&mut self.store, peer, &payload);
+    }
+
+    /// Advance the status of our sent message `id` in the conversation with
+    /// `aegis_id` (never downgrades).
+    fn advance_status(&mut self, aegis_id: &str, id: u64, status: u8) {
+        if let Some(msgs) = self.history.get_mut(aegis_id) {
+            for m in msgs.iter_mut() {
+                if m.from_me && m.id == id && status > m.status {
+                    m.status = status;
+                }
+            }
+        }
+    }
+
+    /// Mark the conversation with `aegis_id` as read: send a read receipt for
+    /// every received message we haven't acked yet. Call when the user opens the
+    /// chat. The peer's copies of those messages then show as read.
+    pub fn mark_read(&mut self, aegis_id: String) -> Result<(), AppError> {
+        let peer = AegisId::decode(&aegis_id).map_err(|_| AppError::BadContact)?;
+        let ids: Vec<u64> = self
+            .history
+            .get(&aegis_id)
+            .map(|msgs| {
+                msgs.iter()
+                    .filter(|m| !m.from_me && !self.read_acked.contains(&m.id))
+                    .map(|m| m.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ids {
+            self.send_receipt(&peer, id, MSG_READ);
+            self.read_acked.insert(id);
+        }
         Ok(())
     }
 
@@ -513,6 +617,8 @@ impl AegisApp {
                 w.push_u8(m.from_me as u8);
                 w.push_bytes(m.text.as_bytes());
                 w.push_u64(m.timestamp_ms);
+                w.push_u64(m.id);
+                w.push_u8(m.status);
             }
         }
         w.into_bytes()
@@ -539,25 +645,39 @@ impl AegisApp {
         let mut out = Vec::with_capacity(received.len());
         for r in received {
             let aegis_id = r.from.encode();
-            let text = String::from_utf8_lossy(&r.message).into_owned();
-            let from_name = self
-                .contacts
-                .iter()
-                .find(|c| c.aegis_id == aegis_id)
-                .map(|c| c.name.clone());
-            self.history
-                .entry(aegis_id.clone())
-                .or_default()
-                .push(ChatMessage {
-                    from_me: false,
-                    text: text.clone(),
-                    timestamp_ms: now_ms(),
-                });
-            out.push(IncomingMessage {
-                from_aegis_id: aegis_id,
-                from_name,
-                text,
-            });
+            let Some((kind, id, content)) = parse_frame(&r.message) else {
+                continue; // not a framed Aegis payload — ignore
+            };
+            match kind {
+                MSG_TEXT => {
+                    let text = String::from_utf8_lossy(content).into_owned();
+                    let from_name = self
+                        .contacts
+                        .iter()
+                        .find(|c| c.aegis_id == aegis_id)
+                        .map(|c| c.name.clone());
+                    self.history
+                        .entry(aegis_id.clone())
+                        .or_default()
+                        .push(ChatMessage {
+                            from_me: false,
+                            text: text.clone(),
+                            timestamp_ms: now_ms(),
+                            id,
+                            status: STATUS_SENT,
+                        });
+                    // Confirm receipt to the sender (their copy turns "delivered").
+                    self.send_receipt(&r.from, id, MSG_DELIVERED);
+                    out.push(IncomingMessage {
+                        from_aegis_id: aegis_id,
+                        from_name,
+                        text,
+                    });
+                }
+                MSG_DELIVERED => self.advance_status(&aegis_id, id, STATUS_DELIVERED),
+                MSG_READ => self.advance_status(&aegis_id, id, STATUS_READ),
+                _ => {}
+            }
         }
         Ok(out)
     }
