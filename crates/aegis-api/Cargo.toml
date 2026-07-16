@@ -19,5 +19,5 @@ aegis-crypto = { path = "../aegis-crypto" }
 # For the `live_message` example and the mixnet integration test: run a Ciphra
 # blind server + mix nodes in-process so sends go over a real network.
 aegis-net = { path = "../aegis-net" }
-ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "981e29cef84cb04a1fe05c49b98a04375c2b1ca5" }
-ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "981e29cef84cb04a1fe05c49b98a04375c2b1ca5" }
+ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
+ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
