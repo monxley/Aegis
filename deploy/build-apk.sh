@@ -110,6 +110,17 @@ flutter pub get >/dev/null
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
 flutter_rust_bridge_codegen generate
 
+# FRB's codegen writes rust/src/frb_generated.rs but does NOT wire it into the
+# crate root, so `mod frb_generated;` is missing and the glue (frb_get_rust_
+# content_hash, the wire_* fns) never gets compiled into the .so. The library
+# then builds clean but fails at load with:
+#   undefined symbol: frb_get_rust_content_hash
+# Declare the module now that the generated file exists (idempotent).
+if [ -f rust/src/frb_generated.rs ] && ! grep -qE '^\s*(pub\s+)?mod frb_generated;' rust/src/lib.rs; then
+  log "wiring 'mod frb_generated;' into rust/src/lib.rs (codegen leaves it out)"
+  printf '\nmod frb_generated;\n' >> rust/src/lib.rs
+fi
+
 log "cross-compiling the Rust engine for Android (a few minutes)"
 ( cd rust && rm -f Cargo.lock && \
   cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release )
