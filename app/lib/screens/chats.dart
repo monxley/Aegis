@@ -158,7 +158,7 @@ class _ContactTile extends StatelessWidget {
       trailing: last == null
           ? null
           : Text(
-              formatListTime(last.timestampMs),
+              formatListTime(last.timestampMs.toInt()),
               style: const TextStyle(color: AegisTheme.textLo, fontSize: 12),
             ),
       onTap: () => Navigator.of(context).push(
