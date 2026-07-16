@@ -95,6 +95,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _card(
+            icon: Icons.notifications_rounded,
+            title: 'Notifications',
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Alert me when a message arrives. The alert never shows the '
+                    'message text — only that something came in.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                ),
+                Switch(
+                  value: e.notificationsEnabled,
+                  onChanged: _busy
+                      ? null
+                      : (v) async {
+                          setState(() => _busy = true);
+                          await widget.engine.setNotificationsEnabled(v);
+                          if (mounted) setState(() => _busy = false);
+                        },
+                  activeColor: AegisTheme.accent,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
             icon: Icons.hub_rounded,
             title: 'Connection',
             child: Text(
