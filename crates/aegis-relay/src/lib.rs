@@ -20,6 +20,7 @@
 //! change an application makes to go from a local demo to a networked relay —
 //! the envelope format and the relay's blindness are identical.
 
+use std::cell::RefCell;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::mpsc;
 use std::thread;
@@ -67,8 +68,16 @@ fn connect_with_timeout(
 }
 
 /// A [`MailboxStore`] backed by a connection to a live Ciphra blind server.
+///
+/// The connection is **self-healing**: a long-lived reader on a mobile device
+/// loses its TCP connection routinely (network changes, doze, NAT rebinding),
+/// which would otherwise make every later read fail silently — the classic
+/// "messages send but never arrive". On any failed operation the store
+/// reconnects once and retries, so receiving resumes without an app restart.
 pub struct CiphraStore {
-    remote: RemoteStorage,
+    remote: RefCell<RemoteStorage>,
+    addr: Vec<SocketAddr>,
+    server_key: Option<[u8; 32]>,
     next_seq: u64,
 }
 
@@ -81,13 +90,19 @@ impl CiphraStore {
         addr: impl std::net::ToSocketAddrs,
         server_key: Option<[u8; 32]>,
     ) -> std::io::Result<Self> {
-        let remote = connect_with_timeout(addr, server_key)?;
+        let addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
+        let remote = connect_with_timeout(addrs.as_slice(), server_key)?;
         // Resume the sequence past whatever this mailbox already holds.
         let next_seq = remote
             .scan_prefix(PREFIX)
             .map(|p| p.len() as u64)
             .unwrap_or(0);
-        Ok(CiphraStore { remote, next_seq })
+        Ok(CiphraStore {
+            remote: RefCell::new(remote),
+            addr: addrs,
+            server_key,
+            next_seq,
+        })
     }
 
     fn key(seq: u64) -> Vec<u8> {
@@ -95,23 +110,41 @@ impl CiphraStore {
         key.extend_from_slice(&seq.to_be_bytes());
         key
     }
+
+    /// Replace the connection with a fresh one (after a failed operation).
+    fn reconnect(&self) -> Result<(), MailboxError> {
+        let fresh = connect_with_timeout(self.addr.as_slice(), self.server_key)
+            .map_err(|e| MailboxError(format!("reconnect: {e}")))?;
+        *self.remote.borrow_mut() = fresh;
+        Ok(())
+    }
+
+    /// Run `op` on the connection; if it fails (a dropped socket), reconnect
+    /// once and try again. Both a transient network blip and a server restart
+    /// are recovered without the caller ever seeing the first error.
+    fn with_retry<T, E: std::fmt::Display>(
+        &self,
+        op: impl Fn(&RemoteStorage) -> Result<T, E>,
+    ) -> Result<T, MailboxError> {
+        if let Ok(v) = op(&self.remote.borrow()) {
+            return Ok(v);
+        }
+        self.reconnect()?;
+        op(&self.remote.borrow()).map_err(|e| MailboxError(e.to_string()))
+    }
 }
 
 impl MailboxStore for CiphraStore {
     fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
         let key = Self::key(self.next_seq);
-        self.remote
-            .put(&key, &envelope.to_bytes())
-            .map_err(|e| MailboxError(e.to_string()))?;
+        let bytes = envelope.to_bytes();
+        self.with_retry(|r| r.put(&key, &bytes))?;
         self.next_seq += 1;
         Ok(())
     }
 
     fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
-        let mut pairs = self
-            .remote
-            .scan_prefix(PREFIX)
-            .map_err(|e| MailboxError(e.to_string()))?;
+        let mut pairs = self.with_retry(|r| r.scan_prefix(PREFIX))?;
         // Order by key (= sequence number) so the cursor is stable.
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         let total = pairs.len();
