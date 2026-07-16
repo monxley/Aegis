@@ -65,15 +65,16 @@ if [ ! -x "$CARGO" ]; then
 fi
 log "using $("$CARGO" --version)"
 
-# 2. Build the node binary.
+# 2. Build the node binary — ALWAYS from a fresh clone of the repo. Reusing a
+#    checkout in $PWD (the old behaviour) silently deployed whatever stale code
+#    happened to be there, so a re-deploy could ship an old binary while looking
+#    like it updated. (To build a local working tree instead, run
+#    `cargo build --release -p aegis-relay-server` yourself.)
 WORK="$(mktemp -d)"
-log "building aegis-relay-server (this takes a few minutes)"
-if [ -f "Cargo.toml" ] && grep -q "aegis-relay-server" Cargo.toml 2>/dev/null; then
-  SRC="$PWD"
-else
-  git clone --depth 1 "$REPO" "$WORK/src"
-  SRC="$WORK/src"
-fi
+log "cloning $REPO (fresh, so the deployed node is always current)"
+git clone --depth 1 "$REPO" "$WORK/src"
+SRC="$WORK/src"
+log "building aegis-relay-server @ $(cd "$SRC" && git rev-parse --short HEAD) (a few minutes)"
 # Regenerate the lock file with THIS cargo, so an unexpected version mismatch
 # can never block the build.
 rm -f "$SRC/Cargo.lock"
