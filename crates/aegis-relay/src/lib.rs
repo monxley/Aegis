@@ -31,6 +31,8 @@ use ciphra_net::RemoteStorage;
 
 /// Key prefix under which mailbox envelopes are stored in the Ciphra database.
 const PREFIX: &[u8] = b"aegis/mbox/";
+/// Parallel prefix holding each envelope's store time (for TTL sweeps).
+const META_PREFIX: &[u8] = b"aegis/meta/";
 
 /// How long to wait for the whole connect + post-quantum handshake before
 /// giving up. `RemoteStorage::connect` does its own `TcpStream::connect` and
@@ -92,10 +94,17 @@ impl CiphraStore {
     ) -> std::io::Result<Self> {
         let addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
         let remote = connect_with_timeout(addrs.as_slice(), server_key)?;
-        // Resume the sequence past whatever this mailbox already holds.
+        // Resume PAST the highest sequence present — not the count, which would
+        // collide after a sweep deletes old low-sequence envelopes.
         let next_seq = remote
             .scan_prefix(PREFIX)
-            .map(|p| p.len() as u64)
+            .map(|p| {
+                p.iter()
+                    .filter_map(|(k, _)| seq_from(k, PREFIX))
+                    .max()
+                    .map(|m| m + 1)
+                    .unwrap_or(0)
+            })
             .unwrap_or(0);
         Ok(CiphraStore {
             remote: RefCell::new(remote),
@@ -109,6 +118,38 @@ impl CiphraStore {
         let mut key = PREFIX.to_vec();
         key.extend_from_slice(&seq.to_be_bytes());
         key
+    }
+
+    fn meta_key(seq: u64) -> Vec<u8> {
+        let mut key = META_PREFIX.to_vec();
+        key.extend_from_slice(&seq.to_be_bytes());
+        key
+    }
+
+    /// Delete every stored envelope older than `older_than_ms` (by its store
+    /// time), so a node self-cleans and its mailbox can't grow without bound.
+    /// Recipients poll continuously and fetch within seconds, so a short TTL
+    /// keeps almost nothing at rest. Returns how many were removed.
+    pub fn sweep(&self, older_than_ms: u64) -> Result<usize, MailboxError> {
+        let cutoff = now_ms().saturating_sub(older_than_ms);
+        let metas = self.with_retry(|r| r.scan_prefix(META_PREFIX))?;
+        let mut deleted = 0usize;
+        for (mkey, val) in &metas {
+            let Some(seq) = seq_from(mkey, META_PREFIX) else {
+                continue;
+            };
+            let ts = val
+                .as_slice()
+                .try_into()
+                .map(u64::from_be_bytes)
+                .unwrap_or(0);
+            if ts < cutoff {
+                let _ = self.with_retry(|r| r.delete(&Self::key(seq)));
+                let _ = self.with_retry(|r| r.delete(&Self::meta_key(seq)));
+                deleted += 1;
+            }
+        }
+        Ok(deleted)
     }
 
     /// Replace the connection with a fresh one (after a failed operation).
@@ -136,23 +177,51 @@ impl CiphraStore {
 
 impl MailboxStore for CiphraStore {
     fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
-        let key = Self::key(self.next_seq);
+        let seq = self.next_seq;
+        let key = Self::key(seq);
         let bytes = envelope.to_bytes();
         self.with_retry(|r| r.put(&key, &bytes))?;
+        // Record the store time so a sweep can expire it later (best-effort).
+        let mkey = Self::meta_key(seq);
+        let ts = now_ms().to_be_bytes();
+        let _ = self.with_retry(|r| r.put(&mkey, &ts));
         self.next_seq += 1;
         Ok(())
     }
 
     fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
-        let mut pairs = self.with_retry(|r| r.scan_prefix(PREFIX))?;
-        // Order by key (= sequence number) so the cursor is stable.
-        pairs.sort_by(|a, b| a.0.cmp(&b.0));
-        let total = pairs.len();
-        let cursor = cursor.min(total);
-        let envelopes = pairs[cursor..]
-            .iter()
-            .filter_map(|(_, value)| Envelope::from_bytes(value))
-            .collect();
-        Ok((total, envelopes))
+        // Cursor is the next SEQUENCE to read (not an index), so deleting old
+        // envelopes never shifts it and a recipient can't miss or re-read.
+        let pairs = self.with_retry(|r| r.scan_prefix(PREFIX))?;
+        let from = cursor as u64;
+        let mut next = from;
+        let mut items: Vec<(u64, Envelope)> = Vec::new();
+        for (key, value) in &pairs {
+            let Some(seq) = seq_from(key, PREFIX) else {
+                continue;
+            };
+            if seq >= from {
+                if let Some(env) = Envelope::from_bytes(value) {
+                    items.push((seq, env));
+                }
+                next = next.max(seq + 1);
+            }
+        }
+        items.sort_by_key(|(s, _)| *s);
+        let envelopes = items.into_iter().map(|(_, e)| e).collect();
+        Ok((next as usize, envelopes))
     }
+}
+
+/// Parse the big-endian u64 sequence from a `prefix ‖ seq_be` storage key.
+fn seq_from(key: &[u8], prefix: &[u8]) -> Option<u64> {
+    let rest = key.strip_prefix(prefix)?;
+    rest.try_into().ok().map(u64::from_be_bytes)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
