@@ -14,6 +14,7 @@ import 'src/rust/frb_generated.dart';
 import 'config.dart';
 
 const _seedKey = 'aegis.master_seed';
+const _vaultKey = 'aegis.seed_vault'; // base64 password-encrypted seed
 const _modeKey = 'aegis.mode'; // 'network' | 'relay:<addr>' | 'memory'
 const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 const _nodeKey = 'aegis.node_enabled';
@@ -21,6 +22,9 @@ const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 
 /// How this device reaches the network.
 enum ConnMode { network, relay, memory }
+
+/// What's on disk at launch: no account, a plaintext seed, or a password vault.
+enum AccountState { none, plaintext, locked }
 
 /// Owns the one Rust [AegisEngine] and the app's chat state. Screens listen to
 /// this and call into it; the seed lives in [SharedPreferences] and all crypto
@@ -36,6 +40,10 @@ class AegisEngineController extends ChangeNotifier {
   List<String> _userBootstrap = const [];
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
+  bool _passwordSet = false; // the seed is protected by an app-lock password
+
+  /// Whether an app-lock password currently protects the seed on disk.
+  bool get hasPassword => _passwordSet;
 
   /// The bootstrap nodes actually used: any compiled in (`--dart-define`) plus
   /// any the user added, de-duplicated.
@@ -89,16 +97,72 @@ class AegisEngineController extends ChangeNotifier {
     _rustInited = true;
   }
 
-  /// Initialize the bridge and, if a seed was saved, restore the engine.
-  /// Returns true if an engine is now live (existing account).
-  Future<bool> boot() async {
-    await _ensureRustInit();
+  /// Initialize the Rust bridge (safe to call repeatedly).
+  Future<void> init() => _ensureRustInit();
+
+  /// What's stored at launch: none (→ onboarding), plaintext (→ boot directly),
+  /// or locked (→ ask for the app password before booting).
+  Future<AccountState> accountState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString(_vaultKey) != null) return AccountState.locked;
+    if (prefs.getString(_seedKey) != null) return AccountState.plaintext;
+    return AccountState.none;
+  }
+
+  /// Boot from a plaintext-stored seed (no app password set).
+  Future<void> bootPlaintext() async {
     final prefs = await SharedPreferences.getInstance();
     final seed = prefs.getString(_seedKey);
-    if (seed == null) return false;
+    if (seed == null) throw StateError('no seed saved');
+    _passwordSet = false;
+    await _bootWithSeed(_decodeSeed(seed));
+  }
+
+  /// Decrypt the password vault and boot. Throws if the password is wrong — the
+  /// seed never leaves Rust in plaintext, and there is no seed on disk to fall
+  /// back to, so the lock cannot be bypassed.
+  Future<void> unlock(String password) async {
+    await _ensureRustInit();
+    final prefs = await SharedPreferences.getInstance();
+    final b64 = prefs.getString(_vaultKey);
+    if (b64 == null) throw StateError('no vault');
+    final seed = await openSeed(password: password, blob: base64Decode(b64));
+    _passwordSet = true;
+    await _bootWithSeed(Uint8List.fromList(seed));
+  }
+
+  /// Set (or change) the app-lock password: encrypt the in-memory seed under it,
+  /// store only the vault, and delete the plaintext seed. The engine must be
+  /// running (unlocked) so we hold the seed.
+  Future<void> setAppPassword(String password) async {
+    final seed = _seed;
+    if (seed == null) throw StateError('no seed loaded');
+    final blob = await sealSeed(password: password, seed: seed);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_vaultKey, base64Encode(blob));
+    await prefs.remove(_seedKey);
+    _passwordSet = true;
+    notifyListeners();
+  }
+
+  /// Remove the app-lock password: write the seed back in the clear and drop the
+  /// vault. Requires the engine to be running (unlocked).
+  Future<void> removeAppPassword() async {
+    final seed = _seed;
+    if (seed == null) throw StateError('no seed loaded');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_seedKey, _encodeSeed(seed));
+    await prefs.remove(_vaultKey);
+    _passwordSet = false;
+    notifyListeners();
+  }
+
+  /// Bring the engine up from a decrypted [seed] and restore saved state.
+  Future<void> _bootWithSeed(Uint8List seed) async {
+    final prefs = await SharedPreferences.getInstance();
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
-    await _start(_decodeSeed(seed));
+    await _start(seed);
     // Restore sessions, contacts, and history saved on the last run.
     final blob = prefs.getString(_stateKey);
     if (blob != null) {
@@ -111,7 +175,6 @@ class AegisEngineController extends ChangeNotifier {
     // Resume node mode (defaults per platform on first run).
     _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
     if (_nodeEnabled) await _startNode();
-    return true;
   }
 
   /// Create a brand-new identity from fresh randomness and persist the seed.
@@ -212,6 +275,7 @@ class AegisEngineController extends ChangeNotifier {
     _coverTimer?.cancel();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_seedKey);
+    await prefs.remove(_vaultKey);
     await prefs.remove(_stateKey);
     await prefs.remove(_modeKey);
     await prefs.remove(_nodeKey);
@@ -220,6 +284,7 @@ class AegisEngineController extends ChangeNotifier {
     _seed = null;
     _nodeEnabled = false;
     _anonReceive = false;
+    _passwordSet = false;
     // No notifyListeners: the caller navigates to onboarding and drops the
     // screens that read engine state, so a rebuild here would only risk a
     // transient null read.

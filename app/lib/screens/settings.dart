@@ -42,6 +42,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _card(
+            icon: Icons.lock_rounded,
+            title: 'App password',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  e.hasPassword
+                      ? 'On. Your identity key is encrypted on this device and '
+                          'the app asks for the password on launch.'
+                      : 'Encrypt your identity on this device with a password. '
+                          'Without it the key can’t be decrypted, so nothing — '
+                          'not even a bypass of this screen — can reach it.',
+                  style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: Icon(e.hasPassword
+                            ? Icons.password_rounded
+                            : Icons.lock_outline_rounded),
+                        label: Text(e.hasPassword ? 'Change' : 'Set password'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AegisTheme.textHi,
+                          side: const BorderSide(color: AegisTheme.surfaceHi),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: _busy ? null : _setOrChangePassword,
+                      ),
+                    ),
+                    if (e.hasPassword) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.lock_open_rounded),
+                          label: const Text('Remove'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AegisTheme.danger,
+                            side: const BorderSide(color: AegisTheme.danger),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: _busy ? null : _removePassword,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
             icon: Icons.hub_rounded,
             title: 'Connection',
             child: Text(
@@ -135,6 +188,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _setOrChangePassword() async {
+    final pw = await _promptNewPassword();
+    if (pw == null || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.engine.setAppPassword(pw);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('App password set')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _removePassword() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Remove password?',
+            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+        content: const Text(
+          'The app will no longer ask for a password, and your identity key '
+          'will be stored unencrypted on this device.',
+          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove', style: TextStyle(color: AegisTheme.danger)),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.engine.removeAppPassword();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  /// Prompt for a new password twice; returns it if the two match and it's long
+  /// enough, else null (cancelled/invalid).
+  Future<String?> _promptNewPassword() {
+    final a = TextEditingController();
+    final b = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        String? err;
+        return StatefulBuilder(
+          builder: (ctx, setD) => AlertDialog(
+            backgroundColor: AegisTheme.surface,
+            title: Text(
+              widget.engine.hasPassword ? 'Change password' : 'Set password',
+              style: const TextStyle(color: AegisTheme.textHi, fontSize: 18),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: a,
+                  obscureText: true,
+                  autofocus: true,
+                  style: const TextStyle(color: AegisTheme.textHi),
+                  decoration: const InputDecoration(hintText: 'New password'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: b,
+                  obscureText: true,
+                  style: const TextStyle(color: AegisTheme.textHi),
+                  decoration: InputDecoration(hintText: 'Repeat', errorText: err),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (a.text.length < 4) {
+                    setD(() => err = 'At least 4 characters');
+                    return;
+                  }
+                  if (a.text != b.text) {
+                    setD(() => err = 'Passwords do not match');
+                    return;
+                  }
+                  Navigator.pop(ctx, a.text);
+                },
+                child: const Text('Save', style: TextStyle(color: AegisTheme.accent)),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

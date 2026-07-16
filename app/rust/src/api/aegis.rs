@@ -8,6 +8,21 @@ use std::sync::Mutex;
 use aegis_api::{AegisApp, ChatMessage as ApiChatMessage, Contact as ApiContact};
 use flutter_rust_bridge::frb;
 
+/// Encrypt a master seed under an app-lock `password` (PBKDF2-HMAC-SHA256 +
+/// ChaCha20-Poly1305). The returned blob is safe to persist on the device;
+/// without the password the seed is unrecoverable, so no engine can be built and
+/// the whole API stays inert — the lock guards the data, not just the screen.
+/// Runs off the UI thread (the key derivation is deliberately slow).
+pub fn seal_seed(password: String, seed: Vec<u8>) -> Vec<u8> {
+    aegis_api::vault::seal_secret(&password, &seed)
+}
+
+/// Recover a seed sealed by [`seal_seed`]. Errors on a wrong password (a wrong
+/// password and a corrupt blob are indistinguishable — no oracle).
+pub fn open_seed(password: String, blob: Vec<u8>) -> Result<Vec<u8>, String> {
+    aegis_api::vault::open_secret(&password, &blob).ok_or_else(|| "wrong password".to_string())
+}
+
 /// A running opt-in mix node (returned by [`start_forwarder_node`]).
 pub struct NodeInfo {
     pub address: String,
