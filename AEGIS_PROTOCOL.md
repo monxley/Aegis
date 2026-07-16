@@ -247,7 +247,18 @@ and the resulting shared secret is mixed into the root KDF. This keeps the
 whole conversation — not just its first message — quantum-resistant, at the
 cost of periodically shipping a ~1 KB KEM ciphertext.
 
-### 4.3 Group messaging (later)
+### 4.3 Application framing & delivery receipts (G1 preserved)
+
+Inside the ratchet plaintext, every payload carries a 1-byte **kind** and an
+8-byte **message id**: `Text`, `Delivered`, or `Read`. A text message is shown
+and, on receipt, the recipient auto-replies with a `Delivered` receipt over the
+same session; opening the chat sends a `Read` receipt. Receipts reference the
+original id, carry no content, and never trigger further receipts. Because they
+ride inside the Double Ratchet like any message, the relay and mixnet see only
+sealed envelopes — read state leaks nothing to the network, only to the two
+endpoints. The sender's UI shows `✓` sent · `✓✓` delivered · bright `✓✓` read.
+
+### 4.4 Group messaging (later)
 
 v0 targets 1:1. Groups use **sender keys** (each member ratchets their own
 chain, distributes the chain key pairwise via the 1:1 channel) — same primitives,

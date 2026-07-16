@@ -266,15 +266,22 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Mark the conversation as read so read receipts go to the sender. Call when
+  /// the user is looking at the chat. Best-effort (fire-and-forget); the engine
+  /// only sends a receipt once per message.
+  void markRead(String aegisId) {
+    _engine?.markRead(aegisId: aegisId);
+  }
+
   Future<void> _poll() async {
     final engine = _engine;
     if (engine == null) return;
     try {
       final incoming = await engine.poll();
-      if (incoming.isNotEmpty) {
-        _persist();
-        notifyListeners();
-      }
+      if (incoming.isNotEmpty) _persist();
+      // Always notify: delivery/read receipts advance a message's status
+      // without adding a message, and the bubble ticks must refresh live.
+      notifyListeners();
     } catch (e) {
       // Relay unreachable — stay quiet; the next tick retries.
       debugPrint('poll failed: $e');
