@@ -12,6 +12,7 @@ import 'src/rust/api/aegis.dart';
 import 'src/rust/frb_generated.dart';
 
 import 'config.dart';
+import 'notifications.dart';
 
 const _seedKey = 'aegis.master_seed';
 const _vaultKey = 'aegis.seed_vault'; // base64 password-encrypted seed
@@ -20,6 +21,7 @@ const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
+const _notifyKey = 'aegis.notifications'; // show a notification on new messages
 
 /// How this device reaches the network.
 enum ConnMode { network, relay, memory }
@@ -42,7 +44,23 @@ class AegisEngineController extends ChangeNotifier {
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
+  bool _notify = false; // show a notification when a message arrives
   Set<String> _favNodes = {}; // node ids the user starred
+
+  /// Whether new-message notifications are on.
+  bool get notificationsEnabled => _notify;
+
+  /// Turn new-message notifications on/off (persisted). Enabling asks the OS for
+  /// permission; if denied, the setting stays off.
+  Future<void> setNotificationsEnabled(bool on) async {
+    if (on && !await Notifications.requestPermission()) {
+      on = false;
+    }
+    _notify = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notifyKey, on);
+    notifyListeners();
+  }
 
   /// Whether an app-lock password currently protects the seed on disk.
   bool get hasPassword => _passwordSet;
@@ -180,6 +198,7 @@ class AegisEngineController extends ChangeNotifier {
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
     _favNodes = (prefs.getStringList(_favNodesKey) ?? const []).toSet();
+    _notify = prefs.getBool(_notifyKey) ?? false;
     await _start(seed);
     // Restore sessions, contacts, and history saved on the last run.
     final blob = prefs.getString(_stateKey);
@@ -361,7 +380,17 @@ class AegisEngineController extends ChangeNotifier {
     if (engine == null) return;
     try {
       final incoming = await engine.poll();
-      if (incoming.isNotEmpty) _persist();
+      if (incoming.isNotEmpty) {
+        _persist();
+        if (_notify) {
+          for (final m in incoming) {
+            Notifications.showMessage(
+              title: m.fromName ?? 'New message',
+              id: m.fromAegisId.hashCode,
+            );
+          }
+        }
+      }
       // Always notify: delivery/read receipts advance a message's status
       // without adding a message, and the bubble ticks must refresh live.
       notifyListeners();
