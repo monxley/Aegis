@@ -115,7 +115,8 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
   systemctl daemon-reload
-  systemctl enable --now aegis-node
+  systemctl enable aegis-node >/dev/null 2>&1 || true
+  systemctl restart aegis-node          # restart, so a re-run picks up the new binary
   LOGS="journalctl -u aegis-node -f"
 else
   log "no root — installing under \$HOME (rootless)"
@@ -138,12 +139,16 @@ RestartSec=5
 WantedBy=default.target
 UNIT
     systemctl --user daemon-reload
-    systemctl --user enable --now aegis-node
+    systemctl --user enable aegis-node >/dev/null 2>&1 || true
+    systemctl --user restart aegis-node   # restart, so a re-run picks up the new binary
     loginctl enable-linger "$USER" >/dev/null 2>&1 || \
       echo "  (run 'loginctl enable-linger $USER' so it survives logout)"
     LOGS="journalctl --user -u aegis-node -f"
   else
     log "no user systemd — starting in the background with nohup"
+    # Stop a previous instance first, or it keeps the old binary and holds the
+    # ports (the new process would fail to bind).
+    pkill -f aegis-relay-server >/dev/null 2>&1 && { log "stopped the previous node"; sleep 1; } || true
     nohup $RUN_CMD >"$DATA_DIR/aegis-node.log" 2>&1 &
     echo "  to run it again later: $RUN_CMD"
     LOGS="tail -f $DATA_DIR/aegis-node.log"
