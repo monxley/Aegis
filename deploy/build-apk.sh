@@ -114,13 +114,47 @@ flutter pub get >/dev/null
 # Both are "normal" permissions: granted silently at install, no user prompt.
 MANIFEST="android/app/src/main/AndroidManifest.xml"
 if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-  log "adding INTERNET + network-state permissions to AndroidManifest"
+  log "adding INTERNET + network-state + notification permissions to AndroidManifest"
   awk '/<application/ && !d {
         print "    <uses-permission android:name=\"android.permission.INTERNET\"/>";
         print "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>";
+        print "    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>";
         d=1
       } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 fi
+
+# flutter_local_notifications needs Java 8+ core-library desugaring enabled in
+# the app module. Patch the generated Gradle (Kotlin or Groovy DSL) idempotently.
+python3 - <<'PY' || log "warning: could not patch Gradle for desugaring"
+import glob, os, re
+cands = glob.glob("android/app/build.gradle.kts") + glob.glob("android/app/build.gradle")
+if not cands:
+    raise SystemExit(0)
+p = cands[0]
+s = open(p).read()
+kts = p.endswith(".kts")
+if "coreLibraryDesugaring" in s:
+    raise SystemExit(0)
+# 1) enable desugaring inside android { compileOptions { ... } }
+if kts:
+    flag = "        isCoreLibraryDesugaringEnabled = true\n"
+else:
+    flag = "        coreLibraryDesugaringEnabled true\n"
+m = re.search(r"compileOptions\s*\{", s)
+if m:
+    s = s[:m.end()] + "\n" + flag + s[m.end():]
+# 2) add the desugar dependency (top-level dependencies { } block; create if none)
+dep = ('    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+       if kts else
+       "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n")
+dm = re.search(r"\ndependencies\s*\{", s)
+if dm:
+    s = s[:dm.end()] + "\n" + dep + s[dm.end():]
+else:
+    s = s.rstrip() + "\n\ndependencies {\n" + dep + "}\n"
+open(p, "w").write(s)
+print("patched", p, "for core-library desugaring")
+PY
 
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
 flutter_rust_bridge_codegen generate
