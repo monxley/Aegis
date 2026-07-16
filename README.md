@@ -34,13 +34,14 @@ implementation of a *reviewed spec*.
 ```console
 $ cargo test --all
 aegis-crypto  : 36 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202/203/204, ML-KEM + ML-DSA
-aegis-identity: 17 ok   # stealth addressing, identity signing, Aegis ID key binding
-aegis-session : 20 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
+aegis-identity: 19 ok   # stealth addressing, identity signing, Aegis ID key binding
+aegis-session : 24 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
-aegis-net     : 16 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
+aegis-net     : 23 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
 aegis-relay   :  2 ok   # a full conversation over a live in-process Ciphra blind server
-aegis-client  :  7 ok   # one-identity messenger: conversations, multi-peer, MITM rejection
-aegis-api     :  3 ok   # UI-facing engine: identity, contacts, chat history, send/poll
+aegis-mix     :  8 ok   # networked mix nodes, gossiped directory, MixnetStore, SURB receive
+aegis-client  : 11 ok   # one-identity messenger: conversations, multi-peer, MITM rejection
+aegis-api     :  9 ok   # UI engine + mixnet end-to-end + sent/delivered/read receipts
 ```
 
 The **Flutter app** (`app/`) is the interface on top of `aegis-api`; see
@@ -126,7 +127,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Hardening: non-malleable LIONESS onion payload (anti-tagging) | ✅ implemented |
 | — | `aegis-relay`: `MailboxStore` over a live Ciphra blind server | ✅ implemented |
 | — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
-| — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ scaffold |
+| — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ implemented |
 | — | `aegis-relay-server`: run your own blind relay (persistent, pinnable) | ✅ implemented |
 | — | Session persistence: sessions, contacts & history survive a restart | ✅ implemented |
 | — | `aegis-mix`: networked Sphinx mixnet + onion-routed send path (`MixnetStore`) | ✅ implemented |
@@ -144,6 +145,10 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Safety numbers (SAS) — human-verifiable MITM detection | ✅ implemented |
 | — | Poisson cover traffic from the app on the mixnet | ✅ implemented |
 | — | Console VPS deploy (`deploy/install.sh`): zero-config headless node | ✅ implemented |
+| — | Console APK build (`deploy/build-apk.sh`): rootless, from a phone + VPS | ✅ implemented |
+| — | Delivery & read receipts (sent · delivered · read), inside the ratchet | ✅ implemented |
+| — | Self-healing mailbox connection (survives dropped / half-open mobile links) | ✅ implemented |
+| — | In-app profile & identity reset; connection status, message times in the UI | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -155,11 +160,16 @@ Double Ratchet, including skipped-message keys), contacts, and history, and the
 app restores them on launch. The **mixnet** (`aegis-mix`) turns `aegis-net`'s
 Sphinx routing into a networked layer: `MixnetStore` onion-routes each send
 through a random path of mix nodes to a provider, so no single node links the
-sender to the deposited message. What remains is hardening, not new layers: an
-external security audit (a release blocker, as for Ciphra), the SPQR KEM-chunking
-size optimization, group messaging, wiring `MixnetStore` into `aegis-api` with a
-node directory, receive-path anonymity + Loopix cover traffic, and finishing the
-app (push wake-ups, QR scanning).
+sender to the deposited message. Messages carry **delivery & read receipts**
+(sent · delivered · read), riding inside the Double Ratchet so the network sees
+only sealed envelopes, and the mailbox connection is **self-healing** — it
+reconnects through a dropped or half-open mobile link, so receiving survives a
+network change. What remains is hardening, not new layers: an external security
+audit (a release blocker, as for Ciphra), the SPQR KEM-chunking size
+optimization, group messaging, and app polish (push wake-ups so mail arrives
+without the app open). Note: a scannable QR is **not** on the list — a
+post-quantum share code (ML-KEM + ML-DSA bundle) is ~8 KB, far past a QR's
+~3 KB ceiling, so identities are shared by copyable code.
 
 **Who runs the nodes.** End users run nothing — a fresh install calls
 `create_on_network`, **auto-discovers** the node set from a bootstrap address
@@ -244,6 +254,18 @@ recipient polls for it.
 
 ### 3. The app, on your phone (Android)
 
+**One-command build, no desktop.** If all you have is a phone and a VPS, build
+the APK on the VPS entirely from the console — it installs a JDK, Flutter, the
+Android SDK/NDK, and Rust **under `$HOME` with no root**, generates the bindings,
+cross-compiles the engine, and emits an installable APK:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
+```
+
+and stand up a node just as headlessly (`deploy/install.sh`, see step 2). The
+manual toolchain path below is for a desktop with Flutter already set up.
+
 **Prerequisites**, once:
 
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) (3.3+) and the
@@ -293,10 +315,12 @@ flutter_rust_bridge_codegen generate
 flutter run -d linux
 ```
 
-On first launch the app mints an identity locally (no phone number, no email).
-Leave the relay field blank to try it offline, or point it at a Ciphra server to
-actually send. Share your code from **My identity**; add a contact by pasting
-theirs. See [app/README.md](app/README.md) for the architecture.
+On first launch the app mints an identity locally (no phone number, no email)
+and joins the anonymous mixnet with zero setup (an **Advanced** sheet offers a
+specific relay or an offline mode). Share your code from **Settings → Your
+profile** (or the identity screen) and add a contact by pasting theirs; sent
+messages show **sent · delivered · read** ticks. See
+[app/README.md](app/README.md) for the architecture.
 
 ## Design in brief
 
