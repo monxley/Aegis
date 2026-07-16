@@ -20,10 +20,17 @@ class ChatsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: const [
-            ShieldMark(size: 26),
-            SizedBox(width: 10),
-            Text('Aegis'),
+          children: [
+            const ShieldMark(size: 26),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Aegis'),
+                _ConnectionStatus(engine: engine),
+              ],
+            ),
           ],
         ),
         actions: [
@@ -77,6 +84,44 @@ class ChatsScreen extends StatelessWidget {
   }
 }
 
+/// A small dot + label under the "Aegis" title showing how this device is
+/// connected: cyan for the anonymous mixnet, amber for a plain relay, grey when
+/// offline. Rebuilds with the engine so toggling node mode updates it live.
+class _ConnectionStatus extends StatelessWidget {
+  final AegisEngineController engine;
+  const _ConnectionStatus({required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: engine,
+      builder: (context, _) {
+        final label = engine.connectionLabel;
+        final color = label.startsWith('Mixnet')
+            ? AegisTheme.accent
+            : label.startsWith('Relay')
+                ? const Color(0xFFFFC24B)
+                : AegisTheme.textLo;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(color: AegisTheme.textLo, fontSize: 11),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _ContactTile extends StatelessWidget {
   final AegisEngineController engine;
   final Contact contact;
@@ -106,10 +151,16 @@ class _ContactTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: last == null ? AegisTheme.textLo : AegisTheme.textLo,
+          color: AegisTheme.textLo,
           fontStyle: last == null ? FontStyle.italic : FontStyle.normal,
         ),
       ),
+      trailing: last == null
+          ? null
+          : Text(
+              formatListTime(last.timestampMs),
+              style: const TextStyle(color: AegisTheme.textLo, fontSize: 12),
+            ),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ChatScreen(engine: engine, contact: contact),
