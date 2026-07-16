@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'engine.dart';
 import 'screens/chats.dart';
+import 'screens/lock.dart';
 import 'screens/onboarding.dart';
 import 'theme.dart';
 import 'widgets.dart';
@@ -42,9 +43,10 @@ class _Bootstrap extends StatefulWidget {
   State<_Bootstrap> createState() => _BootstrapState();
 }
 
+enum _Phase { booting, onboarding, chats, locked, error }
+
 class _BootstrapState extends State<_Bootstrap> {
-  bool _booting = true;
-  bool _hasAccount = false;
+  _Phase _phase = _Phase.booting;
   Object? _error;
 
   @override
@@ -55,35 +57,52 @@ class _BootstrapState extends State<_Bootstrap> {
 
   Future<void> _boot() async {
     try {
-      final hasAccount = await widget.engine.boot();
+      await widget.engine.init();
+      final state = await widget.engine.accountState();
       if (!mounted) return;
-      setState(() {
-        _hasAccount = hasAccount;
-        _booting = false;
-      });
+      switch (state) {
+        case AccountState.none:
+          setState(() => _phase = _Phase.onboarding);
+        case AccountState.plaintext:
+          await widget.engine.bootPlaintext();
+          if (!mounted) return;
+          setState(() => _phase = _Phase.chats);
+        case AccountState.locked:
+          setState(() => _phase = _Phase.locked);
+      }
     } catch (e, st) {
       debugPrint('boot failed: $e\n$st');
       if (!mounted) return;
       setState(() {
         _error = e;
-        _booting = false;
+        _phase = _Phase.error;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_booting) return const _Splash();
-    if (_error != null) return _StartupError(error: _error!, onRetry: _retry);
-    return _hasAccount
-        ? ChatsScreen(engine: widget.engine)
-        : OnboardingScreen(engine: widget.engine);
+    switch (_phase) {
+      case _Phase.booting:
+        return const _Splash();
+      case _Phase.error:
+        return _StartupError(error: _error!, onRetry: _retry);
+      case _Phase.locked:
+        return LockScreen(
+          engine: widget.engine,
+          onUnlocked: () => setState(() => _phase = _Phase.chats),
+        );
+      case _Phase.onboarding:
+        return OnboardingScreen(engine: widget.engine);
+      case _Phase.chats:
+        return ChatsScreen(engine: widget.engine);
+    }
   }
 
   void _retry() {
     setState(() {
-      _booting = true;
       _error = null;
+      _phase = _Phase.booting;
     });
     _boot();
   }

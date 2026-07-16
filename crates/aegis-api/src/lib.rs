@@ -22,6 +22,7 @@
 //! assert!(alice.my_aegis_id().starts_with("aegis:"));
 //! ```
 
+pub mod vault;
 mod wire;
 
 use std::collections::HashMap;
