@@ -173,12 +173,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemBuilder: (context, i) {
                       final msg = history[i];
                       final showDay = i == 0 ||
-                          differentDay(
-                              history[i - 1].timestampMs, msg.timestampMs);
+                          differentDay(history[i - 1].timestampMs.toInt(),
+                              msg.timestampMs.toInt());
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          if (showDay) _DaySeparator(ms: msg.timestampMs),
+                          if (showDay)
+                            _DaySeparator(ms: msg.timestampMs.toInt()),
                           _Bubble(message: msg),
                         ],
                       );
@@ -238,7 +239,7 @@ class _Bubble extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                formatClock(message.timestampMs),
+                formatClock(message.timestampMs.toInt()),
                 style: TextStyle(
                   // Dimmed: dark-on-gradient for mine, muted grey for theirs.
                   color: mine ? const Color(0x9906110F) : AegisTheme.textLo,
