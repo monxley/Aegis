@@ -20,11 +20,51 @@
 //! change an application makes to go from a local demo to a networked relay —
 //! the envelope format and the relay's blindness are identical.
 
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+
 use aegis_mailbox::{Envelope, MailboxError, MailboxStore};
 use ciphra_net::RemoteStorage;
 
 /// Key prefix under which mailbox envelopes are stored in the Ciphra database.
 const PREFIX: &[u8] = b"aegis/mbox/";
+
+/// How long to wait for the whole connect + post-quantum handshake before
+/// giving up. `RemoteStorage::connect` does its own `TcpStream::connect` and
+/// then blocking handshake reads with no timeout, so an unreachable or silent
+/// mailbox (a firewalled port, a half-open connection) would hang the caller
+/// forever — on first launch that is an app frozen on "connecting". We bound it
+/// by running the connect on a scratch thread and waiting at most this long.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
+
+/// `RemoteStorage::connect` with an overall deadline. On timeout the background
+/// thread is abandoned (it finishes or dies against a dropped receiver) and a
+/// `TimedOut` error is returned so the caller surfaces it instead of hanging.
+fn connect_with_timeout(
+    addr: impl ToSocketAddrs,
+    pinned: Option<[u8; 32]>,
+) -> std::io::Result<RemoteStorage> {
+    let addrs: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
+    if addrs.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no address to connect to",
+        ));
+    }
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(RemoteStorage::connect(addrs.as_slice(), pinned));
+    });
+    match rx.recv_timeout(CONNECT_TIMEOUT) {
+        Ok(result) => result,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "relay connect/handshake timed out",
+        )),
+    }
+}
 
 /// A [`MailboxStore`] backed by a connection to a live Ciphra blind server.
 pub struct CiphraStore {
@@ -41,7 +81,7 @@ impl CiphraStore {
         addr: impl std::net::ToSocketAddrs,
         server_key: Option<[u8; 32]>,
     ) -> std::io::Result<Self> {
-        let remote = RemoteStorage::connect(addr, server_key)?;
+        let remote = connect_with_timeout(addr, server_key)?;
         // Resume the sequence past whatever this mailbox already holds.
         let next_seq = remote
             .scan_prefix(PREFIX)
