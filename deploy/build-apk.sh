@@ -107,6 +107,22 @@ log "generating bindings + platform folders"
 export FLUTTER_ALLOW_ROOT=true   # this VPS session runs as root; that's fine here
 flutter create --platforms=android --project-name aegis . >/dev/null
 flutter pub get >/dev/null
+
+# Flutter's generated MAIN manifest has no INTERNET permission — it ships only
+# in the debug/profile manifests, so a release build would have no network at
+# all and every socket (all our traffic runs from Rust) would fail. Declare the
+# network permissions in the main manifest so they're present in every build.
+# Both are "normal" permissions: granted silently at install, no user prompt.
+MANIFEST="android/app/src/main/AndroidManifest.xml"
+if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+  log "adding INTERNET + network-state permissions to AndroidManifest"
+  awk '/<application/ && !d {
+        print "    <uses-permission android:name=\"android.permission.INTERNET\"/>";
+        print "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>";
+        d=1
+      } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+fi
+
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
 flutter_rust_bridge_codegen generate
 
