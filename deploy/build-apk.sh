@@ -94,13 +94,12 @@ sdkmanager "platform-tools" "platforms;$PLATFORM" "build-tools;$BUILDTOOLS" "ndk
 export ANDROID_NDK_HOME="$SDK/ndk/$NDK_VER"
 flutter config --android-sdk "$SDK" >/dev/null 2>&1 || true
 
-# 5. Source + bindings + native engine + APK.
-if [ -f "app/pubspec.yaml" ] && grep -q "name: aegis" app/pubspec.yaml 2>/dev/null; then
-  SRC="$PWD"
-else
-  log "cloning Aegis"
-  rm -rf "$WORK"; git clone --depth 1 "$REPO" "$WORK"; SRC="$WORK"
-fi
+# 5. Source + bindings + native engine + APK. Always build from a FRESH clone so
+#    a stale local checkout can't be shipped by mistake (to build a local tree,
+#    run the flutter/codegen/ndk steps by hand). REPO/main are overridable.
+log "cloning $REPO (fresh, so the APK is always current)"
+rm -rf "$WORK"; git clone --depth 1 "$REPO" "$WORK"; SRC="$WORK"
+log "building @ $(cd "$SRC" && git rev-parse --short HEAD)"
 cd "$SRC/app"
 
 log "generating bindings + platform folders"
