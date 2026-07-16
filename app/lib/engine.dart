@@ -203,6 +203,28 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Wipe this device's identity: forget the master seed and all saved state
+  /// (sessions, contacts, history) and tear down the engine. The next screen
+  /// should be onboarding, where a fresh identity is minted. Irreversible —
+  /// there is no key escrow, so the old identity and its history are gone.
+  Future<void> resetIdentity() async {
+    _pollTimer?.cancel();
+    _coverTimer?.cancel();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_seedKey);
+    await prefs.remove(_stateKey);
+    await prefs.remove(_modeKey);
+    await prefs.remove(_nodeKey);
+    _engine = null;
+    _node = null;
+    _seed = null;
+    _nodeEnabled = false;
+    _anonReceive = false;
+    // No notifyListeners: the caller navigates to onboarding and drops the
+    // screens that read engine state, so a rebuild here would only risk a
+    // transient null read.
+  }
+
   Future<void> _startNode() async {
     // A standalone forwarder for non-network modes (network mode runs its node
     // inside the engine via anonymous receive).
