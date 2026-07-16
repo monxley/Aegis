@@ -170,13 +170,12 @@ fn start_mix_node(
     let mailbox = CiphraStore::connect(loopback.as_str(), None)
         .map_err(|e| format!("mix cannot reach local mailbox: {e}"))?;
 
+    // Seed the directory with our own descriptor and START SERVING the mix port
+    // BEFORE discovering peers. The bootstrap list can include our own address
+    // (a lone seed node bootstraps from itself); if we discovered first, we'd
+    // connect to our own not-yet-served mix port and block on the read forever,
+    // so the mix service would never start and clients would hang on discovery.
     let directory = DirectoryState::new();
-    for b in bootstrap {
-        match aegis_mix::discover(b.as_str()) {
-            Ok(nodes) => directory.merge(&nodes),
-            Err(e) => eprintln!("warning: bootstrap {b} unreachable: {e}"),
-        }
-    }
     directory.merge(std::slice::from_ref(&desc));
 
     println!();
@@ -191,6 +190,16 @@ fn start_mix_node(
     thread::spawn(move || {
         let _ = service.serve(mix_listener);
     });
+
+    // Now that our own directory is being served, learn any peers (self-bootstrap
+    // included) and merge them in.
+    for b in bootstrap {
+        match aegis_mix::discover(b.as_str()) {
+            Ok(nodes) => directory.merge(&nodes),
+            Err(e) => eprintln!("warning: bootstrap {b} unreachable: {e}"),
+        }
+    }
+
     aegis_mix::run_gossip(directory, desc, Duration::from_secs(30));
     Ok(())
 }
