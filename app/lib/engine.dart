@@ -19,6 +19,7 @@ const _modeKey = 'aegis.mode'; // 'network' | 'relay:<addr>' | 'memory'
 const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
+const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
 
 /// How this device reaches the network.
 enum ConnMode { network, relay, memory }
@@ -41,9 +42,25 @@ class AegisEngineController extends ChangeNotifier {
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
+  Set<String> _favNodes = {}; // node ids the user starred
 
   /// Whether an app-lock password currently protects the seed on disk.
   bool get hasPassword => _passwordSet;
+
+  /// The nodes this client currently knows from the gossiped directory.
+  List<NodeSummary> networkNodes() => _engine?.networkNodes() ?? const [];
+
+  /// Node ids the user has starred as preferred.
+  Set<String> get favoriteNodes => _favNodes;
+
+  /// Star / unstar a node; persisted. (Preferred nodes will drive custom-node
+  /// routing once that mode lands.)
+  Future<void> toggleFavoriteNode(String id) async {
+    if (!_favNodes.remove(id)) _favNodes.add(id);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_favNodesKey, _favNodes.toList());
+    notifyListeners();
+  }
 
   /// The bootstrap nodes actually used: any compiled in (`--dart-define`) plus
   /// any the user added, de-duplicated.
@@ -162,6 +179,7 @@ class AegisEngineController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
+    _favNodes = (prefs.getStringList(_favNodesKey) ?? const []).toSet();
     await _start(seed);
     // Restore sessions, contacts, and history saved on the last run.
     final blob = prefs.getString(_stateKey);

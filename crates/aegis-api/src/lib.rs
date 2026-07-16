@@ -208,6 +208,19 @@ pub struct Contact {
     pub aegis_id: String,
 }
 
+/// A node visible in the gossiped directory (for the network view).
+#[derive(Clone, Debug)]
+pub struct NodeSummary {
+    /// Hex node id (`SHA-256(public)[..16]`).
+    pub id: String,
+    /// `host:port` others route onion traffic to.
+    pub mix_addr: String,
+    /// `host:port` of this node's blind mailbox, if it is also a provider.
+    pub provider_addr: Option<String>,
+    /// Whether this node runs a mailbox (a provider) or is a pure forwarder.
+    pub is_provider: bool,
+}
+
 /// One message in a conversation history.
 #[derive(Clone, Debug)]
 pub struct ChatMessage {
@@ -499,6 +512,23 @@ impl AegisApp {
             });
         }
         Ok(())
+    }
+
+    /// The nodes this client currently knows from the gossiped directory (empty
+    /// unless on the mixnet). For the network view and node selection.
+    pub fn network_nodes(&self) -> Vec<NodeSummary> {
+        let Store::Mixnet(s) = &self.store else {
+            return Vec::new();
+        };
+        s.nodes()
+            .iter()
+            .map(|n| NodeSummary {
+                id: hex(&n.id),
+                mix_addr: n.mix_addr.to_string(),
+                provider_addr: n.provider_addr.map(|a| a.to_string()),
+                is_provider: n.is_provider(),
+            })
+            .collect()
     }
 
     /// The address book.
