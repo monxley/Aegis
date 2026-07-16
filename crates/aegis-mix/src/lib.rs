@@ -828,6 +828,12 @@ impl<P: MailboxStore> MixnetStore<P> {
             .map_err(|e| MailboxError(format!("cover: {e}")))
     }
 
+    /// The node set this client currently knows (the mix pool), for a directory
+    /// view in the UI.
+    pub fn nodes(&self) -> &[NodeDescriptor] {
+        &self.pool
+    }
+
     fn issue_anon_fetch(&self, anon: &AnonReceive, cursor: usize) {
         let batch = MAX_FETCH_SURBS.min(4);
         let mut headers = Vec::with_capacity(batch);

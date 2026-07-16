@@ -5,8 +5,29 @@
 
 use std::sync::Mutex;
 
-use aegis_api::{AegisApp, ChatMessage as ApiChatMessage, Contact as ApiContact};
+use aegis_api::{
+    AegisApp, ChatMessage as ApiChatMessage, Contact as ApiContact, NodeSummary as ApiNodeSummary,
+};
 use flutter_rust_bridge::frb;
+
+/// A node in the gossiped directory (mirrored to Dart for the network view).
+pub struct NodeSummary {
+    pub id: String,
+    pub mix_addr: String,
+    pub provider_addr: Option<String>,
+    pub is_provider: bool,
+}
+
+impl From<ApiNodeSummary> for NodeSummary {
+    fn from(n: ApiNodeSummary) -> Self {
+        NodeSummary {
+            id: n.id,
+            mix_addr: n.mix_addr,
+            provider_addr: n.provider_addr,
+            is_provider: n.is_provider,
+        }
+    }
+}
 
 /// Encrypt a master seed under an app-lock `password` (PBKDF2-HMAC-SHA256 +
 /// ChaCha20-Poly1305). The returned blob is safe to persist on the device;
@@ -186,6 +207,16 @@ impl AegisEngine {
         self.with(|app| app.contacts())
             .into_iter()
             .map(Contact::from)
+            .collect()
+    }
+
+    /// The nodes this client knows from the gossiped directory (empty off the
+    /// mixnet). Everyone's nodes show up here as the directory propagates.
+    #[frb(sync)]
+    pub fn network_nodes(&self) -> Vec<NodeSummary> {
+        self.with(|app| app.network_nodes())
+            .into_iter()
+            .map(NodeSummary::from)
             .collect()
     }
 
