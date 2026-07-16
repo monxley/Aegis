@@ -783,6 +783,14 @@ impl<P: MailboxStore> MixnetStore<P> {
 
     /// Issue a batch of return SURBs (routed back to our own node) and onion-route
     /// a fetch request to our provider from `cursor`. Replies land in the inbox.
+    /// Emit one **cover packet** into the mixnet through this store's node pool
+    /// (a decoy the exit discards), so a network observer cannot tell a real send
+    /// from silence. Call it on a Poisson schedule. No-op if there are no mixes.
+    pub fn send_cover(&self) -> Result<(), MailboxError> {
+        crate::send_cover(&self.pool, self.hops.max(1))
+            .map_err(|e| MailboxError(format!("cover: {e}")))
+    }
+
     fn issue_anon_fetch(&self, anon: &AnonReceive, cursor: usize) {
         let batch = MAX_FETCH_SURBS.min(4);
         let mut headers = Vec::with_capacity(batch);

@@ -411,6 +411,16 @@ impl AegisApp {
         ))
     }
 
+    /// Emit one cover-traffic packet into the mixnet (a decoy indistinguishable
+    /// from a real send), so an observer of this device cannot tell when it is
+    /// actually sending. Call on a Poisson schedule. No-op unless on the mixnet.
+    pub fn send_cover(&mut self) -> Result<(), AppError> {
+        if let Store::Mixnet(s) = &self.store {
+            s.send_cover().map_err(|e| AppError::Relay(e.0))?;
+        }
+        Ok(())
+    }
+
     /// Add a contact from their Aegis ID and bundle bytes (both malformation
     /// checked). Adding an existing Aegis ID updates its name.
     pub fn add_contact(

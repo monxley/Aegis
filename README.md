@@ -140,6 +140,9 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Receive-path anonymity: SURB poll-through-mixnet protocol | ✅ implemented |
 | — | Anonymous receive in the app (`create_on_network_with_receive`, node mode) | ✅ implemented |
 | — | Proof-of-work node admission (Sybil resistance, no stake/money) | ✅ implemented |
+| — | Message-length padding to buckets (hide length from traffic analysis) | ✅ implemented |
+| — | Safety numbers (SAS) — human-verifiable MITM detection | ✅ implemented |
+| — | Poisson cover traffic from the app on the mixnet | ✅ implemented |
 | — | Console VPS deploy (`deploy/install.sh`): zero-config headless node | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
