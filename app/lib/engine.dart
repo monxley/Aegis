@@ -79,7 +79,7 @@ class AegisEngineController extends ChangeNotifier {
     if (seed == null) return false;
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
-    _start(_decodeSeed(seed));
+    await _start(_decodeSeed(seed));
     // Restore sessions, contacts, and history saved on the last run.
     final blob = prefs.getString(_stateKey);
     if (blob != null) {
@@ -91,7 +91,7 @@ class AegisEngineController extends ChangeNotifier {
     }
     // Resume node mode (defaults per platform on first run).
     _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
-    if (_nodeEnabled) _startNode();
+    if (_nodeEnabled) await _startNode();
     return true;
   }
 
@@ -116,24 +116,29 @@ class AegisEngineController extends ChangeNotifier {
     await prefs.setString(_seedKey, _encodeSeed(seed));
     await prefs.setString(_modeKey, _mode);
     await prefs.remove(_stateKey); // a fresh identity has no prior sessions
-    _start(seed);
+    await _start(seed);
     _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
-    if (_nodeEnabled) _startNode();
+    if (_nodeEnabled) await _startNode();
   }
 
-  void _start(Uint8List seed) {
+  Future<void> _start(Uint8List seed) async {
     _seed = seed;
     // In network mode with node mode on, run our own node and receive
-    // anonymously through it (the provider never learns we are polling).
+    // anonymously through it (the provider never learns we are polling). The
+    // network/relay constructors are async (they connect + discover); in-memory
+    // is synchronous.
     _anonReceive = _mode == 'network' && _nodeEnabled;
-    _engine = switch (_mode) {
-      'network' when _anonReceive => AegisEngine.newOnNetworkWithReceive(
-          masterSeed: seed, bootstrap: _bootstrap, nodeListen: '0.0.0.0:0'),
-      'network' => AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: _bootstrap),
-      _ when _mode.startsWith('relay:') =>
-        AegisEngine.newWithRelay(masterSeed: seed, relayAddr: _mode.substring(6)),
-      _ => AegisEngine.newInMemory(masterSeed: seed),
-    };
+    if (_mode == 'network') {
+      _engine = _anonReceive
+          ? await AegisEngine.newOnNetworkWithReceive(
+              masterSeed: seed, bootstrap: _bootstrap, nodeListen: '0.0.0.0:0')
+          : await AegisEngine.newOnNetwork(masterSeed: seed, bootstrap: _bootstrap);
+    } else if (_mode.startsWith('relay:')) {
+      _engine =
+          await AegisEngine.newWithRelay(masterSeed: seed, relayAddr: _mode.substring(6));
+    } else {
+      _engine = AegisEngine.newInMemory(masterSeed: seed);
+    }
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
     // On the mixnet, emit cover traffic on a Poisson schedule so an observer
@@ -164,7 +169,7 @@ class AegisEngineController extends ChangeNotifier {
     // In network mode the node is baked into the engine, so rebuild it to switch
     // anonymous receive on/off, restoring saved state.
     if (_mode == 'network' && _seed != null) {
-      _start(_seed!);
+      await _start(_seed!);
       final blob = prefs.getString(_stateKey);
       if (blob != null) {
         try {
@@ -172,19 +177,19 @@ class AegisEngineController extends ChangeNotifier {
         } catch (_) {}
       }
     } else if (enabled) {
-      _startNode();
+      await _startNode();
     } else {
       _node = null;
     }
     notifyListeners();
   }
 
-  void _startNode() {
+  Future<void> _startNode() async {
     // A standalone forwarder for non-network modes (network mode runs its node
     // inside the engine via anonymous receive).
     if (_anonReceive) return;
     try {
-      _node = startForwarderNode(
+      _node = await startForwarderNode(
         bootstrap: _bootstrap,
         listen: '0.0.0.0:0',
         delayRate: null,
