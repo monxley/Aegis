@@ -224,9 +224,34 @@ impl<'a> Reader<'a> {
 
 // --- client-side network calls -------------------------------------------
 
+/// How long a client waits on a single node before giving up: the TCP connect,
+/// and each blocking read. Without a bound, an unreachable or silent node (a
+/// firewalled port, a half-open connection) hangs the caller forever — on the
+/// bootstrap path that shows up as an app frozen on "connecting".
+const NET_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Connect to the first resolvable address with a bounded connect timeout, then
+/// arm read/write deadlines so no later blocking read can hang indefinitely.
+fn connect_bounded(addr: impl ToSocketAddrs) -> io::Result<TcpStream> {
+    let addrs = addr.to_socket_addrs()?;
+    let mut last_err =
+        io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to");
+    for a in addrs {
+        match TcpStream::connect_timeout(&a, NET_TIMEOUT) {
+            Ok(stream) => {
+                stream.set_read_timeout(Some(NET_TIMEOUT))?;
+                stream.set_write_timeout(Some(NET_TIMEOUT))?;
+                return Ok(stream);
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
 /// Forward one Sphinx packet to a hop: connect, write `FORWARD ‖ packet`, close.
 pub fn dispatch(addr: impl ToSocketAddrs, packet: &SphinxPacket) -> io::Result<()> {
-    let mut stream = TcpStream::connect(addr)?;
+    let mut stream = connect_bounded(addr)?;
     stream.write_all(&[MSG_FORWARD])?;
     stream.write_all(&packet.to_bytes())?;
     stream.flush()
@@ -235,7 +260,7 @@ pub fn dispatch(addr: impl ToSocketAddrs, packet: &SphinxPacket) -> io::Result<(
 /// Ask a node for the current directory (the whole known node set). This is how
 /// a client that runs no node bootstraps onto the network.
 pub fn discover(seed: impl ToSocketAddrs) -> io::Result<Vec<NodeDescriptor>> {
-    let mut stream = TcpStream::connect(seed)?;
+    let mut stream = connect_bounded(seed)?;
     stream.write_all(&[MSG_GET_DIRECTORY])?;
     stream.flush()?;
     let mut len = [0u8; 4];
@@ -252,7 +277,7 @@ pub fn discover(seed: impl ToSocketAddrs) -> io::Result<Vec<NodeDescriptor>> {
 /// Gossip a node set to a peer for it to merge into its directory.
 pub fn announce(peer: impl ToSocketAddrs, nodes: &[NodeDescriptor]) -> io::Result<()> {
     let body = encode_directory(nodes);
-    let mut stream = TcpStream::connect(peer)?;
+    let mut stream = connect_bounded(peer)?;
     stream.write_all(&[MSG_ANNOUNCE])?;
     stream.write_all(&(body.len() as u32).to_le_bytes())?;
     stream.write_all(&body)?;
