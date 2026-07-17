@@ -165,6 +165,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | 24/7 background operation: foreground service keeps receiving (on by default) | ✅ implemented |
 | — | Auto-update check against GitHub releases, with a prominent "update or it may break" prompt | ✅ implemented |
 | — | Own nodes: add host:port and route exclusively through your own infrastructure | ✅ implemented |
+| — | SOCKS5 / Tor proxy: route all traffic (mixnet + mailbox) through a proxy or Tor | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -190,8 +191,11 @@ real one — which stays encrypted and hidden — and a **panic wipe** (hold to
 confirm) erases everything from the lock screen or Settings. The app keeps
 receiving **24/7**: an Android foreground service (on by default, opt-out in
 Settings) holds the process alive so the poll loop drains the mailbox even in
-the background — no push infrastructure, and the node stays uncluttered. What
-remains is hardening, not new layers: an external security
+the background — no push infrastructure, and the node stays uncluttered. For
+network-level privacy you can add **your own nodes** (host:port) and route
+*exclusively* through them, and/or send **all** traffic through a **SOCKS5
+proxy or Tor** (Orbot) so the entry node sees the proxy/Tor exit, not your IP.
+What remains is hardening, not new layers: an external security
 audit (a release blocker, as for Ciphra), the SPQR KEM-chunking size
 optimization, and group messaging. Note: a scannable QR is **not** on the list — a
 post-quantum share code (ML-KEM + ML-DSA bundle) is ~8 KB, far past a QR's

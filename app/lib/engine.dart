@@ -28,6 +28,13 @@ const _decoyStateKey = 'aegis.decoy_state'; // separate state for the decoy acco
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _ownNodesOnlyKey = 'aegis.own_nodes_only'; // route only through my nodes
+const _proxyModeKey = 'aegis.proxy_mode'; // 'off' | 'tor' | 'socks5'
+const _proxyHostKey = 'aegis.proxy_host'; // host:port for socks5 mode
+const _proxyUserKey = 'aegis.proxy_user';
+const _proxyPassKey = 'aegis.proxy_pass';
+
+/// The default Tor SOCKS5 endpoint (Orbot on Android).
+const _torEndpoint = '127.0.0.1:9050';
 const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
 const _notifyKey = 'aegis.notifications'; // show a notification on new messages
 const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wait
@@ -65,6 +72,10 @@ class AegisEngineController extends ChangeNotifier {
   NodeInfo? _node;
   List<String> _userBootstrap = const [];
   bool _ownNodesOnly = false; // route only through the user's own nodes
+  String _proxyMode = 'off'; // 'off' | 'tor' | 'socks5'
+  String _proxyHost = ''; // host:port for socks5 mode
+  String _proxyUser = '';
+  String _proxyPass = '';
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
@@ -150,6 +161,58 @@ class AegisEngineController extends ChangeNotifier {
 
   /// Whether the app routes exclusively through the user's own nodes.
   bool get ownNodesOnly => _ownNodesOnly;
+
+  /// The proxy mode: `off`, `tor`, or `socks5`.
+  String get proxyMode => _proxyMode;
+
+  /// The custom SOCKS5 endpoint (`host:port`) for `socks5` mode.
+  String get proxyHost => _proxyHost;
+  String get proxyUser => _proxyUser;
+  String get proxyPass => _proxyPass;
+
+  /// Push the current proxy choice into the Rust transport (process-wide). Both
+  /// the mixnet and the provider connection honour it. Safe to call before a
+  /// connection exists.
+  void _applyProxy() {
+    switch (_proxyMode) {
+      case 'tor':
+        setProxy(proxy: _torEndpoint, username: null, password: null);
+      case 'socks5':
+        if (_proxyHost.isNotEmpty) {
+          setProxy(
+            proxy: _proxyHost,
+            username: _proxyUser.isEmpty ? null : _proxyUser,
+            password: _proxyPass.isEmpty ? null : _proxyPass,
+          );
+        } else {
+          setProxy(proxy: null, username: null, password: null);
+        }
+      default:
+        setProxy(proxy: null, username: null, password: null);
+    }
+  }
+
+  /// Change the proxy: `off`, `tor`, or `socks5` (with a `host:port` and
+  /// optional credentials). Persisted, applied to the transport, then the engine
+  /// reconnects so it takes effect immediately.
+  Future<void> updateProxy(
+    String mode, {
+    String host = '',
+    String user = '',
+    String pass = '',
+  }) async {
+    _proxyMode = mode;
+    _proxyHost = host.trim();
+    _proxyUser = user;
+    _proxyPass = pass;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_proxyModeKey, _proxyMode);
+    await prefs.setString(_proxyHostKey, _proxyHost);
+    await prefs.setString(_proxyUserKey, _proxyUser);
+    await prefs.setString(_proxyPassKey, _proxyPass);
+    _applyProxy();
+    await _reconnect();
+  }
 
   /// Add a bootstrap node (`host:port`) the user typed, then reconnect through
   /// the new set. Ignores a duplicate or blank entry.
@@ -250,6 +313,12 @@ class AegisEngineController extends ChangeNotifier {
   Future<void> init() async {
     await _ensureRustInit();
     final prefs = await SharedPreferences.getInstance();
+    // Apply the proxy first of all — before anything can open a connection.
+    _proxyMode = prefs.getString(_proxyModeKey) ?? 'off';
+    _proxyHost = prefs.getString(_proxyHostKey) ?? '';
+    _proxyUser = prefs.getString(_proxyUserKey) ?? '';
+    _proxyPass = prefs.getString(_proxyPassKey) ?? '';
+    _applyProxy();
     _secureScreen = prefs.getBool(_secureScreenKey) ?? true;
     // Native onCreate already set the flag on; only need to relax it if the user
     // turned the setting off.
