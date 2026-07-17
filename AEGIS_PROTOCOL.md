@@ -381,6 +381,21 @@ Cover traffic and mixing trade **bandwidth and latency** for anonymity. Aegis
 should make this a **tunable**: a "fast" mode (onion only, low latency) and a
 "paranoid" mode (full Loopix cover traffic). Do not oversell — see §1.3.
 
+### 6.4 Transport proxy (SOCKS5 / Tor) — hiding the client IP
+
+The mixnet hides *who talks to whom*, but the **first hop still sees the
+client's IP** (a node learns that IP `X` connected to it). As a client-side
+option, Aegis can route **every** outbound TCP — both the mixnet dials and the
+provider/mailbox connection — through a **SOCKS5 proxy**. Tor is exactly a
+SOCKS5 proxy (Orbot on `127.0.0.1:9050`), so the same mechanism gives "use Tor"
+and "use my SOCKS5 proxy". With it on, the entry node sees the proxy/Tor exit,
+not the user's address. This composes with — and does not replace — the mixnet:
+it protects the *network address*, the mixnet protects the *traffic pattern*.
+Combined with **own-nodes-only** routing, a user can insist all traffic goes
+through infrastructure they control, reached over Tor. (Node/provider targets
+are IPs, so no separate DNS resolution leaks; a hostname relay would still
+resolve locally.)
+
 ---
 
 ## 7. End-to-end message lifecycle

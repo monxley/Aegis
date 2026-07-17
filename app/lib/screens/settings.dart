@@ -9,6 +9,7 @@ import '../widgets.dart';
 import 'chats.dart';
 import 'identity.dart';
 import 'onboarding.dart';
+import 'proxy.dart';
 
 /// Settings: your profile (share code), connection status, and the opt-in
 /// "become a node" toggle.
@@ -360,6 +361,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           if (mounted) setState(() => _busy = false);
                         },
                   activeColor: AegisTheme.accent,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
+            icon: Icons.vpn_lock_rounded,
+            title: 'Proxy / Tor',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  switch (e.proxyMode) {
+                    'tor' => 'On · routing over Tor (Orbot).',
+                    'socks5' => 'On · SOCKS5 ${e.proxyHost}.',
+                    _ => 'Off · connecting directly. Route through Tor or a '
+                        'SOCKS5 proxy to hide your IP from the nodes.',
+                  },
+                  style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.tune_rounded, size: 18),
+                  label: const Text('Configure proxy'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AegisTheme.textHi,
+                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    minimumSize: const Size.fromHeight(0),
+                  ),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ProxyScreen(engine: widget.engine),
+                    ),
+                  ),
                 ),
               ],
             ),

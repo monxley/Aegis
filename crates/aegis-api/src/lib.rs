@@ -1056,6 +1056,35 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     }
 }
 
+/// Route **all** outbound connections — the mixnet (sends, discovery) and the
+/// provider/relay mailbox — through a SOCKS5 proxy. `proxy` is `host:port`
+/// (e.g. `127.0.0.1:9050` for Tor via Orbot); `username`/`password` are optional
+/// SOCKS5 auth. Pass `None` for `proxy` to go direct again.
+///
+/// Sets the process-wide proxy for both transport layers at once, so they can't
+/// drift. Call **before** building the engine so the first connections already
+/// use it.
+pub fn set_proxy(proxy: Option<String>, username: Option<String>, password: Option<String>) {
+    match proxy {
+        Some(addr) => {
+            aegis_mix::socks5::set_proxy(Some(aegis_mix::socks5::ProxyConfig {
+                proxy: addr.clone(),
+                username: username.clone(),
+                password: password.clone(),
+            }));
+            aegis_relay::socks5::set_proxy(Some(aegis_relay::socks5::ProxyConfig {
+                proxy: addr,
+                username,
+                password,
+            }));
+        }
+        None => {
+            aegis_mix::socks5::set_proxy(None);
+            aegis_relay::socks5::set_proxy(None);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
