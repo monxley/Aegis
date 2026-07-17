@@ -164,6 +164,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Chat management: pin to top, manual reorder, delete for me / for everyone | ✅ implemented |
 | — | 24/7 background operation: foreground service keeps receiving (on by default) | ✅ implemented |
 | — | Auto-update check against GitHub releases, with a prominent "update or it may break" prompt | ✅ implemented |
+| — | Own nodes: add host:port and route exclusively through your own infrastructure | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
