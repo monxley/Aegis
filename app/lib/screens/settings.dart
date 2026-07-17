@@ -456,6 +456,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   switch (e.proxyMode) {
                     'tor' => 'On · routing over Tor (Orbot).',
                     'socks5' => 'On · SOCKS5 ${e.proxyHost}.',
+                    'chain' => e.proxyTorFirst
+                        ? 'On · chain: Tor → SOCKS5 ${e.proxyHost}.'
+                        : 'On · chain: SOCKS5 ${e.proxyHost} → Tor.',
                     _ => 'Off · connecting directly. Route through Tor or a '
                         'SOCKS5 proxy to hide your IP from the nodes.',
                   },
