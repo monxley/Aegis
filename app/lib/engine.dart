@@ -17,6 +17,7 @@ import 'biometrics.dart';
 import 'config.dart';
 import 'notifications.dart';
 import 'screen_security.dart';
+import 'updater.dart';
 
 const _seedKey = 'aegis.master_seed';
 const _vaultKey = 'aegis.seed_vault'; // base64 password-encrypted seed
@@ -198,6 +199,23 @@ class AegisEngineController extends ChangeNotifier {
     _background = prefs.getBool(_backgroundKey) ?? true;
     if (_background) {
       await BackgroundService.start();
+    }
+    // Check for a newer release in the background (never blocks startup).
+    unawaited(checkForUpdate());
+  }
+
+  UpdateInfo? _update; // a newer GitHub release, if one is available
+
+  /// A newer release, if the last check found one (null otherwise).
+  UpdateInfo? get availableUpdate => _update;
+
+  /// Ask GitHub whether a newer release exists; updates [availableUpdate] and
+  /// notifies listeners if so. Safe to call repeatedly; never throws.
+  Future<void> checkForUpdate() async {
+    final u = await Updater.check();
+    if (u != null) {
+      _update = u;
+      notifyListeners();
     }
   }
 

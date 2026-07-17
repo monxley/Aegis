@@ -20,6 +20,10 @@ dependencies:
   local_auth: ^2.3.0
   # Keystore-backed storage for the biometric-unlock seed (never in plain prefs).
   flutter_secure_storage: ^9.2.2
+  # Read the running app version, to compare against the latest GitHub release.
+  package_info_plus: ^8.0.0
+  # Open the release / APK download URL in the browser for a sideload update.
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0
