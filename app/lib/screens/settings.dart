@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import '../engine.dart';
 import '../share.dart';
 import '../theme.dart';
+import '../updater.dart';
 import '../widgets.dart';
+import 'chats.dart';
 import 'identity.dart';
 import 'onboarding.dart';
 
@@ -29,14 +31,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadBiometrics();
   }
 
+  String _version = '';
+
   Future<void> _loadBiometrics() async {
     final supported = await widget.engine.biometricDeviceSupported();
     final enabled = await widget.engine.biometricEnabled();
+    final version = await Updater.currentVersion();
     if (!mounted) return;
     setState(() {
       _bioSupported = supported;
       _bioEnabled = enabled;
+      _version = version;
     });
+  }
+
+  Future<void> _checkForUpdate() async {
+    setState(() => _busy = true);
+    await widget.engine.checkForUpdate();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final update = widget.engine.availableUpdate;
+    if (update != null) {
+      await showUpdateDialog(context, widget.engine, update);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You’re on the latest version')),
+      );
+    }
   }
 
   Future<void> _toggleBiometric(bool on) async {
@@ -477,6 +498,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 14),
+          _card(
+            icon: Icons.system_update_rounded,
+            title: 'App version',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _version.isEmpty ? 'Aegis' : 'Aegis $_version',
+                  style: const TextStyle(color: AegisTheme.textHi, fontSize: 15),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Aegis is sideloaded, so it updates from GitHub releases. Keep '
+                  'it current — an out-of-date app can stop sending or receiving '
+                  'when the network changes.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Check for updates'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AegisTheme.textHi,
+                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    minimumSize: const Size.fromHeight(0),
+                  ),
+                  onPressed: _busy ? null : _checkForUpdate,
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 24),
           const Center(
             child: Text(
