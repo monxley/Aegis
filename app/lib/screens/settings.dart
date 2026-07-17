@@ -53,6 +53,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Your profile',
             child: _ProfileCard(engine: e),
           ),
+          // The real account's lock/duress settings are hidden in the decoy so
+          // an attacker there can't change or discard the real vault.
+          if (!e.isDecoy) ...[
           const SizedBox(height: 14),
           _card(
             icon: Icons.lock_rounded,
@@ -106,6 +109,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          if (e.hasPassword) ...[
+            const SizedBox(height: 14),
+            _card(
+              icon: Icons.theater_comedy_rounded,
+              title: 'Duress password',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    e.hasDuress
+                        ? 'On. Entering the duress password at the lock screen '
+                            'opens an empty decoy account instead of this one. '
+                            'Your real chats stay encrypted and hidden.'
+                        : 'A second password for when you’re forced to unlock. It '
+                            'opens a blank decoy account — no contacts, no '
+                            'history — while your real account stays hidden. Make '
+                            'it different from your real password.',
+                    style: const TextStyle(
+                        color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: Icon(e.hasDuress
+                              ? Icons.password_rounded
+                              : Icons.theater_comedy_outlined),
+                          label: Text(e.hasDuress ? 'Change' : 'Set duress password'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AegisTheme.textHi,
+                            side: const BorderSide(color: AegisTheme.surfaceHi),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: _busy ? null : _setOrChangeDuress,
+                        ),
+                      ),
+                      if (e.hasDuress) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('Remove'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AegisTheme.danger,
+                              side: const BorderSide(color: AegisTheme.danger),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: _busy ? null : _removeDuress,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          ],
           const SizedBox(height: 14),
           _card(
             icon: Icons.key_rounded,
@@ -247,32 +309,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _card(
-            icon: Icons.restart_alt_rounded,
-            title: 'Reset identity',
+            icon: Icons.local_fire_department_rounded,
+            title: 'Panic wipe',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Forget this identity and start fresh: a new key, and all '
-                  'contacts and history erased. Use this if you want a clean '
-                  'account. This cannot be undone.',
+                  'Instantly erase everything on this device — key, contacts, '
+                  'and history — and return to a blank slate. Hold the button to '
+                  'fire. This cannot be undone.',
                   style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.delete_forever_rounded, size: 18),
-                  label: const Text('Reset identity'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AegisTheme.danger,
-                    side: const BorderSide(color: AegisTheme.danger),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    minimumSize: const Size.fromHeight(0),
-                  ),
-                  onPressed: _busy ? null : _confirmReset,
+                HoldToWipeButton(
+                  enabled: !_busy,
+                  onWipe: _panicWipe,
                 ),
               ],
             ),
           ),
+          if (!e.isDecoy) ...[
+            const SizedBox(height: 14),
+            _card(
+              icon: Icons.restart_alt_rounded,
+              title: 'Reset identity',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Forget this identity and start fresh: a new key, and all '
+                    'contacts and history erased. Use this if you want a clean '
+                    'account. This cannot be undone.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.delete_forever_rounded, size: 18),
+                    label: const Text('Reset identity'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AegisTheme.danger,
+                      side: const BorderSide(color: AegisTheme.danger),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      minimumSize: const Size.fromHeight(0),
+                    ),
+                    onPressed: _busy ? null : _confirmReset,
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           const Center(
             child: Text(
@@ -417,9 +502,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  Future<void> _setOrChangeDuress() async {
+    final pw = await _promptNewPassword(
+      title: widget.engine.hasDuress
+          ? 'Change duress password'
+          : 'Set duress password',
+    );
+    if (pw == null || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.engine.setDuressPassword(pw);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Duress password set')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _removeDuress() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Remove duress password?',
+            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+        content: const Text(
+          'The decoy account and its data will be discarded, and only your real '
+          'password will unlock the app.',
+          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove', style: TextStyle(color: AegisTheme.danger)),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.engine.removeDuressPassword();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _panicWipe() async {
+    await widget.engine.panicWipe();
+    if (!mounted) return;
+    // Drop every screen and land on onboarding to mint a fresh identity.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => OnboardingScreen(engine: widget.engine)),
+      (route) => false,
+    );
+  }
+
   /// Prompt for a new password twice; returns it if the two match and it's long
-  /// enough, else null (cancelled/invalid).
-  Future<String?> _promptNewPassword() {
+  /// enough, else null (cancelled/invalid). [title] labels the dialog.
+  Future<String?> _promptNewPassword({String? title}) {
     final a = TextEditingController();
     final b = TextEditingController();
     return showDialog<String>(
@@ -430,7 +586,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (ctx, setD) => AlertDialog(
             backgroundColor: AegisTheme.surface,
             title: Text(
-              widget.engine.hasPassword ? 'Change password' : 'Set password',
+              title ??
+                  (widget.engine.hasPassword ? 'Change password' : 'Set password'),
               style: const TextStyle(color: AegisTheme.textHi, fontSize: 18),
             ),
             content: Column(

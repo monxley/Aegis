@@ -91,6 +91,7 @@ class _BootstrapState extends State<_Bootstrap> {
         return LockScreen(
           engine: widget.engine,
           onUnlocked: () => setState(() => _phase = _Phase.chats),
+          onWiped: () => setState(() => _phase = _Phase.onboarding),
         );
       case _Phase.onboarding:
         return OnboardingScreen(engine: widget.engine);

@@ -73,6 +73,108 @@ class GradientButton extends StatelessWidget {
   }
 }
 
+/// A destructive button that only fires after being held down for ~1.5s, so a
+/// panic wipe can't happen on an accidental tap. The fill animates as you hold;
+/// releasing early cancels.
+class HoldToWipeButton extends StatefulWidget {
+  final bool enabled;
+  final Future<void> Function() onWipe;
+  final String idleLabel;
+  const HoldToWipeButton({
+    super.key,
+    required this.enabled,
+    required this.onWipe,
+    this.idleLabel = 'Hold to wipe',
+  });
+
+  @override
+  State<HoldToWipeButton> createState() => _HoldToWipeButtonState();
+}
+
+class _HoldToWipeButtonState extends State<HoldToWipeButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..addStatusListener((s) {
+      if (s == AnimationStatus.completed) _fire();
+    });
+  bool _fired = false;
+
+  Future<void> _fire() async {
+    if (_fired) return;
+    _fired = true;
+    await widget.onWipe();
+  }
+
+  void _start() {
+    if (!widget.enabled) return;
+    _fired = false;
+    _ctrl.forward(from: 0);
+  }
+
+  void _cancel() {
+    if (!_ctrl.isCompleted) _ctrl.reset();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _start(),
+      onTapUp: (_) => _cancel(),
+      onTapCancel: _cancel,
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          final t = _ctrl.value;
+          return Container(
+            height: 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AegisTheme.danger),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Fill grows left→right as the hold progresses.
+                FractionallySizedBox(
+                  widthFactor: t,
+                  heightFactor: 1,
+                  alignment: Alignment.centerLeft,
+                  child: Container(color: AegisTheme.danger.withOpacity(0.25)),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.local_fire_department_rounded,
+                        size: 18, color: AegisTheme.danger),
+                    const SizedBox(width: 8),
+                    Text(
+                      t > 0 && t < 1 ? 'Keep holding…' : widget.idleLabel,
+                      style: const TextStyle(
+                        color: AegisTheme.danger,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// A round avatar showing the first letter of [name] over a soft gradient,
 /// tinted deterministically from the name so contacts are distinguishable.
 class ContactAvatar extends StatelessWidget {
