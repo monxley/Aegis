@@ -181,18 +181,22 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
+    _input.clear();
+    HapticFeedback.lightImpact();
     try {
-      widget.engine.send(aegisId: widget.contact.aegisId, text: text);
-      HapticFeedback.lightImpact();
-      _input.clear();
+      // Always stores the message locally (even if the network send fails, it's
+      // kept and retried), so it never vanishes from the chat.
+      await widget.engine.send(aegisId: widget.contact.aegisId, text: text);
       _scrollToEnd();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Send failed: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Send failed: $e')),
+        );
+      }
     }
   }
 
@@ -282,7 +286,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         children: [
                           if (showDay)
                             _DaySeparator(ms: msg.timestampMs.toInt()),
-                          _Bubble(message: msg),
+                          _Bubble(
+                            message: msg,
+                            onRetry: () => widget.engine.resend(
+                                aegisId: widget.contact.aegisId, id: msg.id),
+                          ),
                         ],
                       );
                     },
@@ -297,7 +305,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
 class _Bubble extends StatelessWidget {
   final ChatMessage message;
-  const _Bubble({required this.message});
+  final VoidCallback? onRetry;
+  const _Bubble({required this.message, this.onRetry});
 
   void _copy(BuildContext context) {
     HapticFeedback.mediumImpact();
@@ -310,11 +319,13 @@ class _Bubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mine = message.fromMe;
+    final failed = mine && message.status == 3;
     final onBubble = mine ? const Color(0xFF06110F) : AegisTheme.textHi;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: () => _copy(context),
+        onTap: failed ? onRetry : null,
         child: Container(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.76,
@@ -343,6 +354,21 @@ class _Bubble extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (failed) ...[
+                    const Icon(Icons.error_outline_rounded,
+                        size: 12, color: AegisTheme.danger),
+                    const SizedBox(width: 3),
+                    const Text(
+                      'Not sent · tap to retry',
+                      style: TextStyle(
+                        color: AegisTheme.danger,
+                        fontSize: 10,
+                        height: 1.0,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   Text(
                     formatClock(message.timestampMs.toInt()),
                     style: TextStyle(
@@ -352,7 +378,7 @@ class _Bubble extends StatelessWidget {
                       height: 1.0,
                     ),
                   ),
-                  if (mine) ...[
+                  if (mine && !failed) ...[
                     const SizedBox(width: 4),
                     _StatusTick(status: message.status),
                   ],

@@ -63,6 +63,10 @@ const MSG_TIMER: u8 = 3; // sets the conversation's disappearing timer
 const STATUS_SENT: u8 = 0;
 const STATUS_DELIVERED: u8 = 1;
 const STATUS_READ: u8 = 2;
+/// The network send failed (relay unreachable, no route, session error). The
+/// message is kept locally and retried automatically on the next poll, so a
+/// transient failure never silently loses it.
+const STATUS_FAILED: u8 = 3;
 
 fn frame(kind: u8, id: u64, ttl_secs: u32, content: &[u8]) -> Vec<u8> {
     let mut v = Vec::with_capacity(13 + content.len());
@@ -610,9 +614,14 @@ impl AegisApp {
     }
 
     /// Send `text` to the contact with `aegis_id`. Establishes the session on
-    /// first message, then reuses it. Appends to the local history with a fresh
-    /// id and a "sent" status that later delivery/read receipts advance. If the
-    /// conversation has a disappearing timer, the message carries it and expires.
+    /// first message, then reuses it.
+    ///
+    /// The local copy is stored **first, unconditionally** — optimistic echo —
+    /// then delivery is attempted. On a network failure (relay unreachable, no
+    /// route, session error) the message is kept with [`STATUS_FAILED`] and
+    /// retried automatically on the next [`poll`], instead of being silently
+    /// dropped. If the conversation has a disappearing timer, the message
+    /// carries it and expires. Only an unknown contact / bad bundle is an error.
     pub fn send(&mut self, aegis_id: String, text: String) -> Result<(), AppError> {
         let contact = self
             .contacts
@@ -620,19 +629,12 @@ impl AegisApp {
             .find(|c| c.aegis_id == aegis_id)
             .ok_or(AppError::UnknownContact)?;
         let peer = AegisId::decode(&contact.aegis_id).map_err(|_| AppError::BadContact)?;
-        let bundle = wire::decode_bundle(&contact.bundle).ok_or(AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
 
         let id = rand_u64();
         let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
         let payload = frame(MSG_TEXT, id, ttl, text.as_bytes());
-        match self.client.send(&mut self.store, &peer, &payload) {
-            Ok(()) => {}
-            Err(ClientError::NoSession) => {
-                self.client
-                    .start_conversation(&mut self.store, &peer, &bundle, &payload)?;
-            }
-            Err(e) => return Err(e.into()),
-        }
+        let ok = self.deliver(&peer, &bundle, &payload);
 
         let now = now_ms();
         self.history.entry(aegis_id).or_default().push(ChatMessage {
@@ -640,10 +642,79 @@ impl AegisApp {
             text,
             timestamp_ms: now,
             id,
-            status: STATUS_SENT,
+            status: if ok { STATUS_SENT } else { STATUS_FAILED },
             expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
         });
         Ok(())
+    }
+
+    /// Deliver an already-framed `payload` to `peer`, starting the session from
+    /// `bundle_bytes` if there isn't one yet. Returns whether it went out. Never
+    /// starts a conversation for anything but a genuine no-session case.
+    fn deliver(&mut self, peer: &AegisId, bundle_bytes: &[u8], payload: &[u8]) -> bool {
+        match self.client.send(&mut self.store, peer, payload) {
+            Ok(()) => true,
+            Err(ClientError::NoSession) => match wire::decode_bundle(bundle_bytes) {
+                Some(bundle) => self
+                    .client
+                    .start_conversation(&mut self.store, peer, &bundle, payload)
+                    .is_ok(),
+                None => false,
+            },
+            Err(_) => false,
+        }
+    }
+
+    /// Retry delivery of a previously failed outgoing message, re-framed with
+    /// the same id (so a later receipt still matches) and the conversation's
+    /// current timer. Flips its status to [`STATUS_SENT`] on success. A no-op if
+    /// `id` isn't a failed outgoing message in this conversation.
+    pub fn resend(&mut self, aegis_id: String, id: u64) -> Result<(), AppError> {
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.aegis_id == aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = AegisId::decode(&contact.aegis_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
+        let text = self.history.get(&aegis_id).and_then(|msgs| {
+            msgs.iter()
+                .find(|m| m.from_me && m.id == id && m.status == STATUS_FAILED)
+                .map(|m| m.text.clone())
+        });
+        let Some(text) = text else { return Ok(()) };
+
+        let payload = frame(MSG_TEXT, id, ttl, text.as_bytes());
+        if self.deliver(&peer, &bundle, &payload) {
+            if let Some(msgs) = self.history.get_mut(&aegis_id) {
+                if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
+                    m.status = STATUS_SENT;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-attempt every failed outgoing message across all conversations. Same
+    /// ids, so a message that actually did go out can't be duplicated. Best
+    /// effort — called from [`poll`] so delivery self-heals when the relay or a
+    /// route comes back.
+    fn retry_failed(&mut self) {
+        let pending: Vec<(String, u64)> = self
+            .history
+            .iter()
+            .flat_map(|(aid, msgs)| {
+                msgs.iter()
+                    .filter(|m| m.from_me && m.status == STATUS_FAILED)
+                    .map(|m| (aid.clone(), m.id))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for (aid, id) in pending {
+            let _ = self.resend(aid, id);
+        }
     }
 
     /// Send a receipt (delivered/read) for message `id` back to `peer` on the
@@ -803,6 +874,9 @@ impl AegisApp {
                 _ => {}
             }
         }
+        // Self-heal: retry anything that failed to send earlier now that we've
+        // just talked to the relay.
+        self.retry_failed();
         self.prune_expired();
         Ok(out)
     }
@@ -932,6 +1006,49 @@ mod tests {
         assert_eq!(got[0].text, "hi alice");
 
         assert_eq!(alice.history(bob.my_aegis_id()).len(), 2); // sent + received
+    }
+
+    #[test]
+    fn a_failed_send_is_kept_locally_and_retried_until_it_lands() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // A message whose network send failed (relay was down) must be kept
+        // locally with STATUS_FAILED — never silently dropped.
+        let id = 42;
+        alice
+            .history
+            .entry(bob.my_aegis_id())
+            .or_default()
+            .push(ChatMessage {
+                from_me: true,
+                text: "queued while offline".into(),
+                timestamp_ms: now_ms(),
+                id,
+                status: STATUS_FAILED,
+                expires_at_ms: 0,
+            });
+        assert_eq!(alice.history(bob.my_aegis_id()).len(), 1);
+
+        // The relay is back: a poll self-heals — retry_failed re-sends it and
+        // flips the status to sent.
+        alice.poll().unwrap();
+        assert_eq!(
+            alice.history(bob.my_aegis_id())[0].status,
+            STATUS_SENT,
+            "the retried message is now marked sent"
+        );
+
+        // …and it really went out: Bob receives it.
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "queued while offline");
     }
 
     #[test]

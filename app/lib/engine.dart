@@ -14,6 +14,7 @@ import 'src/rust/frb_generated.dart';
 
 import 'config.dart';
 import 'notifications.dart';
+import 'screen_security.dart';
 
 const _seedKey = 'aegis.master_seed';
 const _vaultKey = 'aegis.seed_vault'; // base64 password-encrypted seed
@@ -26,6 +27,7 @@ const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
 const _notifyKey = 'aegis.notifications'; // show a notification on new messages
 const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wait
+const _secureScreenKey = 'aegis.secure_screen'; // block screenshots (default on)
 
 /// How long a first-time node must stay up to be "verified" before it can be
 /// toggled freely — a deliberate confirmation-of-intent + anti-abuse delay.
@@ -63,6 +65,7 @@ class AegisEngineController extends ChangeNotifier {
   bool _hasDuress = false; // a duress/decoy password is configured
   bool _isDecoy = false; // the currently booted account is the decoy, not the real one
   bool _notify = false; // show a notification when a message arrives
+  bool _secureScreen = true; // block screenshots / screen recording (default on)
   bool _nodeVerified = false; // finished the one-time 20-min sync/verify
   Timer? _syncTimer; // ticks during the sync wait
   DateTime? _syncCompleteAt; // when the sync wait finishes (null if not syncing)
@@ -178,8 +181,29 @@ class AegisEngineController extends ChangeNotifier {
     _rustInited = true;
   }
 
-  /// Initialize the Rust bridge (safe to call repeatedly).
-  Future<void> init() => _ensureRustInit();
+  /// Initialize the Rust bridge (safe to call repeatedly) and apply the
+  /// screenshot-block setting (secure by default) before any screen shows.
+  Future<void> init() async {
+    await _ensureRustInit();
+    final prefs = await SharedPreferences.getInstance();
+    _secureScreen = prefs.getBool(_secureScreenKey) ?? true;
+    // Native onCreate already set the flag on; only need to relax it if the user
+    // turned the setting off.
+    if (!_secureScreen) await ScreenSecurity.setSecure(false);
+  }
+
+  /// Whether screenshots and screen recording are blocked (default on).
+  bool get screenshotsBlocked => _secureScreen;
+
+  /// Turn the screenshot / screen-recording block on or off (persisted, applied
+  /// immediately).
+  Future<void> setScreenshotsBlocked(bool on) async {
+    _secureScreen = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_secureScreenKey, on);
+    await ScreenSecurity.setSecure(on);
+    notifyListeners();
+  }
 
   /// What's stored at launch: none (→ onboarding), plaintext (→ boot directly),
   /// or locked (→ ask for the app password before booting).
@@ -667,8 +691,15 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void send({required String aegisId, required String text}) {
-    _engine!.send(aegisId: aegisId, text: text);
+  Future<void> send({required String aegisId, required String text}) async {
+    await _engine!.send(aegisId: aegisId, text: text);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Retry a message whose earlier send failed (shown with a failed marker).
+  Future<void> resend({required String aegisId, required BigInt id}) async {
+    await _engine?.resend(aegisId: aegisId, id: id);
     _persist();
     notifyListeners();
   }

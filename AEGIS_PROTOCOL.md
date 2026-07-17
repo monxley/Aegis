@@ -73,8 +73,10 @@ nothing an observer or relay sees, so they add no metadata. They narrow the
   touched or revealed. Nothing distinguishes the decoy from a fresh real
   account, and coercion yields only the decoy.
 - **Screenshot / screen-recording block.** Android `FLAG_SECURE` is set on every
-  window (build-time, always on): no screenshots, no screen recording, and a
-  blank card in the app switcher.
+  window in `onCreate` — secure from the first frame — so there are no
+  screenshots, no screen recording, and a blank card in the app switcher. On by
+  default; the user can turn it off in Settings (a runtime `MethodChannel`
+  toggles the flag).
 - **Panic wipe.** A hold-to-confirm control (lock screen and Settings) erases
   the seed, both vaults, all state, and node settings in one step. Fired from
   the decoy it clears only the decoy, so the real account is never destroyed —
