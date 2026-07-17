@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/rust/api/aegis.dart';
 import 'src/rust/frb_generated.dart';
 
+import 'biometrics.dart';
 import 'config.dart';
 import 'notifications.dart';
 import 'screen_security.dart';
@@ -285,7 +286,60 @@ class AegisEngineController extends ChangeNotifier {
     await prefs.setString(_seedKey, _encodeSeed(seed));
     await prefs.remove(_vaultKey);
     _passwordSet = false;
+    // Biometric unlock is layered over the password; without a password it makes
+    // no sense, so drop the stored biometric seed too.
+    await Biometrics.clear();
     notifyListeners();
+  }
+
+  // --- biometric unlock -----------------------------------------------------
+
+  /// Whether this device has biometric hardware with an enrolled fingerprint or
+  /// face.
+  Future<bool> biometricDeviceSupported() => Biometrics.deviceSupported();
+
+  /// Whether biometric unlock is currently enabled (a seed is stored for it).
+  Future<bool> biometricEnabled() => Biometrics.hasStoredSeed();
+
+  /// Enable biometric unlock: copy the running identity's seed into
+  /// Keystore-backed secure storage so a fingerprint/face check can boot it
+  /// without the password. Requires an app-lock password and the real account
+  /// unlocked (not the decoy).
+  Future<void> enableBiometric() async {
+    if (_isDecoy) throw StateError('not available in the decoy account');
+    if (!_passwordSet) {
+      throw StateError('set an app-lock password before biometric unlock');
+    }
+    final seed = _seed;
+    if (seed == null) throw StateError('no seed loaded');
+    if (!await Biometrics.deviceSupported()) {
+      throw StateError('no enrolled fingerprint or face on this device');
+    }
+    await Biometrics.storeSeed(seed);
+    notifyListeners();
+  }
+
+  /// Disable biometric unlock and erase the seed held for it.
+  Future<void> disableBiometric() async {
+    await Biometrics.clear();
+    notifyListeners();
+  }
+
+  /// Unlock with a biometric check instead of the password: prompt, and on a
+  /// successful match read the stored seed and boot the real account. Returns
+  /// false if biometrics aren't set up, the check fails, or the seed is missing
+  /// (fall back to the password). Never bypasses anything without a live
+  /// fingerprint/face match.
+  Future<bool> unlockWithBiometric() async {
+    if (!await Biometrics.hasStoredSeed()) return false;
+    if (!await Biometrics.authenticate('Unlock Aegis')) return false;
+    final seed = await Biometrics.readSeed();
+    if (seed == null) return false;
+    await _ensureRustInit();
+    _passwordSet = true;
+    _isDecoy = false;
+    await _bootWithSeed(seed);
+    return true;
   }
 
   /// Set (or change) the duress/decoy password. A fresh random seed is minted
@@ -347,6 +401,7 @@ class AegisEngineController extends ChangeNotifier {
       await prefs.remove(_nodeKey);
       await prefs.remove(_notifyKey);
       await prefs.remove(_favNodesKey);
+      await Biometrics.clear();
     }
     _engine = null;
     _node = null;
@@ -643,6 +698,7 @@ class AegisEngineController extends ChangeNotifier {
     await prefs.remove(_modeKey);
     await prefs.remove(_nodeVerifiedKey);
     await prefs.remove(_nodeKey);
+    await Biometrics.clear();
     _engine = null;
     _node = null;
     _seed = null;
