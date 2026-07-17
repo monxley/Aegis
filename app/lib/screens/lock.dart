@@ -10,10 +10,12 @@ import '../widgets.dart';
 class LockScreen extends StatefulWidget {
   final AegisEngineController engine;
   final VoidCallback onUnlocked;
+  final VoidCallback onWiped;
   const LockScreen({
     super.key,
     required this.engine,
     required this.onUnlocked,
+    required this.onWiped,
   });
 
   @override
@@ -48,6 +50,12 @@ class _LockScreenState extends State<LockScreen> {
         _error = 'Wrong password.';
       });
     }
+  }
+
+  Future<void> _panicWipe() async {
+    await widget.engine.panicWipe();
+    if (!mounted) return;
+    widget.onWiped();
   }
 
   @override
@@ -105,6 +113,12 @@ class _LockScreenState extends State<LockScreen> {
                 'device. You can reinstall and start a new identity.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AegisTheme.textLo, fontSize: 11, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              HoldToWipeButton(
+                enabled: !_busy,
+                onWipe: _panicWipe,
+                idleLabel: 'Hold to wipe everything',
               ),
               const SizedBox(height: 24),
             ],

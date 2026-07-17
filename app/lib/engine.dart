@@ -17,8 +17,10 @@ import 'notifications.dart';
 
 const _seedKey = 'aegis.master_seed';
 const _vaultKey = 'aegis.seed_vault'; // base64 password-encrypted seed
+const _duressVaultKey = 'aegis.duress_vault'; // vault for the decoy seed
 const _modeKey = 'aegis.mode'; // 'network' | 'relay:<addr>' | 'memory'
 const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
+const _decoyStateKey = 'aegis.decoy_state'; // separate state for the decoy account
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
@@ -58,6 +60,8 @@ class AegisEngineController extends ChangeNotifier {
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
+  bool _hasDuress = false; // a duress/decoy password is configured
+  bool _isDecoy = false; // the currently booted account is the decoy, not the real one
   bool _notify = false; // show a notification when a message arrives
   bool _nodeVerified = false; // finished the one-time 20-min sync/verify
   Timer? _syncTimer; // ticks during the sync wait
@@ -93,6 +97,19 @@ class AegisEngineController extends ChangeNotifier {
 
   /// Whether an app-lock password currently protects the seed on disk.
   bool get hasPassword => _passwordSet;
+
+  /// Whether a duress/decoy password is set (a second password that opens an
+  /// empty decoy account instead of the real one).
+  bool get hasDuress => _hasDuress;
+
+  /// Whether the currently running account is the decoy (entered via the duress
+  /// password), not the real identity. Screens hide sensitive settings in this
+  /// mode so an attacker can't tell it apart from a fresh, real account.
+  bool get isDecoy => _isDecoy;
+
+  /// The state blob key for whichever account is booted (real vs decoy), so the
+  /// decoy's chats never touch the real account's saved state.
+  String get _activeStateKey => _isDecoy ? _decoyStateKey : _stateKey;
 
   /// The nodes this client currently knows from the gossiped directory.
   List<NodeSummary> networkNodes() => _engine?.networkNodes() ?? const [];
@@ -179,26 +196,51 @@ class AegisEngineController extends ChangeNotifier {
     final seed = prefs.getString(_seedKey);
     if (seed == null) throw StateError('no seed saved');
     _passwordSet = false;
+    _isDecoy = false;
     await _bootWithSeed(_decodeSeed(seed));
   }
 
-  /// Decrypt the password vault and boot. Throws if the password is wrong — the
-  /// seed never leaves Rust in plaintext, and there is no seed on disk to fall
-  /// back to, so the lock cannot be bypassed.
+  /// Decrypt the password vault and boot. Throws if the password matches neither
+  /// the real nor the duress password — the seed never leaves Rust in plaintext,
+  /// and there is no seed on disk to fall back to, so the lock cannot be
+  /// bypassed.
+  ///
+  /// If a duress password is set and entered here, the **decoy** account boots
+  /// instead: an empty, self-contained identity that looks like a normal (if
+  /// unused) account, while the real one stays encrypted and hidden. Nothing
+  /// signals to the caller which account opened.
   Future<void> unlock(String password) async {
     await _ensureRustInit();
     final prefs = await SharedPreferences.getInstance();
     final b64 = prefs.getString(_vaultKey);
     if (b64 == null) throw StateError('no vault');
-    final seed = await openSeed(password: password, blob: base64Decode(b64));
-    _passwordSet = true;
-    await _bootWithSeed(Uint8List.fromList(seed));
+    // Try the real vault first.
+    try {
+      final seed = await openSeed(password: password, blob: base64Decode(b64));
+      _passwordSet = true;
+      _isDecoy = false;
+      await _bootWithSeed(Uint8List.fromList(seed));
+      return;
+    } catch (_) {
+      // Not the real password — fall through to the duress vault.
+    }
+    // A matching duress password opens the decoy account.
+    final d64 = prefs.getString(_duressVaultKey);
+    if (d64 != null) {
+      final seed = await openSeed(password: password, blob: base64Decode(d64));
+      _passwordSet = true;
+      await _bootDecoy(Uint8List.fromList(seed));
+      return;
+    }
+    // Neither vault opened: wrong password.
+    throw StateError('wrong password');
   }
 
   /// Set (or change) the app-lock password: encrypt the in-memory seed under it,
   /// store only the vault, and delete the plaintext seed. The engine must be
   /// running (unlocked) so we hold the seed.
   Future<void> setAppPassword(String password) async {
+    if (_isDecoy) throw StateError('not available in the decoy account');
     final seed = _seed;
     if (seed == null) throw StateError('no seed loaded');
     final blob = await sealSeed(password: password, seed: seed);
@@ -212,6 +254,7 @@ class AegisEngineController extends ChangeNotifier {
   /// Remove the app-lock password: write the seed back in the clear and drop the
   /// vault. Requires the engine to be running (unlocked).
   Future<void> removeAppPassword() async {
+    if (_isDecoy) throw StateError('not available in the decoy account');
     final seed = _seed;
     if (seed == null) throw StateError('no seed loaded');
     final prefs = await SharedPreferences.getInstance();
@@ -221,9 +264,84 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set (or change) the duress/decoy password. A fresh random seed is minted
+  /// for the decoy and sealed under [password]; entering it at the lock screen
+  /// opens that empty account instead of the real one. Requires an app-lock
+  /// password to be set (duress works through the lock screen) and the real
+  /// account to be running — not available in the decoy itself.
+  ///
+  /// Choose a duress password **different** from the real one; if they match,
+  /// the real vault always opens first and the decoy is never reached.
+  Future<void> setDuressPassword(String password) async {
+    if (_isDecoy) throw StateError('not available in the decoy account');
+    if (!_passwordSet) {
+      throw StateError('set an app-lock password before a duress password');
+    }
+    final decoySeed = _randomSeed();
+    final blob = await sealSeed(password: password, seed: decoySeed);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_duressVaultKey, base64Encode(blob));
+    await prefs.remove(_decoyStateKey); // a fresh decoy has no history
+    _hasDuress = true;
+    notifyListeners();
+  }
+
+  /// Remove the duress/decoy password and discard the decoy account's data.
+  Future<void> removeDuressPassword() async {
+    if (_isDecoy) throw StateError('not available in the decoy account');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_duressVaultKey);
+    await prefs.remove(_decoyStateKey);
+    _hasDuress = false;
+    notifyListeners();
+  }
+
+  /// Panic wipe: instantly and irreversibly destroy the account's data and tear
+  /// down the engine. Meant for a hold-to-confirm button the user can hit under
+  /// pressure.
+  ///
+  /// From the **real** account this erases everything — seed, both vaults,
+  /// state, node settings — leaving the device at onboarding. From the **decoy**
+  /// account it clears only the decoy's data, so an attacker who finds and hits
+  /// the button never destroys (or learns of) the real account.
+  Future<void> panicWipe() async {
+    final decoyOnly = _isDecoy;
+    _pollTimer?.cancel();
+    _coverTimer?.cancel();
+    _cancelSyncWait();
+    final prefs = await SharedPreferences.getInstance();
+    if (decoyOnly) {
+      await prefs.remove(_decoyStateKey);
+    } else {
+      await prefs.remove(_seedKey);
+      await prefs.remove(_vaultKey);
+      await prefs.remove(_duressVaultKey);
+      await prefs.remove(_stateKey);
+      await prefs.remove(_decoyStateKey);
+      await prefs.remove(_modeKey);
+      await prefs.remove(_nodeVerifiedKey);
+      await prefs.remove(_nodeKey);
+      await prefs.remove(_notifyKey);
+      await prefs.remove(_favNodesKey);
+    }
+    _engine = null;
+    _node = null;
+    _seed = null;
+    _nodeEnabled = false;
+    _anonReceive = false;
+    _passwordSet = false;
+    _nodeVerified = false;
+    _hasDuress = false;
+    _isDecoy = false;
+    // No notifyListeners: the caller navigates away to onboarding/lock and drops
+    // the screens that read engine state.
+  }
+
   /// Bring the engine up from a decrypted [seed] and restore saved state.
   Future<void> _bootWithSeed(Uint8List seed) async {
     final prefs = await SharedPreferences.getInstance();
+    _isDecoy = false;
+    _hasDuress = prefs.getString(_duressVaultKey) != null;
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
     _favNodes = (prefs.getStringList(_favNodesKey) ?? const []).toSet();
@@ -246,6 +364,31 @@ class AegisEngineController extends ChangeNotifier {
       // An unverified node that resumes must complete the sync wait again (it
       // was down while the app was closed).
       if (!_nodeVerified) _startSyncWait();
+    }
+  }
+
+  /// Bring up the decoy account: a working but empty identity that boots on the
+  /// network like a normal account. It uses its own state store, never runs a
+  /// node, and never touches the real account's seed, vault, or state.
+  Future<void> _bootDecoy(Uint8List seed) async {
+    final prefs = await SharedPreferences.getInstance();
+    _isDecoy = true;
+    _hasDuress = true; // by definition, we got here via the duress vault
+    _mode = 'network';
+    _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
+    _favNodes = {};
+    _notify = false;
+    _nodeEnabled = false;
+    _nodeVerified = false;
+    await _start(seed);
+    // Restore the decoy's own history, if it has been used before.
+    final blob = prefs.getString(_decoyStateKey);
+    if (blob != null) {
+      try {
+        _engine!.restoreState(blob: base64Decode(blob));
+      } catch (e) {
+        debugPrint('decoy state restore failed (starting fresh): $e');
+      }
     }
   }
 
@@ -377,7 +520,7 @@ class AegisEngineController extends ChangeNotifier {
     // anonymous receive on/off, restoring saved state.
     if (_mode == 'network' && _seed != null) {
       await _start(_seed!);
-      final blob = prefs.getString(_stateKey);
+      final blob = prefs.getString(_activeStateKey);
       if (blob != null) {
         try {
           _engine!.restoreState(blob: base64Decode(blob));
@@ -460,6 +603,9 @@ class AegisEngineController extends ChangeNotifier {
   /// should be onboarding, where a fresh identity is minted. Irreversible —
   /// there is no key escrow, so the old identity and its history are gone.
   Future<void> resetIdentity() async {
+    // From the decoy, a "reset" must not touch the real account — scope it to
+    // the decoy's own data (same rule as a decoy panic wipe).
+    if (_isDecoy) return panicWipe();
     _pollTimer?.cancel();
     _coverTimer?.cancel();
     _cancelSyncWait();
@@ -467,7 +613,9 @@ class AegisEngineController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_seedKey);
     await prefs.remove(_vaultKey);
+    await prefs.remove(_duressVaultKey);
     await prefs.remove(_stateKey);
+    await prefs.remove(_decoyStateKey);
     await prefs.remove(_modeKey);
     await prefs.remove(_nodeVerifiedKey);
     await prefs.remove(_nodeKey);
@@ -477,6 +625,8 @@ class AegisEngineController extends ChangeNotifier {
     _nodeEnabled = false;
     _anonReceive = false;
     _passwordSet = false;
+    _hasDuress = false;
+    _isDecoy = false;
     // No notifyListeners: the caller navigates to onboarding and drops the
     // screens that read engine state, so a rebuild here would only risk a
     // transient null read.
@@ -574,7 +724,7 @@ class AegisEngineController extends ChangeNotifier {
     try {
       final blob = engine.exportState();
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_stateKey, base64Encode(blob));
+      await prefs.setString(_activeStateKey, base64Encode(blob));
     } catch (e) {
       debugPrint('state save failed: $e');
     }
