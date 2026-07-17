@@ -162,6 +162,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Panic wipe: hold-to-confirm instant erase, from the lock screen or Settings | ✅ implemented |
 | — | Biometric unlock: fingerprint / face over the app password (keystore-held key) | ✅ implemented |
 | — | Chat management: pin to top, manual reorder, delete for me / for everyone | ✅ implemented |
+| — | 24/7 background operation: foreground service keeps receiving (on by default) | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -184,11 +185,13 @@ to retry). The app also hardens against physical coercion: the screen is
 **FLAG_SECURE** by default (no screenshots or screen recording, blank in the app
 switcher; toggleable in Settings), a **duress password** opens an empty decoy account instead of the
 real one — which stays encrypted and hidden — and a **panic wipe** (hold to
-confirm) erases everything from the lock screen or Settings. What remains is
-hardening, not new layers: an external security
+confirm) erases everything from the lock screen or Settings. The app keeps
+receiving **24/7**: an Android foreground service (on by default, opt-out in
+Settings) holds the process alive so the poll loop drains the mailbox even in
+the background — no push infrastructure, and the node stays uncluttered. What
+remains is hardening, not new layers: an external security
 audit (a release blocker, as for Ciphra), the SPQR KEM-chunking size
-optimization, group messaging, and app polish (push wake-ups so mail arrives
-without the app open). Note: a scannable QR is **not** on the list — a
+optimization, and group messaging. Note: a scannable QR is **not** on the list — a
 post-quantum share code (ML-KEM + ML-DSA bundle) is ~8 KB, far past a QR's
 ~3 KB ceiling, so identities are shared by copyable code.
 

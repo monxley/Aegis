@@ -316,6 +316,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _card(
+            icon: Icons.sync_rounded,
+            title: 'Background operation',
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Keep receiving messages 24/7 while the app is in the '
+                    'background, with a quiet ongoing notification. On by '
+                    'default — turn off to save battery.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                ),
+                Switch(
+                  value: e.backgroundEnabled,
+                  onChanged: _busy
+                      ? null
+                      : (v) async {
+                          setState(() => _busy = true);
+                          await widget.engine.setBackgroundEnabled(v);
+                          if (mounted) setState(() => _busy = false);
+                        },
+                  activeColor: AegisTheme.accent,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
             icon: Icons.hub_rounded,
             title: 'Connection',
             child: Text(
