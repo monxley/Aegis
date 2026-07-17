@@ -81,6 +81,12 @@ nothing an observer or relay sees, so they add no metadata. They narrow the
   the seed, both vaults, all state, and node settings in one step. Fired from
   the decoy it clears only the decoy, so the real account is never destroyed —
   or disclosed — by an attacker who finds the button.
+- **Biometric unlock (opt-in convenience).** Fingerprint / face can unlock in
+  place of typing the password. The seed is copied into the OS keystore
+  (hardware-backed where available) and released only on a live biometric match;
+  wipe/reset/password-removal clears it. This is a deliberate convenience
+  trade-off — it widens at-rest exposure to the keystore, and biometrics can be
+  compelled, so under coercion the duress password is the answer, not this.
 
 Runtime endpoint compromise while *unlocked* remains out of scope (§1.3); these
 raise the cost of the far more common "seized/borrowed locked phone" case.

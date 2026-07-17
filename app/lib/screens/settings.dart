@@ -20,6 +20,43 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false;
+  bool _bioSupported = false;
+  bool _bioEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometrics();
+  }
+
+  Future<void> _loadBiometrics() async {
+    final supported = await widget.engine.biometricDeviceSupported();
+    final enabled = await widget.engine.biometricEnabled();
+    if (!mounted) return;
+    setState(() {
+      _bioSupported = supported;
+      _bioEnabled = enabled;
+    });
+  }
+
+  Future<void> _toggleBiometric(bool on) async {
+    setState(() => _busy = true);
+    try {
+      if (on) {
+        await widget.engine.enableBiometric();
+      } else {
+        await widget.engine.disableBiometric();
+      }
+      _bioEnabled = on;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Biometrics: $e')),
+        );
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
 
   Future<void> _toggleNode(bool on) async {
     setState(() => _busy = true);
@@ -162,6 +199,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ],
                     ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (e.hasPassword && _bioSupported) ...[
+            const SizedBox(height: 14),
+            _card(
+              icon: Icons.fingerprint_rounded,
+              title: 'Biometric unlock',
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Unlock with your fingerprint or face instead of typing the '
+                      'password. The key is held in the device keystore. Under '
+                      'coercion, use the duress password instead.',
+                      style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    ),
+                  ),
+                  Switch(
+                    value: _bioEnabled,
+                    onChanged: _busy ? null : _toggleBiometric,
+                    activeColor: AegisTheme.accent,
                   ),
                 ],
               ),
