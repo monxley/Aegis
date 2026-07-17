@@ -38,6 +38,8 @@ use aegis_net::{
 };
 
 /// Wire message types (first byte of every connection).
+pub mod socks5;
+
 const MSG_FORWARD: u8 = 0x01;
 const MSG_GET_DIRECTORY: u8 = 0x02;
 const MSG_ANNOUNCE: u8 = 0x03;
@@ -234,10 +236,16 @@ const NET_TIMEOUT: Duration = Duration::from_secs(10);
 /// arm read/write deadlines so no later blocking read can hang indefinitely.
 fn connect_bounded(addr: impl ToSocketAddrs) -> io::Result<TcpStream> {
     let addrs = addr.to_socket_addrs()?;
+    let proxy = socks5::current();
     let mut last_err =
         io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to");
     for a in addrs {
-        match TcpStream::connect_timeout(&a, NET_TIMEOUT) {
+        // Through a SOCKS5 proxy (incl. Tor) when one is set, else direct.
+        let result = match &proxy {
+            Some(p) => socks5::connect(p, a, NET_TIMEOUT),
+            None => TcpStream::connect_timeout(&a, NET_TIMEOUT),
+        };
+        match result {
             Ok(stream) => {
                 stream.set_read_timeout(Some(NET_TIMEOUT))?;
                 stream.set_write_timeout(Some(NET_TIMEOUT))?;

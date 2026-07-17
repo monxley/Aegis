@@ -29,6 +29,10 @@ use std::time::Duration;
 use aegis_mailbox::{Envelope, MailboxError, MailboxStore};
 use ciphra_net::RemoteStorage;
 
+/// The SOCKS5 proxy control for the Ciphra transport (re-exported so the app can
+/// route the provider/relay connection through a proxy or Tor too).
+pub use ciphra_net::socks5;
+
 /// Key prefix under which mailbox envelopes are stored in the Ciphra database.
 const PREFIX: &[u8] = b"aegis/mbox/";
 /// Parallel prefix holding each envelope's store time (for TTL sweeps).

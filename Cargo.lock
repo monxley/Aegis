@@ -100,12 +100,12 @@ dependencies = [
 [[package]]
 name = "ciphra-crypto"
 version = "0.0.1"
-source = "git+https://github.com/monxley/ciphra?rev=8c44682e28441fa0be0895a2af529f5150b8bfeb#8c44682e28441fa0be0895a2af529f5150b8bfeb"
+source = "git+https://github.com/monxley/ciphra?rev=aa29899bc20b490ad9d3110e52d1200345f9f461#aa29899bc20b490ad9d3110e52d1200345f9f461"
 
 [[package]]
 name = "ciphra-net"
 version = "0.0.1"
-source = "git+https://github.com/monxley/ciphra?rev=8c44682e28441fa0be0895a2af529f5150b8bfeb#8c44682e28441fa0be0895a2af529f5150b8bfeb"
+source = "git+https://github.com/monxley/ciphra?rev=aa29899bc20b490ad9d3110e52d1200345f9f461#aa29899bc20b490ad9d3110e52d1200345f9f461"
 dependencies = [
  "ciphra-crypto",
  "ciphra-storage",
@@ -114,4 +114,4 @@ dependencies = [
 [[package]]
 name = "ciphra-storage"
 version = "0.0.1"
-source = "git+https://github.com/monxley/ciphra?rev=8c44682e28441fa0be0895a2af529f5150b8bfeb#8c44682e28441fa0be0895a2af529f5150b8bfeb"
+source = "git+https://github.com/monxley/ciphra?rev=aa29899bc20b490ad9d3110e52d1200345f9f461#aa29899bc20b490ad9d3110e52d1200345f9f461"

@@ -69,6 +69,16 @@ pub fn is_newer_version(current: String, latest: String) -> bool {
     aegis_api::is_newer_version(&current, &latest)
 }
 
+/// Route all outbound traffic (mixnet + provider mailbox) through a SOCKS5
+/// proxy. `proxy` is `host:port` (e.g. `127.0.0.1:9050` for Tor via Orbot);
+/// `username`/`password` are optional SOCKS5 auth. Pass `None` for `proxy` to go
+/// direct. Sync + process-wide — call before (re)building the engine so the very
+/// first connection already uses it.
+#[frb(sync)]
+pub fn set_proxy(proxy: Option<String>, username: Option<String>, password: Option<String>) {
+    aegis_api::set_proxy(proxy, username, password);
+}
+
 /// A running opt-in mix node (returned by [`start_forwarder_node`]).
 pub struct NodeInfo {
     pub address: String,

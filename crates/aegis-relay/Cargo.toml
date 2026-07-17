@@ -11,10 +11,10 @@ aegis-mailbox = { path = "../aegis-mailbox" }
 # Ciphra is the companion project Aegis is built on — not a crates.io package.
 # Its `RemoteStorage` client speaks the blind-server protocol over a hybrid
 # post-quantum channel; the server stores sealed bytes and holds no keys.
-ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
+ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "aa29899bc20b490ad9d3110e52d1200345f9f461" }
 
 [dev-dependencies]
 aegis-client = { path = "../aegis-client" }
 aegis-crypto = { path = "../aegis-crypto" }
 # For the live integration test: run a Ciphra blind server in-process.
-ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
+ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "aa29899bc20b490ad9d3110e52d1200345f9f461" }
