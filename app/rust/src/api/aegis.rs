@@ -97,7 +97,8 @@ pub struct ChatMessage {
     pub timestamp_ms: u64,
     /// Per-message id (matches a delivery/read receipt to its message).
     pub id: u64,
-    /// For our own messages: 0 sent, 1 delivered, 2 read. Unused when received.
+    /// For our own messages: 0 sent, 1 delivered, 2 read, 3 failed (kept locally
+    /// and retried). Unused when received.
     pub status: u8,
     /// Unix-ms after which this disappearing message is gone (0 = never).
     pub expires_at_ms: u64,
@@ -258,9 +259,17 @@ impl AegisEngine {
     }
 
     /// Send `text` to the contact with `aegis_id`. Establishes the session on
-    /// the first message, then reuses it.
+    /// the first message, then reuses it. The local copy is stored even if the
+    /// network send fails (status "failed"), so a message is never lost.
     pub fn send(&self, aegis_id: String, text: String) -> Result<(), String> {
         self.with(|app| app.send(aegis_id, text))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Retry a message whose earlier send failed (status 3). No-op if `id` is not
+    /// a failed outgoing message in this conversation.
+    pub fn resend(&self, aegis_id: String, id: u64) -> Result<(), String> {
+        self.with(|app| app.resend(aegis_id, id))
             .map_err(|e| e.to_string())
     }
 
