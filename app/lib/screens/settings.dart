@@ -46,6 +46,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  static const _disguises = [
+    ('default', 'Aegis', Icons.shield_rounded),
+    ('calculator', 'Calculator', Icons.calculate_rounded),
+    ('notes', 'Notes', Icons.sticky_note_2_rounded),
+    ('weather', 'Weather', Icons.wb_cloudy_rounded),
+  ];
+
+  static String _disguiseLabel(String id) =>
+      _disguises.firstWhere((d) => d.$1 == id, orElse: () => _disguises.first).$2;
+  static IconData _disguiseIcon(String id) =>
+      _disguises.firstWhere((d) => d.$1 == id, orElse: () => _disguises.first).$3;
+
+  Future<void> _showDisguisePicker() async {
+    final current = widget.engine.disguise;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Appearance on the home screen',
+                    style: TextStyle(
+                        color: AegisTheme.textHi,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700)),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Changes the launcher icon and name. Aegis still opens '
+                  'normally — you just tap the decoy.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                ),
+              ),
+            ),
+            for (final d in _disguises)
+              ListTile(
+                leading: Icon(d.$3,
+                    color: d.$1 == current ? AegisTheme.accent : AegisTheme.textHi),
+                title: Text(d.$2, style: const TextStyle(color: AegisTheme.textHi)),
+                trailing: d.$1 == current
+                    ? const Icon(Icons.check_rounded, color: AegisTheme.accent)
+                    : null,
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _applyDisguise(d.$1, d.$2);
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _applyDisguise(String id, String label) async {
+    setState(() => _busy = true);
+    await widget.engine.setDisguise(id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(id == 'default'
+            ? 'Showing as Aegis'
+            : 'Now disguised as “$label” on the home screen'),
+      ),
+    );
+  }
+
   Future<void> _checkForUpdate() async {
     setState(() => _busy = true);
     await widget.engine.checkForUpdate();
@@ -396,6 +476,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       builder: (_) => ProxyScreen(engine: widget.engine),
                     ),
                   ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
+            icon: Icons.masks_rounded,
+            title: 'Disguise',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  e.disguise == 'default'
+                      ? 'Show Aegis as itself on the home screen. Switch to a '
+                          'decoy icon and name to blend in.'
+                      : 'Disguised as “${_disguiseLabel(e.disguise)}”. The home-'
+                          'screen icon and name are hidden.',
+                  style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: Icon(_disguiseIcon(e.disguise), size: 18),
+                  label: Text('Appearance: ${_disguiseLabel(e.disguise)}'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AegisTheme.textHi,
+                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    minimumSize: const Size.fromHeight(0),
+                  ),
+                  onPressed: _busy ? null : _showDisguisePicker,
                 ),
               ],
             ),

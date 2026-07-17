@@ -81,6 +81,12 @@ nothing an observer or relay sees, so they add no metadata. They narrow the
   the seed, both vaults, all state, and node settings in one step. Fired from
   the decoy it clears only the decoy, so the real account is never destroyed —
   or disclosed — by an attacker who finds the button.
+- **Launcher disguise.** The app's home-screen icon and name can be swapped
+  for an ordinary utility (calculator, notes, weather) via Android
+  `activity-alias` components toggled at runtime — exactly one launcher entry is
+  enabled at a time. It hides *what the app is* from a casual glance at the home
+  screen; it is not steganography and does not hide the installed package from
+  someone who inspects the app list.
 - **Biometric unlock (opt-in convenience).** Fingerprint / face can unlock in
   place of typing the password. The seed is copied into the OS keystore
   (hardware-backed where available) and released only on a live biometric match;
