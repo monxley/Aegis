@@ -56,6 +56,33 @@ that follows is an implementation of a *reviewed spec*, not an invented one.
   borrows CryptoNote's *cryptography* (stealth addresses), not its ledger. See
   §2.5.
 
+### 1.4 Device-side hardening (coercion & shoulder-surfing)
+
+These are client mitigations, **outside the wire protocol** — they change
+nothing an observer or relay sees, so they add no metadata. They narrow the
+"attacker holds the physical device" gap that §1.3 leaves open at rest.
+
+- **At-rest encryption (app-lock).** The master seed is sealed under a password
+  with PBKDF2-HMAC-SHA256 (120k iterations) + ChaCha20-Poly1305; the plaintext
+  seed is deleted, so a locked device holds only ciphertext. There is no
+  plaintext fallback and the engine is never constructed until the password
+  decrypts the seed — bypassing the lock UI reaches nothing.
+- **Duress / decoy password.** A second password seals a *separate, random*
+  decoy seed. Entering it at the lock screen boots an empty but fully working
+  account with its own state store; the real vault stays encrypted and is never
+  touched or revealed. Nothing distinguishes the decoy from a fresh real
+  account, and coercion yields only the decoy.
+- **Screenshot / screen-recording block.** Android `FLAG_SECURE` is set on every
+  window (build-time, always on): no screenshots, no screen recording, and a
+  blank card in the app switcher.
+- **Panic wipe.** A hold-to-confirm control (lock screen and Settings) erases
+  the seed, both vaults, all state, and node settings in one step. Fired from
+  the decoy it clears only the decoy, so the real account is never destroyed —
+  or disclosed — by an attacker who finds the button.
+
+Runtime endpoint compromise while *unlocked* remains out of scope (§1.3); these
+raise the cost of the far more common "seized/borrowed locked phone" case.
+
 ---
 
 ## 2. Layer 1 — Identity & stealth addressing (recipient anonymity, G5)

@@ -156,6 +156,41 @@ open(p, "w").write(s)
 print("patched", p, "for core-library desugaring")
 PY
 
+# Screenshot / screen-recording protection (FLAG_SECURE). Rewrite the generated
+# MainActivity so every window sets FLAG_SECURE in onCreate: the OS then blocks
+# screenshots and screen recording and shows a blank card in the app switcher.
+# Always on — there is no in-app toggle, so it can't be turned off by an
+# attacker who has the unlocked phone. The package line is preserved.
+python3 - <<'PY' || log "warning: could not patch MainActivity for FLAG_SECURE"
+import glob, re
+cands = glob.glob("android/app/src/main/kotlin/**/MainActivity.kt", recursive=True)
+if not cands:
+    raise SystemExit(0)
+p = cands[0]
+s = open(p).read()
+if "FLAG_SECURE" in s:
+    raise SystemExit(0)
+m = re.search(r"^\s*package\s+[\w.]+", s, re.M)
+pkg = m.group(0).strip() if m else "package com.example.aegis"
+open(p, "w").write(pkg + """
+
+import android.os.Bundle
+import android.view.WindowManager
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+        super.onCreate(savedInstanceState)
+    }
+}
+""")
+print("patched", p, "for FLAG_SECURE")
+PY
+
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
 flutter_rust_bridge_codegen generate
 
