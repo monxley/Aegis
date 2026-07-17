@@ -46,7 +46,7 @@ fn now_ms() -> u64 {
 
 /// Version tag on exported app state; bump on a format change. v2 adds the
 /// per-message id and delivery status; v1 blobs still load (id 0, status sent).
-const APP_STATE_VERSION: u8 = 3;
+const APP_STATE_VERSION: u8 = 4;
 
 // --- app-level message framing (inside the E2E plaintext) ----------------
 //
@@ -58,6 +58,7 @@ const MSG_TEXT: u8 = 0;
 const MSG_DELIVERED: u8 = 1;
 const MSG_READ: u8 = 2;
 const MSG_TIMER: u8 = 3; // sets the conversation's disappearing timer
+const MSG_DELETE: u8 = 4; // asks the peer to delete this conversation too
 
 /// Delivery status of one of *our* sent messages (mirrored to the UI as ticks).
 const STATUS_SENT: u8 = 0;
@@ -173,10 +174,13 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
         let name = r.string()?;
         let aegis_id = r.string()?;
         let bundle = r.bytes()?.to_vec();
+        // v4 adds the pinned flag; earlier versions default it off.
+        let pinned = if version >= 4 { r.u8()? != 0 } else { false };
         contacts.push(StoredContact {
             name,
             aegis_id,
             bundle,
+            pinned,
         });
     }
 
@@ -233,6 +237,8 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
 pub struct Contact {
     pub name: String,
     pub aegis_id: String,
+    /// Whether this chat is pinned to the top of the list.
+    pub pinned: bool,
 }
 
 /// A node visible in the gossiped directory (for the network view).
@@ -352,6 +358,9 @@ struct StoredContact {
     name: String,
     aegis_id: String,
     bundle: Vec<u8>,
+    /// Pinned chats sort above the rest. The contacts Vec keeps the invariant
+    /// "all pinned first, then unpinned", each in manual order.
+    pinned: bool,
 }
 
 /// The whole messenger behind one object: identity, relay, contacts, history.
@@ -543,6 +552,7 @@ impl AegisApp {
                 name,
                 aegis_id,
                 bundle,
+                pinned: false,
             });
         }
         Ok(())
@@ -565,15 +575,87 @@ impl AegisApp {
             .collect()
     }
 
-    /// The address book.
+    /// The address book, in display order (pinned chats first, then the rest,
+    /// each in the user's manual order).
     pub fn contacts(&self) -> Vec<Contact> {
         self.contacts
             .iter()
             .map(|c| Contact {
                 name: c.name.clone(),
                 aegis_id: c.aegis_id.clone(),
+                pinned: c.pinned,
             })
             .collect()
+    }
+
+    /// Pin or unpin a chat. Pinning moves it to the top of the pinned section;
+    /// unpinning drops it to the top of the unpinned section — keeping the
+    /// "pinned first" invariant the list relies on.
+    pub fn set_pinned(&mut self, aegis_id: String, pinned: bool) -> Result<(), AppError> {
+        let i = self
+            .contacts
+            .iter()
+            .position(|c| c.aegis_id == aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        if self.contacts[i].pinned == pinned {
+            return Ok(());
+        }
+        let mut c = self.contacts.remove(i);
+        c.pinned = pinned;
+        if pinned {
+            self.contacts.insert(0, c);
+        } else {
+            let after_pinned = self.contacts.iter().take_while(|x| x.pinned).count();
+            self.contacts.insert(after_pinned, c);
+        }
+        Ok(())
+    }
+
+    /// Move a chat one place up (`up = true`) or down within its pinned group,
+    /// so pinned chats never mix with unpinned ones. A no-op at a boundary.
+    pub fn move_chat(&mut self, aegis_id: String, up: bool) -> Result<(), AppError> {
+        let i = self
+            .contacts
+            .iter()
+            .position(|c| c.aegis_id == aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let j = if up {
+            i.checked_sub(1)
+        } else {
+            Some(i + 1).filter(|&j| j < self.contacts.len())
+        };
+        let Some(j) = j else { return Ok(()) };
+        // Only swap within the same pinned group.
+        if self.contacts[i].pinned != self.contacts[j].pinned {
+            return Ok(());
+        }
+        self.contacts.swap(i, j);
+        Ok(())
+    }
+
+    /// Forget a conversation locally: remove the contact, its history, and its
+    /// disappearing timer. Irreversible on this device.
+    pub fn delete_chat(&mut self, aegis_id: String) -> Result<(), AppError> {
+        self.remove_conversation(&aegis_id);
+        Ok(())
+    }
+
+    /// Delete a conversation for **both** sides: best-effort ask the peer to
+    /// delete it too (needs an existing session), then delete it here.
+    pub fn delete_chat_for_both(&mut self, aegis_id: String) -> Result<(), AppError> {
+        if let Ok(peer) = AegisId::decode(&aegis_id) {
+            let payload = frame(MSG_DELETE, rand_u64(), 0, &[]);
+            let _ = self.client.send(&mut self.store, &peer, &payload);
+        }
+        self.remove_conversation(&aegis_id);
+        Ok(())
+    }
+
+    /// Drop every local trace of a conversation with `aegis_id`.
+    fn remove_conversation(&mut self, aegis_id: &str) {
+        self.contacts.retain(|c| c.aegis_id != aegis_id);
+        self.history.remove(aegis_id);
+        self.disappearing.remove(aegis_id);
     }
 
     /// The conversation history with `aegis_id`, oldest first. Expired
@@ -775,6 +857,7 @@ impl AegisApp {
             w.push_bytes(c.name.as_bytes());
             w.push_bytes(c.aegis_id.as_bytes());
             w.push_bytes(&c.bundle);
+            w.push_u8(c.pinned as u8); // v4
         }
 
         w.push_u32(self.history.len() as u32);
@@ -870,6 +953,11 @@ impl AegisApp {
                     } else {
                         self.disappearing.insert(aegis_id.clone(), ttl);
                     }
+                }
+                MSG_DELETE => {
+                    // The peer deleted this conversation for both of us — drop
+                    // our copy too.
+                    self.remove_conversation(&aegis_id);
                 }
                 _ => {}
             }
@@ -1049,6 +1137,105 @@ mod tests {
         let got = bob.poll().unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].text, "queued while offline");
+    }
+
+    #[test]
+    fn pin_and_reorder_chats() {
+        let mut me = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let ids: Vec<String> = (2u8..=4)
+            .map(|n| {
+                let peer = AegisApp::create_in_memory(vec![n; 32]).unwrap();
+                let id = peer.my_aegis_id();
+                me.add_contact(format!("C{n}"), id.clone(), peer.my_bundle())
+                    .unwrap();
+                id
+            })
+            .collect();
+        let order = |a: &AegisApp| a.contacts().iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+        assert_eq!(order(&me), ["C2", "C3", "C4"]);
+
+        // Move C2 down one place.
+        me.move_chat(ids[0].clone(), false).unwrap();
+        assert_eq!(order(&me), ["C3", "C2", "C4"]);
+
+        // Pin C4 → it floats to the very top and is marked pinned.
+        me.set_pinned(ids[2].clone(), true).unwrap();
+        assert_eq!(order(&me), ["C4", "C3", "C2"]);
+        assert!(me.contacts()[0].pinned);
+
+        // A pinned chat can't be pushed down past the unpinned group.
+        me.move_chat(ids[2].clone(), false).unwrap();
+        assert_eq!(order(&me), ["C4", "C3", "C2"]);
+
+        // Unpinning drops it back below the (empty) pinned group, at the top of
+        // the unpinned section.
+        me.set_pinned(ids[2].clone(), false).unwrap();
+        assert_eq!(order(&me), ["C4", "C3", "C2"]);
+        assert!(!me.contacts()[0].pinned);
+    }
+
+    #[test]
+    fn delete_chat_forgets_it_locally() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        alice.send(bob.my_aegis_id(), "hi".into()).unwrap();
+        assert_eq!(alice.contacts().len(), 1);
+        assert_eq!(alice.history(bob.my_aegis_id()).len(), 1);
+
+        alice.delete_chat(bob.my_aegis_id()).unwrap();
+        assert!(alice.contacts().is_empty());
+        assert!(alice.history(bob.my_aegis_id()).is_empty());
+    }
+
+    #[test]
+    fn delete_for_both_removes_the_conversation_on_the_peer() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // A message establishes the session the delete control rides on; the
+        // delete-for-both queues right behind it. (One transfer, because the
+        // test relay re-delivers everything from the start on each transfer.)
+        alice.send(bob.my_aegis_id(), "hi bob".into()).unwrap();
+        alice.delete_chat_for_both(bob.my_aegis_id()).unwrap();
+        assert!(alice.contacts().is_empty(), "deleted on Alice's side");
+
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        // Bob processed the text then the delete: the conversation is gone.
+        assert!(bob.contacts().is_empty(), "Bob's chat was removed too");
+        assert!(bob.history(alice.my_aegis_id()).is_empty());
+    }
+
+    #[test]
+    fn pinned_flag_and_order_survive_a_restart() {
+        let mut me = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let a = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        let b = AegisApp::create_in_memory(vec![3u8; 32]).unwrap();
+        me.add_contact("A".into(), a.my_aegis_id(), a.my_bundle())
+            .unwrap();
+        me.add_contact("B".into(), b.my_aegis_id(), b.my_bundle())
+            .unwrap();
+        me.set_pinned(b.my_aegis_id(), true).unwrap();
+        assert_eq!(
+            me.contacts().iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            ["B", "A"]
+        );
+
+        let blob = me.export_state();
+        let mut me = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        me.restore_state(blob).unwrap();
+        let cs = me.contacts();
+        assert_eq!(cs.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), ["B", "A"]);
+        assert!(cs[0].pinned);
+        assert!(!cs[1].pinned);
     }
 
     #[test]

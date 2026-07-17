@@ -161,6 +161,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Duress / decoy password: a second password opens an empty decoy account | ✅ implemented |
 | — | Panic wipe: hold-to-confirm instant erase, from the lock screen or Settings | ✅ implemented |
 | — | Biometric unlock: fingerprint / face over the app password (keystore-held key) | ✅ implemented |
+| — | Chat management: pin to top, manual reorder, delete for me / for everyone | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one

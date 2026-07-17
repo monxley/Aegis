@@ -760,6 +760,34 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Pin or unpin a chat (pinned chats sort to the top of the list).
+  Future<void> setPinned(String aegisId, bool pinned) async {
+    await _engine?.setPinned(aegisId: aegisId, pinned: pinned);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Move a chat one place up or down within its pinned group.
+  Future<void> moveChat(String aegisId, {required bool up}) async {
+    await _engine?.moveChat(aegisId: aegisId, up: up);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Delete a conversation on this device only.
+  Future<void> deleteChat(String aegisId) async {
+    await _engine?.deleteChat(aegisId: aegisId);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Delete a conversation for both sides (asks the peer to delete it too).
+  Future<void> deleteChatForBoth(String aegisId) async {
+    await _engine?.deleteChatForBoth(aegisId: aegisId);
+    _persist();
+    notifyListeners();
+  }
+
   /// Mark the conversation as read so read receipts go to the sender. Call when
   /// the user is looking at the chat. Best-effort (fire-and-forget); the engine
   /// only sends a receipt once per message.
