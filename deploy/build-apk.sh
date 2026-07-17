@@ -114,11 +114,12 @@ flutter pub get >/dev/null
 # Both are "normal" permissions: granted silently at install, no user prompt.
 MANIFEST="android/app/src/main/AndroidManifest.xml"
 if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-  log "adding INTERNET + network-state + notification permissions to AndroidManifest"
+  log "adding INTERNET + network-state + notification + biometric permissions to AndroidManifest"
   awk '/<application/ && !d {
         print "    <uses-permission android:name=\"android.permission.INTERNET\"/>";
         print "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>";
         print "    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>";
+        print "    <uses-permission android:name=\"android.permission.USE_BIOMETRIC\"/>";
         d=1
       } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 fi
@@ -154,6 +155,27 @@ else:
     s = s.rstrip() + "\n\ndependencies {\n" + dep + "}\n"
 open(p, "w").write(s)
 print("patched", p, "for core-library desugaring")
+PY
+
+# local_auth (biometric unlock) needs Android minSdk 23. Raise it in the
+# generated Gradle whether it's the flutter default placeholder or a literal.
+python3 - <<'PY' || log "warning: could not patch minSdk"
+import glob, re
+cands = glob.glob("android/app/build.gradle.kts") + glob.glob("android/app/build.gradle")
+if not cands:
+    raise SystemExit(0)
+p = cands[0]
+s = open(p).read()
+before = s
+# flutter.minSdkVersion placeholder → 23
+s = re.sub(r"(minSdk(?:Version)?\s*=?\s*)flutter\.minSdkVersion", r"\g<1>23", s)
+# a literal below 23 → 23
+def bump(m):
+    return m.group(1) + "23" if int(m.group(2)) < 23 else m.group(0)
+s = re.sub(r"(minSdk(?:Version)?\s*=?\s*)(\d+)", bump, s)
+if s != before:
+    open(p, "w").write(s)
+    print("patched", p, "minSdk → 23")
 PY
 
 # Screenshot / screen-recording protection (FLAG_SECURE) + a runtime toggle.

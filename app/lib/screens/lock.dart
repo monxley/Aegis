@@ -25,7 +25,39 @@ class LockScreen extends StatefulWidget {
 class _LockScreenState extends State<LockScreen> {
   final _pw = TextEditingController();
   bool _busy = false;
+  bool _bioEnabled = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBiometrics();
+  }
+
+  Future<void> _initBiometrics() async {
+    final on = await widget.engine.biometricEnabled();
+    if (!mounted || !on) return;
+    setState(() => _bioEnabled = true);
+    // Offer it straight away so the common case is one tap on the prompt.
+    _bioUnlock();
+  }
+
+  Future<void> _bioUnlock() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final ok = await widget.engine.unlockWithBiometric();
+      if (!mounted) return;
+      if (ok) {
+        widget.onUnlocked();
+        return;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _busy = false);
+  }
 
   @override
   void dispose() {
@@ -107,6 +139,20 @@ class _LockScreenState extends State<LockScreen> {
                 icon: Icons.lock_open_rounded,
                 onPressed: _busy ? null : _unlock,
               ),
+              if (_bioEnabled) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.fingerprint_rounded, size: 20),
+                  label: const Text('Unlock with biometrics'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AegisTheme.textHi,
+                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    minimumSize: const Size.fromHeight(0),
+                  ),
+                  onPressed: _busy ? null : _bioUnlock,
+                ),
+              ],
               const Spacer(),
               const Text(
                 'Forgot it? There is no recovery — the key never left this '

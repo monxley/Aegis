@@ -16,6 +16,10 @@ dependencies:
   shared_preferences: ^2.2.0
   # Local (on-device) notifications for new messages — opt-in in Settings.
   flutter_local_notifications: ^17.2.3
+  # Biometric (fingerprint / face) unlock — opt-in over the app password.
+  local_auth: ^2.3.0
+  # Keystore-backed storage for the biometric-unlock seed (never in plain prefs).
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_lints: ^4.0.0
