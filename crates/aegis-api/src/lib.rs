@@ -46,36 +46,40 @@ fn now_ms() -> u64 {
 
 /// Version tag on exported app state; bump on a format change. v2 adds the
 /// per-message id and delivery status; v1 blobs still load (id 0, status sent).
-const APP_STATE_VERSION: u8 = 2;
+const APP_STATE_VERSION: u8 = 3;
 
 // --- app-level message framing (inside the E2E plaintext) ----------------
 //
-// Every plaintext the ratchet carries starts with a kind byte and an 8-byte
-// message id, so the two sides can tell a chat message from a delivery receipt
-// and match a receipt back to the message it acknowledges.
+// Every plaintext the ratchet carries is `kind(1) ‖ id(8) ‖ ttl_secs(4) ‖
+// content`: the kind byte tells a chat message from a receipt or a
+// disappearing-timer control, the id matches a receipt to its message, and
+// ttl_secs is the disappearing-message lifetime (0 = never).
 const MSG_TEXT: u8 = 0;
 const MSG_DELIVERED: u8 = 1;
 const MSG_READ: u8 = 2;
+const MSG_TIMER: u8 = 3; // sets the conversation's disappearing timer
 
 /// Delivery status of one of *our* sent messages (mirrored to the UI as ticks).
 const STATUS_SENT: u8 = 0;
 const STATUS_DELIVERED: u8 = 1;
 const STATUS_READ: u8 = 2;
 
-fn frame(kind: u8, id: u64, content: &[u8]) -> Vec<u8> {
-    let mut v = Vec::with_capacity(9 + content.len());
+fn frame(kind: u8, id: u64, ttl_secs: u32, content: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(13 + content.len());
     v.push(kind);
     v.extend_from_slice(&id.to_le_bytes());
+    v.extend_from_slice(&ttl_secs.to_le_bytes());
     v.extend_from_slice(content);
     v
 }
 
-fn parse_frame(bytes: &[u8]) -> Option<(u8, u64, &[u8])> {
-    if bytes.len() < 9 {
+fn parse_frame(bytes: &[u8]) -> Option<(u8, u64, u32, &[u8])> {
+    if bytes.len() < 13 {
         return None;
     }
     let id = u64::from_le_bytes(bytes[1..9].try_into().ok()?);
-    Some((bytes[0], id, &bytes[9..]))
+    let ttl = u32::from_le_bytes(bytes[9..13].try_into().ok()?);
+    Some((bytes[0], id, ttl, &bytes[13..]))
 }
 
 fn rand_u64() -> u64 {
@@ -114,6 +118,7 @@ struct AppState {
     client: Vec<u8>,
     contacts: Vec<StoredContact>,
     history: HashMap<String, Vec<ChatMessage>>,
+    disappearing: HashMap<String, u32>,
 }
 
 /// A bounds-checked reader for [`AegisApp::restore_state`].
@@ -153,7 +158,7 @@ impl<'a> StateReader<'a> {
 fn parse_app_state(blob: &[u8]) -> Option<AppState> {
     let mut r = StateReader::new(blob);
     let version = r.u8()?;
-    if version != 1 && version != APP_STATE_VERSION {
+    if version < 1 || version > APP_STATE_VERSION {
         return None;
     }
     let client = r.bytes()?.to_vec();
@@ -181,26 +186,41 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
             let from_me = r.u8()? != 0;
             let text = r.string()?;
             let timestamp_ms = r.u64()?;
-            // v2 adds id + status; v1 messages default to id 0, status sent.
+            // v2 adds id + status; v1 defaults them. v3 adds expiry.
             let (id, status) = if version >= 2 {
                 (r.u64()?, r.u8()?)
             } else {
                 (0, STATUS_SENT)
             };
+            let expires_at_ms = if version >= 3 { r.u64()? } else { 0 };
             msgs.push(ChatMessage {
                 from_me,
                 text,
                 timestamp_ms,
                 id,
                 status,
+                expires_at_ms,
             });
         }
         history.insert(aegis_id, msgs);
     }
+
+    // v3: per-conversation disappearing timers.
+    let mut disappearing = HashMap::new();
+    if version >= 3 {
+        let n = r.u32()? as usize;
+        for _ in 0..n {
+            let aegis_id = r.string()?;
+            let secs = r.u32()?;
+            disappearing.insert(aegis_id, secs);
+        }
+    }
+
     Some(AppState {
         client,
         contacts,
         history,
+        disappearing,
     })
 }
 
@@ -235,6 +255,9 @@ pub struct ChatMessage {
     /// For our own sent messages: [`STATUS_SENT`] / `_DELIVERED` / `_READ`.
     /// Meaningless for received messages.
     pub status: u8,
+    /// Unix-ms after which this message is deleted locally (0 = never), for
+    /// disappearing messages.
+    pub expires_at_ms: u64,
 }
 
 /// A message just delivered by [`AegisApp::poll`].
@@ -337,6 +360,9 @@ pub struct AegisApp {
     /// re-opening a chat doesn't re-send. In-memory only (re-sending after a
     /// restart is harmless — a read receipt is idempotent).
     read_acked: std::collections::HashSet<u64>,
+    /// Per-conversation disappearing-message timer (aegis_id → lifetime in
+    /// seconds, 0/absent = off). Synced to the peer via [`MSG_TIMER`].
+    disappearing: HashMap<String, u32>,
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -460,6 +486,7 @@ impl AegisApp {
             contacts: Vec::new(),
             history: HashMap::new(),
             read_acked: std::collections::HashSet::new(),
+            disappearing: HashMap::new(),
         }
     }
 
@@ -545,14 +572,47 @@ impl AegisApp {
             .collect()
     }
 
-    /// The conversation history with `aegis_id`, oldest first.
-    pub fn history(&self, aegis_id: String) -> Vec<ChatMessage> {
+    /// The conversation history with `aegis_id`, oldest first. Expired
+    /// disappearing messages are pruned first.
+    pub fn history(&mut self, aegis_id: String) -> Vec<ChatMessage> {
+        self.prune_expired();
         self.history.get(&aegis_id).cloned().unwrap_or_default()
+    }
+
+    /// The disappearing-message lifetime for a conversation, in seconds (0 =
+    /// off).
+    pub fn disappearing_secs(&self, aegis_id: String) -> u32 {
+        self.disappearing.get(&aegis_id).copied().unwrap_or(0)
+    }
+
+    /// Set (and sync to the peer) the disappearing-message timer for a
+    /// conversation. `secs` 0 turns it off. Applies to messages sent from now
+    /// on; the peer honours it via a control message on the existing session.
+    pub fn set_disappearing(&mut self, aegis_id: String, secs: u32) -> Result<(), AppError> {
+        let peer = AegisId::decode(&aegis_id).map_err(|_| AppError::BadContact)?;
+        if secs == 0 {
+            self.disappearing.remove(&aegis_id);
+        } else {
+            self.disappearing.insert(aegis_id, secs);
+        }
+        // Tell the peer (best-effort; needs an existing session).
+        let payload = frame(MSG_TIMER, rand_u64(), secs, &[]);
+        let _ = self.client.send(&mut self.store, &peer, &payload);
+        Ok(())
+    }
+
+    /// Delete any disappearing message whose lifetime has passed.
+    fn prune_expired(&mut self) {
+        let now = now_ms();
+        for msgs in self.history.values_mut() {
+            msgs.retain(|m| m.expires_at_ms == 0 || m.expires_at_ms > now);
+        }
     }
 
     /// Send `text` to the contact with `aegis_id`. Establishes the session on
     /// first message, then reuses it. Appends to the local history with a fresh
-    /// id and a "sent" status that later delivery/read receipts advance.
+    /// id and a "sent" status that later delivery/read receipts advance. If the
+    /// conversation has a disappearing timer, the message carries it and expires.
     pub fn send(&mut self, aegis_id: String, text: String) -> Result<(), AppError> {
         let contact = self
             .contacts
@@ -563,7 +623,8 @@ impl AegisApp {
         let bundle = wire::decode_bundle(&contact.bundle).ok_or(AppError::BadContact)?;
 
         let id = rand_u64();
-        let payload = frame(MSG_TEXT, id, text.as_bytes());
+        let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
+        let payload = frame(MSG_TEXT, id, ttl, text.as_bytes());
         match self.client.send(&mut self.store, &peer, &payload) {
             Ok(()) => {}
             Err(ClientError::NoSession) => {
@@ -573,12 +634,14 @@ impl AegisApp {
             Err(e) => return Err(e.into()),
         }
 
+        let now = now_ms();
         self.history.entry(aegis_id).or_default().push(ChatMessage {
             from_me: true,
             text,
-            timestamp_ms: now_ms(),
+            timestamp_ms: now,
             id,
             status: STATUS_SENT,
+            expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
         });
         Ok(())
     }
@@ -588,7 +651,7 @@ impl AegisApp {
     /// session or transient relay error is swallowed (the receipt just retries
     /// implicitly on the next event). Receipts carry no text.
     fn send_receipt(&mut self, peer: &AegisId, id: u64, kind: u8) {
-        let payload = frame(kind, id, &[]);
+        let payload = frame(kind, id, 0, &[]);
         let _ = self.client.send(&mut self.store, peer, &payload);
     }
 
@@ -653,7 +716,15 @@ impl AegisApp {
                 w.push_u64(m.timestamp_ms);
                 w.push_u64(m.id);
                 w.push_u8(m.status);
+                w.push_u64(m.expires_at_ms);
             }
+        }
+
+        // v3: per-conversation disappearing timers.
+        w.push_u32(self.disappearing.len() as u32);
+        for (aegis_id, secs) in &self.disappearing {
+            w.push_bytes(aegis_id.as_bytes());
+            w.push_u32(*secs);
         }
         w.into_bytes()
     }
@@ -669,6 +740,7 @@ impl AegisApp {
         }
         self.contacts = parsed.contacts;
         self.history = parsed.history;
+        self.disappearing = parsed.disappearing;
         Ok(())
     }
 
@@ -679,7 +751,7 @@ impl AegisApp {
         let mut out = Vec::with_capacity(received.len());
         for r in received {
             let aegis_id = r.from.encode();
-            let Some((kind, id, content)) = parse_frame(&r.message) else {
+            let Some((kind, id, ttl, content)) = parse_frame(&r.message) else {
                 continue; // not a framed Aegis payload — ignore
             };
             match kind {
@@ -690,15 +762,24 @@ impl AegisApp {
                         .iter()
                         .find(|c| c.aegis_id == aegis_id)
                         .map(|c| c.name.clone());
+                    // Each message carries the conversation's timer, so it stays
+                    // in sync even if the explicit control couldn't be sent yet.
+                    if ttl == 0 {
+                        self.disappearing.remove(&aegis_id);
+                    } else {
+                        self.disappearing.insert(aegis_id.clone(), ttl);
+                    }
+                    let now = now_ms();
                     self.history
                         .entry(aegis_id.clone())
                         .or_default()
                         .push(ChatMessage {
                             from_me: false,
                             text: text.clone(),
-                            timestamp_ms: now_ms(),
+                            timestamp_ms: now,
                             id,
                             status: STATUS_SENT,
+                            expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
                         });
                     // Confirm receipt to the sender (their copy turns "delivered").
                     self.send_receipt(&r.from, id, MSG_DELIVERED);
@@ -710,9 +791,19 @@ impl AegisApp {
                 }
                 MSG_DELIVERED => self.advance_status(&aegis_id, id, STATUS_DELIVERED),
                 MSG_READ => self.advance_status(&aegis_id, id, STATUS_READ),
+                MSG_TIMER => {
+                    // The peer set (or cleared) the disappearing timer for this
+                    // conversation — mirror it so our outgoing messages match.
+                    if ttl == 0 {
+                        self.disappearing.remove(&aegis_id);
+                    } else {
+                        self.disappearing.insert(aegis_id.clone(), ttl);
+                    }
+                }
                 _ => {}
             }
         }
+        self.prune_expired();
         Ok(out)
     }
 }
@@ -886,6 +977,49 @@ mod tests {
             a.restore_state(vec![9, 9, 9]),
             Err(AppError::Protocol(_))
         ));
+    }
+
+    #[test]
+    fn disappearing_timer_sets_expiry_and_syncs_to_the_peer() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // Alice turns on a 60-second timer and sends a message.
+        alice.set_disappearing(bob.my_aegis_id(), 60).unwrap();
+        assert_eq!(alice.disappearing_secs(bob.my_aegis_id()), 60);
+        alice.send(bob.my_aegis_id(), "vanishing".into()).unwrap();
+
+        let mine = alice.history(bob.my_aegis_id());
+        assert_eq!(mine.len(), 1);
+        assert!(mine[0].expires_at_ms > 0, "our message has an expiry");
+
+        // Both the timer control and the message reach Bob.
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap();
+        assert!(got.iter().any(|m| m.text == "vanishing"));
+        assert_eq!(
+            bob.disappearing_secs(alice.my_aegis_id()),
+            60,
+            "timer synced to the peer"
+        );
+        let theirs = bob.history(alice.my_aegis_id());
+        assert!(
+            theirs.iter().any(|m| !m.from_me && m.expires_at_ms > 0),
+            "the peer's copy also expires"
+        );
+
+        // Turning it off syncs off, and new messages don't expire.
+        alice.set_disappearing(bob.my_aegis_id(), 0).unwrap();
+        assert_eq!(alice.disappearing_secs(bob.my_aegis_id()), 0);
+        alice.send(bob.my_aegis_id(), "permanent".into()).unwrap();
+        let after = alice.history(bob.my_aegis_id());
+        let perm = after.iter().find(|m| m.text == "permanent").unwrap();
+        assert_eq!(perm.expires_at_ms, 0, "no timer ⇒ no expiry");
     }
 
     /// Test helper: copy every envelope from one in-memory store into another,

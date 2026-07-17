@@ -99,6 +99,8 @@ pub struct ChatMessage {
     pub id: u64,
     /// For our own messages: 0 sent, 1 delivered, 2 read. Unused when received.
     pub status: u8,
+    /// Unix-ms after which this disappearing message is gone (0 = never).
+    pub expires_at_ms: u64,
 }
 
 /// A message just delivered by [`AegisEngine::poll`].
@@ -125,6 +127,7 @@ impl From<ApiChatMessage> for ChatMessage {
             timestamp_ms: m.timestamp_ms,
             id: m.id,
             status: m.status,
+            expires_at_ms: m.expires_at_ms,
         }
     }
 }
@@ -266,6 +269,20 @@ impl AegisEngine {
     /// when the user opens the chat.
     pub fn mark_read(&self, aegis_id: String) -> Result<(), String> {
         self.with(|app| app.mark_read(aegis_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The disappearing-message lifetime for a conversation, in seconds (0 =
+    /// off).
+    #[frb(sync)]
+    pub fn disappearing_secs(&self, aegis_id: String) -> u32 {
+        self.with(|app| app.disappearing_secs(aegis_id))
+    }
+
+    /// Set the disappearing-message timer for a conversation (`secs` 0 = off) and
+    /// sync it to the peer. Messages sent after this expire on both sides.
+    pub fn set_disappearing(&self, aegis_id: String, secs: u32) -> Result<(), String> {
+        self.with(|app| app.set_disappearing(aegis_id, secs))
             .map_err(|e| e.to_string())
     }
 

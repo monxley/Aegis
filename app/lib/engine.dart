@@ -530,6 +530,16 @@ class AegisEngineController extends ChangeNotifier {
     _engine?.markRead(aegisId: aegisId);
   }
 
+  /// The disappearing-message timer for a chat, in seconds (0 = off).
+  int disappearingSecs(String aegisId) =>
+      _engine?.disappearingSecs(aegisId: aegisId) ?? 0;
+
+  /// Set the disappearing-message timer for a chat (0 = off); synced to the peer.
+  void setDisappearing(String aegisId, int secs) {
+    _engine?.setDisappearing(aegisId: aegisId, secs: secs);
+    notifyListeners();
+  }
+
   Future<void> _poll() async {
     final engine = _engine;
     if (engine == null) return;
