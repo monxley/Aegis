@@ -13,9 +13,9 @@ path = "src/main.rs"
 [dependencies]
 # The relay IS a Ciphra blind server. We reuse Ciphra's networked store,
 # on-disk storage, and static transport identity — nothing new is invented.
-ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
-ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
-ciphra-crypto = { git = "https://github.com/monxley/ciphra", rev = "8c44682e28441fa0be0895a2af529f5150b8bfeb" }
+ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "aa29899bc20b490ad9d3110e52d1200345f9f461" }
+ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "aa29899bc20b490ad9d3110e52d1200345f9f461" }
+ciphra-crypto = { git = "https://github.com/monxley/ciphra", rev = "aa29899bc20b490ad9d3110e52d1200345f9f461" }
 # For --mix mode: also run a Sphinx mix + directory node in the same process.
 aegis-mix = { path = "../aegis-mix" }
 aegis-net = { path = "../aegis-net" }
