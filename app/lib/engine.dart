@@ -275,6 +275,43 @@ class AegisEngineController extends ChangeNotifier {
     if (_nodeEnabled) await _startNode();
   }
 
+  /// The 24-word recovery phrase for this device's identity. Write it down to
+  /// restore the same Aegis ID on another device. Requires the engine to be
+  /// running (unlocked).
+  String recoveryPhrase() {
+    final seed = _seed;
+    if (seed == null) throw StateError('no seed loaded');
+    return seedToPhrase(seed: seed);
+  }
+
+  /// Restore an identity from a 24-word recovery phrase (same seed → same Aegis
+  /// ID). Throws if the phrase is invalid. The restored account starts with no
+  /// local message history — the phrase backs up the identity, not the chats.
+  Future<void> restoreFromMnemonic(
+    String phrase, {
+    ConnMode mode = ConnMode.network,
+    String? relayAddr,
+    List<String> bootstrap = const [],
+  }) async {
+    final seed = phraseToSeed(phrase: phrase.trim());
+    _mode = switch (mode) {
+      ConnMode.network => 'network',
+      ConnMode.relay => 'relay:${relayAddr ?? ''}',
+      ConnMode.memory => 'memory',
+    };
+    final prefs = await SharedPreferences.getInstance();
+    if (bootstrap.isNotEmpty) {
+      _userBootstrap = bootstrap;
+      await prefs.setStringList(_bootstrapKey, bootstrap);
+    }
+    await prefs.setString(_seedKey, _encodeSeed(seed));
+    await prefs.setString(_modeKey, _mode);
+    await prefs.remove(_stateKey);
+    await _start(seed);
+    _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
+    if (_nodeEnabled) await _startNode();
+  }
+
   Future<void> _start(Uint8List seed) async {
     _seed = seed;
     // In network mode with node mode on, run our own node and receive
