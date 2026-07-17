@@ -166,6 +166,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Auto-update check against GitHub releases, with a prominent "update or it may break" prompt | ✅ implemented |
 | — | Own nodes: add host:port and route exclusively through your own infrastructure | ✅ implemented |
 | — | SOCKS5 / Tor proxy: route all traffic (mixnet + mailbox) through a proxy or Tor | ✅ implemented |
+| — | App disguise: swap the launcher icon + name to a decoy (calculator / notes / weather) | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -188,7 +189,10 @@ to retry). The app also hardens against physical coercion: the screen is
 **FLAG_SECURE** by default (no screenshots or screen recording, blank in the app
 switcher; toggleable in Settings), a **duress password** opens an empty decoy account instead of the
 real one — which stays encrypted and hidden — and a **panic wipe** (hold to
-confirm) erases everything from the lock screen or Settings. The app keeps
+confirm) erases everything from the lock screen or Settings. It can also
+**disguise** itself — the launcher icon and name become an ordinary calculator,
+notes, or weather app (Android `activity-alias` swapped at runtime), while Aegis
+opens as normal behind the decoy. The app keeps
 receiving **24/7**: an Android foreground service (on by default, opt-out in
 Settings) holds the process alive so the poll loop drains the mailbox even in
 the background — no push infrastructure, and the node stays uncluttered. For
