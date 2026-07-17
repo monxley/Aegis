@@ -136,6 +136,21 @@ if [ -f "$MANIFEST" ] && ! grep -q 'AegisBackgroundService' "$MANIFEST"; then
       } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 fi
 
+# Android 11+ package visibility: declare the browser intent so url_launcher can
+# open the release/APK download link. Inserted just before <application>.
+if [ -f "$MANIFEST" ] && ! grep -q '<queries>' "$MANIFEST"; then
+  log "adding <queries> for the update download link"
+  awk '/<application/ && !q {
+        print "    <queries>";
+        print "        <intent>";
+        print "            <action android:name=\"android.intent.action.VIEW\"/>";
+        print "            <data android:scheme=\"https\"/>";
+        print "        </intent>";
+        print "    </queries>";
+        q=1
+      } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+fi
+
 # flutter_local_notifications needs Java 8+ core-library desugaring enabled in
 # the app module. Patch the generated Gradle (Kotlin or Groovy DSL) idempotently.
 python3 - <<'PY' || log "warning: could not patch Gradle for desugaring"
