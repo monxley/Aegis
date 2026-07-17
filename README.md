@@ -156,7 +156,8 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Node mode gate: reject local IPs, 20-min verify, online/offline node list | ✅ implemented |
 | — | 24-word recovery phrase: back up & restore the identity | ✅ implemented |
 | — | Disappearing messages: per-chat timer, synced, auto-pruned both sides | ✅ implemented |
-| — | Screenshot / screen-recording block (Android `FLAG_SECURE`, always on) | ✅ implemented |
+| — | Screenshot / screen-recording block (Android `FLAG_SECURE`, on by default, toggleable) | ✅ implemented |
+| — | Resilient send: local copy is kept and auto-retried if delivery fails (never lost) | ✅ implemented |
 | — | Duress / decoy password: a second password opens an empty decoy account | ✅ implemented |
 | — | Panic wipe: hold-to-confirm instant erase, from the lock screen or Settings | ✅ implemented |
 
@@ -174,9 +175,12 @@ sender to the deposited message. Messages carry **delivery & read receipts**
 (sent · delivered · read), riding inside the Double Ratchet so the network sees
 only sealed envelopes, and the mailbox connection is **self-healing** — it
 reconnects through a dropped or half-open mobile link, so receiving survives a
-network change. The app also hardens against physical coercion: the screen is
-**FLAG_SECURE** (no screenshots or screen recording, blank in the app
-switcher), a **duress password** opens an empty decoy account instead of the
+network change. Sending is resilient too: the local copy is stored **first,
+unconditionally**, so a message never vanishes on a transient relay failure —
+it is marked *failed* and **auto-retried** on the next poll (and can be tapped
+to retry). The app also hardens against physical coercion: the screen is
+**FLAG_SECURE** by default (no screenshots or screen recording, blank in the app
+switcher; toggleable in Settings), a **duress password** opens an empty decoy account instead of the
 real one — which stays encrypted and hidden — and a **panic wipe** (hold to
 confirm) erases everything from the lock screen or Settings. What remains is
 hardening, not new layers: an external security
