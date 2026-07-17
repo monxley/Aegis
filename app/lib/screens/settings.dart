@@ -226,6 +226,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _card(
+            icon: Icons.screenshot_monitor_rounded,
+            title: 'Block screenshots',
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Stop screenshots and screen recording, and hide the app in '
+                    'the recent-apps switcher. On by default.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                ),
+                Switch(
+                  value: e.screenshotsBlocked,
+                  onChanged: _busy
+                      ? null
+                      : (v) async {
+                          setState(() => _busy = true);
+                          await widget.engine.setScreenshotsBlocked(v);
+                          if (mounted) setState(() => _busy = false);
+                        },
+                  activeColor: AegisTheme.accent,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
             icon: Icons.hub_rounded,
             title: 'Connection',
             child: Text(

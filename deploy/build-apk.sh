@@ -156,11 +156,13 @@ open(p, "w").write(s)
 print("patched", p, "for core-library desugaring")
 PY
 
-# Screenshot / screen-recording protection (FLAG_SECURE). Rewrite the generated
-# MainActivity so every window sets FLAG_SECURE in onCreate: the OS then blocks
-# screenshots and screen recording and shows a blank card in the app switcher.
-# Always on — there is no in-app toggle, so it can't be turned off by an
-# attacker who has the unlocked phone. The package line is preserved.
+# Screenshot / screen-recording protection (FLAG_SECURE) + a runtime toggle.
+# Rewrite the generated MainActivity so it (1) sets FLAG_SECURE in onCreate — so
+# screenshots and screen recording are blocked from the very first frame, blank
+# in the app switcher, secure by default — and (2) exposes a MethodChannel the
+# Dart side calls to turn the flag on/off when the user changes the setting.
+# Extends FlutterFragmentActivity so the biometric plugin (local_auth) works.
+# The package line is preserved.
 python3 - <<'PY' || log "warning: could not patch MainActivity for FLAG_SECURE"
 import glob, re
 cands = glob.glob("android/app/src/main/kotlin/**/MainActivity.kt", recursive=True)
@@ -176,19 +178,44 @@ open(p, "w").write(pkg + """
 
 import android.os.Bundle
 import android.view.WindowManager
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
+    private val secureChannel = "aegis/screen_security"
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Secure by default: block screenshots / screen recording immediately.
         window.setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
         super.onCreate(savedInstanceState)
     }
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, secureChannel)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "setSecure") {
+                    val on = call.arguments as? Boolean ?: true
+                    runOnUiThread {
+                        if (on) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                    }
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
 }
 """)
-print("patched", p, "for FLAG_SECURE")
+print("patched", p, "for FLAG_SECURE + toggle channel")
 PY
 
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
