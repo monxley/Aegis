@@ -88,6 +88,8 @@ pub fn start_forwarder_node(
 pub struct Contact {
     pub name: String,
     pub aegis_id: String,
+    /// Whether this chat is pinned to the top of the list.
+    pub pinned: bool,
 }
 
 /// One message in a conversation (mirrored to Dart).
@@ -116,6 +118,7 @@ impl From<ApiContact> for Contact {
         Contact {
             name: c.name,
             aegis_id: c.aegis_id,
+            pinned: c.pinned,
         }
     }
 }
@@ -270,6 +273,31 @@ impl AegisEngine {
     /// a failed outgoing message in this conversation.
     pub fn resend(&self, aegis_id: String, id: u64) -> Result<(), String> {
         self.with(|app| app.resend(aegis_id, id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Pin or unpin a chat (pinned chats sort to the top of the list).
+    pub fn set_pinned(&self, aegis_id: String, pinned: bool) -> Result<(), String> {
+        self.with(|app| app.set_pinned(aegis_id, pinned))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Move a chat one place up (`up = true`) or down within its pinned group.
+    pub fn move_chat(&self, aegis_id: String, up: bool) -> Result<(), String> {
+        self.with(|app| app.move_chat(aegis_id, up))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Delete a conversation on this device only (contact + history + timer).
+    pub fn delete_chat(&self, aegis_id: String) -> Result<(), String> {
+        self.with(|app| app.delete_chat(aegis_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Delete a conversation for both sides: best-effort ask the peer to delete
+    /// it too, then delete it here.
+    pub fn delete_chat_for_both(&self, aegis_id: String) -> Result<(), String> {
+        self.with(|app| app.delete_chat_for_both(aegis_id))
             .map_err(|e| e.to_string())
     }
 
