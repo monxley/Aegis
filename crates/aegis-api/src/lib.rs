@@ -25,6 +25,9 @@
 pub mod vault;
 mod wire;
 
+/// The 24-word recovery phrase for a master seed (re-exported for the UI).
+pub use aegis_crypto::mnemonic;
+
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
