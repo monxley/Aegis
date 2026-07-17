@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/rust/api/aegis.dart';
 import 'src/rust/frb_generated.dart';
 
+import 'background.dart';
 import 'biometrics.dart';
 import 'config.dart';
 import 'notifications.dart';
@@ -29,6 +30,7 @@ const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
 const _notifyKey = 'aegis.notifications'; // show a notification on new messages
 const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wait
 const _secureScreenKey = 'aegis.secure_screen'; // block screenshots (default on)
+const _backgroundKey = 'aegis.background'; // 24/7 background service (default on)
 
 /// How long a first-time node must stay up to be "verified" before it can be
 /// toggled freely — a deliberate confirmation-of-intent + anti-abuse delay.
@@ -67,6 +69,7 @@ class AegisEngineController extends ChangeNotifier {
   bool _isDecoy = false; // the currently booted account is the decoy, not the real one
   bool _notify = false; // show a notification when a message arrives
   bool _secureScreen = true; // block screenshots / screen recording (default on)
+  bool _background = true; // keep receiving in the background (default on)
   bool _nodeVerified = false; // finished the one-time 20-min sync/verify
   Timer? _syncTimer; // ticks during the sync wait
   DateTime? _syncCompleteAt; // when the sync wait finishes (null if not syncing)
@@ -191,6 +194,27 @@ class AegisEngineController extends ChangeNotifier {
     // Native onCreate already set the flag on; only need to relax it if the user
     // turned the setting off.
     if (!_secureScreen) await ScreenSecurity.setSecure(false);
+    // Keep receiving in the background by default (opt-out).
+    _background = prefs.getBool(_backgroundKey) ?? true;
+    if (_background) {
+      await BackgroundService.start();
+    }
+  }
+
+  /// Whether the app keeps receiving in the background (default on).
+  bool get backgroundEnabled => _background;
+
+  /// Turn 24/7 background operation on or off (persisted, applied immediately).
+  Future<void> setBackgroundEnabled(bool on) async {
+    _background = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_backgroundKey, on);
+    if (on) {
+      await BackgroundService.start();
+    } else {
+      await BackgroundService.stop();
+    }
+    notifyListeners();
   }
 
   /// Whether screenshots and screen recording are blocked (default on).
