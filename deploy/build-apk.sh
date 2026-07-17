@@ -225,7 +225,9 @@ m = re.search(r"^\s*package\s+[\w.]+", s, re.M)
 pkg = m.group(0).strip() if m else "package com.example.aegis"
 open(p, "w").write(pkg + """
 
+import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -236,6 +238,16 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterFragmentActivity() {
     private val secureChannel = "aegis/screen_security"
     private val backgroundChannel = "aegis/background"
+    private val disguiseChannel = "aegis/disguise"
+
+    // Launcher aliases (declared in the manifest): exactly one is enabled at a
+    // time, which is the icon + name shown in the launcher.
+    private val disguiseAliases = mapOf(
+        "default" to ".LauncherDefault",
+        "calculator" to ".DisguiseCalculator",
+        "notes" to ".DisguiseNotes",
+        "weather" to ".DisguiseWeather"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Secure by default: block screenshots / screen recording immediately.
@@ -283,10 +295,38 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, disguiseChannel)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "setDisguise") {
+                    val which = call.arguments as? String ?: "default"
+                    applyDisguise(which)
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    // Enable the chosen launcher alias and disable the others, so the app shows
+    // a single disguised (or real) icon + name. DONT_KILL_APP keeps us running.
+    private fun applyDisguise(which: String) {
+        val target = if (disguiseAliases.containsKey(which)) which else "default"
+        for ((key, cls) in disguiseAliases) {
+            val state = if (key == target) {
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+            packageManager.setComponentEnabledSetting(
+                ComponentName(packageName, packageName + cls),
+                state,
+                PackageManager.DONT_KILL_APP
+            )
+        }
     }
 }
 """)
-print("patched", p, "for FLAG_SECURE + toggle + background channels")
+print("patched", p, "for FLAG_SECURE + toggle + background + disguise channels")
 
 # Write the foreground service next to MainActivity (same package/dir), so the
 # app can keep polling and receiving 24/7 with a quiet persistent notification.
@@ -345,6 +385,81 @@ class AegisBackgroundService : Service() {
 }
 """)
 print("wrote", svc)
+PY
+
+# Disguise icons: simple vector drawables for the launcher aliases (calculator,
+# notes, weather), so the app can masquerade as an ordinary utility.
+python3 - <<'PY' || log "warning: could not write disguise icons"
+import os
+d = "android/app/src/main/res/drawable"
+os.makedirs(d, exist_ok=True)
+def vec(body):
+    return ('<vector xmlns:android="http://schemas.android.com/apk/res/android" '
+            'android:width="108dp" android:height="108dp" '
+            'android:viewportWidth="108" android:viewportHeight="108">\n'
+            + body + '</vector>\n')
+icons = {
+    "disg_calc.xml": vec(
+        '  <path android:fillColor="#37474F" android:pathData="M0,0h108v108h-108z"/>\n'
+        '  <path android:fillColor="#ECEFF1" android:pathData="M22,16h64v24h-64z"/>\n'
+        '  <path android:fillColor="#FF7043" android:pathData="M66,50h20v42h-20z"/>\n'
+        '  <path android:fillColor="#90A4AE" android:pathData="M22,50h16v16h-16z M46,50h16v16h-16z M22,74h16v16h-16z M46,74h16v16h-16z"/>\n'),
+    "disg_notes.xml": vec(
+        '  <path android:fillColor="#FBC02D" android:pathData="M0,0h108v108h-108z"/>\n'
+        '  <path android:fillColor="#FFFFFF" android:pathData="M24,30h60v9h-60z M24,50h60v9h-60z M24,70h40v9h-40z"/>\n'),
+    "disg_weather.xml": vec(
+        '  <path android:fillColor="#4FC3F7" android:pathData="M0,0h108v108h-108z"/>\n'
+        '  <path android:fillColor="#FFEE58" android:pathData="M42,42m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0"/>\n'
+        '  <path android:fillColor="#FFFFFF" android:pathData="M40,74h36a13,13 0,0 0,-2 -25a18,18 0,0 0,-33 5a11,11 0,0 0,-1 20z"/>\n'),
+}
+for name, xml in icons.items():
+    open(os.path.join(d, name), "w").write(xml)
+print("wrote disguise icons")
+PY
+
+# Turn the launcher entry into swappable aliases so the app can disguise itself.
+# Remove MainActivity's own LAUNCHER filter and add one alias per identity
+# (real + decoys); MainActivity toggles which is enabled at runtime.
+python3 - <<'PY' || log "warning: could not add launcher aliases"
+import re
+p = "android/app/src/main/AndroidManifest.xml"
+s = open(p).read()
+if "activity-alias" in s:
+    raise SystemExit(0)
+# Drop the launcher intent-filter from MainActivity (its only intent-filter).
+s2 = re.sub(r"\s*<intent-filter>.*?LAUNCHER.*?</intent-filter>", "", s, count=1, flags=re.S)
+if s2 == s:
+    raise SystemExit(0)
+aliases = """
+        <activity-alias android:name=".LauncherDefault" android:enabled="true" android:exported="true" android:targetActivity=".MainActivity" android:icon="@mipmap/ic_launcher" android:label="Aegis">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseCalculator" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_calc" android:label="Calculator">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseNotes" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_notes" android:label="Notes">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseWeather" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_weather" android:label="Weather">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+"""
+# Insert the aliases right after MainActivity's </activity>.
+s2 = s2.replace("</activity>", "</activity>\n" + aliases, 1)
+open(p, "w").write(s2)
+print("added launcher aliases to the manifest")
 PY
 
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it

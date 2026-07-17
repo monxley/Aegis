@@ -15,6 +15,7 @@ import 'src/rust/frb_generated.dart';
 import 'background.dart';
 import 'biometrics.dart';
 import 'config.dart';
+import 'disguise.dart';
 import 'notifications.dart';
 import 'screen_security.dart';
 import 'updater.dart';
@@ -40,6 +41,7 @@ const _notifyKey = 'aegis.notifications'; // show a notification on new messages
 const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wait
 const _secureScreenKey = 'aegis.secure_screen'; // block screenshots (default on)
 const _backgroundKey = 'aegis.background'; // 24/7 background service (default on)
+const _disguiseKey = 'aegis.disguise'; // launcher icon/name: default|calculator|notes|weather
 
 /// How long a first-time node must stay up to be "verified" before it can be
 /// toggled freely — a deliberate confirmation-of-intent + anti-abuse delay.
@@ -84,6 +86,7 @@ class AegisEngineController extends ChangeNotifier {
   bool _notify = false; // show a notification when a message arrives
   bool _secureScreen = true; // block screenshots / screen recording (default on)
   bool _background = true; // keep receiving in the background (default on)
+  String _disguise = 'default'; // launcher disguise: default|calculator|notes|weather
   bool _nodeVerified = false; // finished the one-time 20-min sync/verify
   Timer? _syncTimer; // ticks during the sync wait
   DateTime? _syncCompleteAt; // when the sync wait finishes (null if not syncing)
@@ -328,8 +331,23 @@ class AegisEngineController extends ChangeNotifier {
     if (_background) {
       await BackgroundService.start();
     }
+    _disguise = prefs.getString(_disguiseKey) ?? 'default';
     // Check for a newer release in the background (never blocks startup).
     unawaited(checkForUpdate());
+  }
+
+  /// The current launcher disguise: `default`, `calculator`, `notes`, or
+  /// `weather`.
+  String get disguise => _disguise;
+
+  /// Change the launcher disguise (icon + name). Persisted and applied
+  /// immediately; the home-screen icon updates shortly after.
+  Future<void> setDisguise(String which) async {
+    _disguise = which;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_disguiseKey, which);
+    await Disguise.apply(which);
+    notifyListeners();
   }
 
   UpdateInfo? _update; // a newer GitHub release, if one is available
