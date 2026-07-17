@@ -1056,33 +1056,55 @@ pub fn is_newer_version(current: &str, latest: &str) -> bool {
     }
 }
 
+/// One SOCKS5 hop: `proxy` is `host:port`, with optional auth.
+#[derive(Clone, Debug)]
+pub struct ProxyHop {
+    pub proxy: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 /// Route **all** outbound connections — the mixnet (sends, discovery) and the
-/// provider/relay mailbox — through a SOCKS5 proxy. `proxy` is `host:port`
-/// (e.g. `127.0.0.1:9050` for Tor via Orbot); `username`/`password` are optional
-/// SOCKS5 auth. Pass `None` for `proxy` to go direct again.
+/// provider/relay mailbox — through a **chain** of SOCKS5 hops, in order
+/// (`app → chain[0] → chain[1] → … → target`). An empty chain goes direct.
 ///
-/// Sets the process-wide proxy for both transport layers at once, so they can't
-/// drift. Call **before** building the engine so the first connections already
-/// use it.
+/// Tor is a SOCKS5 proxy (Orbot on `127.0.0.1:9050`), so `app → SOCKS5 → Tor` is
+/// just `[my_socks5, tor]`. Sets the process-wide chain for both transport
+/// layers at once so they can't drift. Call **before** building the engine so
+/// the first connections already use it.
+pub fn set_proxy_chain(chain: Vec<ProxyHop>) {
+    let mix: Vec<_> = chain
+        .iter()
+        .map(|h| aegis_mix::socks5::ProxyConfig {
+            proxy: h.proxy.clone(),
+            username: h.username.clone(),
+            password: h.password.clone(),
+        })
+        .collect();
+    let net: Vec<_> = chain
+        .into_iter()
+        .map(|h| aegis_relay::socks5::ProxyConfig {
+            proxy: h.proxy,
+            username: h.username,
+            password: h.password,
+        })
+        .collect();
+    aegis_mix::socks5::set_chain(mix);
+    aegis_relay::socks5::set_chain(net);
+}
+
+/// Convenience for a single proxy (or none): a 1- or 0-hop [`set_proxy_chain`].
 pub fn set_proxy(proxy: Option<String>, username: Option<String>, password: Option<String>) {
-    match proxy {
-        Some(addr) => {
-            aegis_mix::socks5::set_proxy(Some(aegis_mix::socks5::ProxyConfig {
-                proxy: addr.clone(),
-                username: username.clone(),
-                password: password.clone(),
-            }));
-            aegis_relay::socks5::set_proxy(Some(aegis_relay::socks5::ProxyConfig {
-                proxy: addr,
+    let chain = proxy
+        .map(|p| {
+            vec![ProxyHop {
+                proxy: p,
                 username,
                 password,
-            }));
-        }
-        None => {
-            aegis_mix::socks5::set_proxy(None);
-            aegis_relay::socks5::set_proxy(None);
-        }
-    }
+            }]
+        })
+        .unwrap_or_default();
+    set_proxy_chain(chain);
 }
 
 #[cfg(test)]
