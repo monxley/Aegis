@@ -159,6 +159,75 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
+  /// Restore an existing identity from its 24-word recovery phrase.
+  Future<void> _restore() async {
+    final ctrl = TextEditingController();
+    final phrase = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Restore from recovery phrase',
+                style: TextStyle(
+                    color: AegisTheme.textHi,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            const Text(
+              'Enter your 24 words in order, separated by spaces. This brings '
+              'back your identity; past messages aren’t restored.',
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 5,
+              style: const TextStyle(
+                  color: AegisTheme.textHi, fontFamily: 'monospace', fontSize: 14),
+              decoration: const InputDecoration(hintText: 'word1 word2 word3 …'),
+            ),
+            const SizedBox(height: 12),
+            GradientButton(
+              label: 'Restore',
+              icon: Icons.restore_rounded,
+              onPressed: () => Navigator.pop(ctx, ctrl.text),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (phrase == null || phrase.trim().isEmpty || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.engine.restoreFromMnemonic(phrase);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => ChatsScreen(engine: widget.engine)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not restore: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -204,10 +273,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ],
               ),
               const SizedBox(height: 6),
-              TextButton(
-                onPressed: _busy ? null : _advanced,
-                child: const Text('Advanced',
-                    style: TextStyle(color: AegisTheme.textLo)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: _busy ? null : _restore,
+                    child: const Text('I have a recovery phrase',
+                        style: TextStyle(color: AegisTheme.accent)),
+                  ),
+                  const Text('·', style: TextStyle(color: AegisTheme.textLo)),
+                  TextButton(
+                    onPressed: _busy ? null : _advanced,
+                    child: const Text('Advanced',
+                        style: TextStyle(color: AegisTheme.textLo)),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               const Text(
