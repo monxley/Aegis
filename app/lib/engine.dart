@@ -27,6 +27,7 @@ const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 const _decoyStateKey = 'aegis.decoy_state'; // separate state for the decoy account
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
+const _ownNodesOnlyKey = 'aegis.own_nodes_only'; // route only through my nodes
 const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
 const _notifyKey = 'aegis.notifications'; // show a notification on new messages
 const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wait
@@ -63,6 +64,7 @@ class AegisEngineController extends ChangeNotifier {
   bool _nodeEnabled = false;
   NodeInfo? _node;
   List<String> _userBootstrap = const [];
+  bool _ownNodesOnly = false; // route only through the user's own nodes
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
@@ -134,10 +136,67 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The bootstrap nodes actually used: any compiled in (`--dart-define`) plus
-  /// any the user added, de-duplicated.
-  List<String> get _bootstrap =>
-      {...kBootstrapNodes, ..._userBootstrap}.toList();
+  /// The bootstrap nodes actually used. Normally the compiled-in set
+  /// (`--dart-define`) plus any the user added, de-duplicated. When "only my
+  /// nodes" is on and the user has added at least one, **only** the user's nodes
+  /// are used, so all traffic bootstraps and routes through their own
+  /// infrastructure.
+  List<String> get _bootstrap => _ownNodesOnly && _userBootstrap.isNotEmpty
+      ? _userBootstrap.toList()
+      : {...kBootstrapNodes, ..._userBootstrap}.toList();
+
+  /// The nodes the user has added by hand (host:port).
+  List<String> get myNodes => List.unmodifiable(_userBootstrap);
+
+  /// Whether the app routes exclusively through the user's own nodes.
+  bool get ownNodesOnly => _ownNodesOnly;
+
+  /// Add a bootstrap node (`host:port`) the user typed, then reconnect through
+  /// the new set. Ignores a duplicate or blank entry.
+  Future<void> addMyNode(String hostPort) async {
+    final node = hostPort.trim();
+    if (node.isEmpty || _userBootstrap.contains(node)) return;
+    _userBootstrap = [..._userBootstrap, node];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_bootstrapKey, _userBootstrap);
+    await _reconnect();
+  }
+
+  /// Remove one of the user's nodes and reconnect.
+  Future<void> removeMyNode(String hostPort) async {
+    if (!_userBootstrap.contains(hostPort)) return;
+    _userBootstrap = _userBootstrap.where((n) => n != hostPort).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_bootstrapKey, _userBootstrap);
+    await _reconnect();
+  }
+
+  /// Turn "route only through my nodes" on/off (persisted) and reconnect.
+  Future<void> setOwnNodesOnly(bool on) async {
+    _ownNodesOnly = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_ownNodesOnlyKey, on);
+    await _reconnect();
+  }
+
+  /// Rebuild the engine on the current seed with the current bootstrap set,
+  /// restoring saved state. Used when the node set or routing changes.
+  Future<void> _reconnect() async {
+    final seed = _seed;
+    if (seed == null) {
+      notifyListeners();
+      return;
+    }
+    await _start(seed);
+    final prefs = await SharedPreferences.getInstance();
+    final blob = prefs.getString(_activeStateKey);
+    if (blob != null) {
+      try {
+        _engine!.restoreState(blob: base64Decode(blob));
+      } catch (_) {}
+    }
+    notifyListeners();
+  }
 
   /// Whether the app knows any node to bootstrap from (else it can't use the
   /// mixnet and the user must add one).
@@ -465,6 +524,7 @@ class AegisEngineController extends ChangeNotifier {
     _hasDuress = prefs.getString(_duressVaultKey) != null;
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
+    _ownNodesOnly = prefs.getBool(_ownNodesOnlyKey) ?? false;
     _favNodes = (prefs.getStringList(_favNodesKey) ?? const []).toSet();
     _notify = prefs.getBool(_notifyKey) ?? false;
     await _start(seed);
@@ -497,6 +557,7 @@ class AegisEngineController extends ChangeNotifier {
     _hasDuress = true; // by definition, we got here via the duress vault
     _mode = 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
+    _ownNodesOnly = prefs.getBool(_ownNodesOnlyKey) ?? false;
     _favNodes = {};
     _notify = false;
     _nodeEnabled = false;

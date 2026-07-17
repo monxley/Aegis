@@ -76,13 +76,22 @@ class _NodesScreenState extends State<NodesScreen> {
         animation: widget.engine,
         builder: (context, _) {
           final nodes = widget.engine.networkNodes();
-          if (nodes.isEmpty) return const _NoNodes();
           final online = nodes.where((n) => _online[n.id] == true).toList();
           final offline = nodes.where((n) => _online[n.id] == false).toList();
           final unknown = nodes.where((n) => _online[n.id] == null).toList();
           return ListView(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             children: [
+              _MyNodesCard(engine: widget.engine),
+              if (nodes.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(6, 20, 6, 8),
+                  child: Text(
+                    'No gossiped nodes known yet. The directory fills in as it '
+                    'reaches you; it’s empty in offline or plain-relay mode.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                  ),
+                ),
               if (online.isNotEmpty) ...[
                 _sectionHeader('Online', online.length, AegisTheme.accent),
                 ...online.map((n) => _NodeTile(engine: widget.engine, node: n, online: true)),
@@ -99,8 +108,7 @@ class _NodesScreenState extends State<NodesScreen> {
                 padding: EdgeInsets.fromLTRB(6, 12, 6, 16),
                 child: Text(
                   'Online = reachable from this device right now. Nodes carry '
-                  'onion traffic; providers also hold a blind mailbox. Starring '
-                  'marks preferred nodes for custom-node routing (coming).',
+                  'onion traffic; providers also hold a blind mailbox.',
                   style: TextStyle(color: AegisTheme.textLo, fontSize: 11, height: 1.4),
                 ),
               ),
@@ -191,32 +199,176 @@ class _NodeTile extends StatelessWidget {
   }
 }
 
-class _NoNodes extends StatelessWidget {
-  const _NoNodes();
+/// Add your own bootstrap nodes (host:port) and optionally route **only**
+/// through them, so the app connects to the network through infrastructure you
+/// control instead of the built-in nodes.
+class _MyNodesCard extends StatefulWidget {
+  final AegisEngineController engine;
+  const _MyNodesCard({required this.engine});
+
+  @override
+  State<_MyNodesCard> createState() => _MyNodesCardState();
+}
+
+class _MyNodesCardState extends State<_MyNodesCard> {
+  final _ctrl = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  static bool _validHostPort(String s) {
+    final i = s.lastIndexOf(':');
+    if (i <= 0 || i == s.length - 1) return false;
+    final port = int.tryParse(s.substring(i + 1));
+    return port != null && port > 0 && port <= 65535;
+  }
+
+  Future<void> _add() async {
+    final v = _ctrl.text.trim();
+    if (v.isEmpty) return;
+    if (!_validHostPort(v)) {
+      setState(() => _error = 'Use host:port, e.g. 1.2.3.4:9000');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    await widget.engine.addMyNode(v);
+    _ctrl.clear();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _setOnly(bool on) async {
+    setState(() => _busy = true);
+    await widget.engine.setOwnNodesOnly(on);
+    if (mounted) setState(() => _busy = false);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.hub_rounded, size: 48, color: AegisTheme.surfaceHi),
-            SizedBox(height: 14),
-            Text(
-              'No nodes known yet',
-              style: TextStyle(color: AegisTheme.textHi, fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            SizedBox(height: 6),
-            Text(
-              'The network view fills in as the gossiped directory reaches you. '
-              'It’s empty in offline or plain-relay mode.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
-            ),
+    final e = widget.engine;
+    final nodes = e.myNodes;
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 6),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AegisTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.dns_rounded, size: 20, color: AegisTheme.accent),
+              SizedBox(width: 10),
+              Text('My nodes',
+                  style: TextStyle(
+                      color: AegisTheme.textHi,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Add a node by host:port to bootstrap through it. Turn on “only my '
+            'nodes” to route exclusively through the nodes you add.',
+            style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  enabled: !_busy,
+                  style: const TextStyle(color: AegisTheme.textHi, fontSize: 14),
+                  keyboardType: TextInputType.url,
+                  onSubmitted: (_) => _add(),
+                  decoration: InputDecoration(
+                    hintText: 'host:port',
+                    isDense: true,
+                    errorText: _error,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _busy ? null : _add,
+                icon: const Icon(Icons.add_circle_rounded, color: AegisTheme.accent),
+                tooltip: 'Add node',
+              ),
+            ],
+          ),
+          if (nodes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ...nodes.map((n) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.circle, size: 7, color: AegisTheme.accent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(n,
+                            style: const TextStyle(
+                                color: AegisTheme.textHi,
+                                fontFamily: 'monospace',
+                                fontSize: 13)),
+                      ),
+                      InkWell(
+                        onTap: _busy ? null : () => widget.engine.removeMyNode(n),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(Icons.close_rounded,
+                              size: 18, color: AegisTheme.danger),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
           ],
-        ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Connect only through my nodes',
+                    style: TextStyle(color: AegisTheme.textHi, fontSize: 14)),
+              ),
+              Switch(
+                value: e.ownNodesOnly,
+                onChanged: (_busy || nodes.isEmpty) ? null : _setOnly,
+                activeColor: AegisTheme.accent,
+              ),
+            ],
+          ),
+          if (e.ownNodesOnly && nodes.isNotEmpty)
+            const Text(
+              'Routing exclusively through your nodes. If they go offline, the '
+              'app can’t connect until they’re back.',
+              style: TextStyle(color: AegisTheme.accent2, fontSize: 11, height: 1.4),
+            ),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: Row(
+                children: [
+                  SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 8),
+                  Text('Reconnecting…',
+                      style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
