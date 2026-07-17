@@ -44,6 +44,23 @@ pub fn open_seed(password: String, blob: Vec<u8>) -> Result<Vec<u8>, String> {
     aegis_api::vault::open_secret(&password, &blob).ok_or_else(|| "wrong password".to_string())
 }
 
+/// The 24-word recovery phrase for a 32-byte master seed — write it down to
+/// back up your identity. Anyone with the phrase IS you, so keep it offline.
+#[frb(sync)]
+pub fn seed_to_phrase(seed: Vec<u8>) -> Result<String, String> {
+    let seed: [u8; 32] = seed.try_into().map_err(|_| "seed must be 32 bytes".to_string())?;
+    Ok(aegis_api::mnemonic::seed_to_phrase(&seed))
+}
+
+/// Recover the 32-byte seed from a 24-word phrase. Errors on a bad word count,
+/// an unknown word, or a failed checksum (a typo).
+#[frb(sync)]
+pub fn phrase_to_seed(phrase: String) -> Result<Vec<u8>, String> {
+    aegis_api::mnemonic::phrase_to_seed(&phrase)
+        .map(|s| s.to_vec())
+        .ok_or_else(|| "invalid recovery phrase (check the 24 words)".to_string())
+}
+
 /// A running opt-in mix node (returned by [`start_forwarder_node`]).
 pub struct NodeInfo {
     pub address: String,

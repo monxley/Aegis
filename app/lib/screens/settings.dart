@@ -108,6 +108,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 14),
           _card(
+            icon: Icons.key_rounded,
+            title: 'Recovery phrase',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '24 words that back up your identity. Write them down and keep '
+                  'them offline — anyone who has them can restore your account, '
+                  'and there is no other way to recover it.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.visibility_rounded, size: 18),
+                  label: const Text('Reveal recovery phrase'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AegisTheme.textHi,
+                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    minimumSize: const Size.fromHeight(0),
+                  ),
+                  onPressed: _showRecoveryPhrase,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _card(
             icon: Icons.notifications_rounded,
             title: 'Notifications',
             child: Row(
@@ -253,6 +281,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRecoveryPhrase() async {
+    final String phrase;
+    try {
+      phrase = widget.engine.recoveryPhrase();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Unavailable: $e')));
+      }
+      return;
+    }
+    final words = phrase.split(' ');
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Recovery phrase',
+            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Write these 24 words down in order. Keep them offline; don’t '
+                'screenshot or send them.',
+                style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (var i = 0; i < words.length; i++)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AegisTheme.surfaceHi,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('${i + 1}. ${words[i]}',
+                          style: const TextStyle(
+                              color: AegisTheme.textHi,
+                              fontFamily: 'monospace',
+                              fontSize: 13)),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: phrase));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Recovery phrase copied')),
+              );
+            },
+            icon: const Icon(Icons.copy_rounded, size: 18, color: AegisTheme.accent),
+            label: const Text('Copy', style: TextStyle(color: AegisTheme.accent)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done', style: TextStyle(color: AegisTheme.textLo)),
           ),
         ],
       ),

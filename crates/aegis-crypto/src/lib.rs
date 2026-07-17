@@ -28,6 +28,7 @@ pub mod hmac;
 pub mod keccak;
 pub mod ml_dsa;
 pub mod ml_kem;
+pub mod mnemonic;
 pub mod poly1305;
 pub mod rand;
 pub mod sha256;
