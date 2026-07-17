@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -22,6 +23,19 @@ const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _favNodesKey = 'aegis.favorite_nodes'; // node ids the user starred
 const _notifyKey = 'aegis.notifications'; // show a notification on new messages
+const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wait
+
+/// How long a first-time node must stay up to be "verified" before it can be
+/// toggled freely — a deliberate confirmation-of-intent + anti-abuse delay.
+const nodeSyncDuration = Duration(minutes: 20);
+
+/// Thrown when node mode can't be enabled (e.g. only a local/private IP).
+class NodeModeError implements Exception {
+  final String message;
+  NodeModeError(this.message);
+  @override
+  String toString() => message;
+}
 
 /// How this device reaches the network.
 enum ConnMode { network, relay, memory }
@@ -45,7 +59,22 @@ class AegisEngineController extends ChangeNotifier {
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
   bool _notify = false; // show a notification when a message arrives
+  bool _nodeVerified = false; // finished the one-time 20-min sync/verify
+  Timer? _syncTimer; // ticks during the sync wait
+  DateTime? _syncCompleteAt; // when the sync wait finishes (null if not syncing)
   Set<String> _favNodes = {}; // node ids the user starred
+
+  /// Whether the one-time node verification (20-min sync) is done; after this,
+  /// node mode toggles instantly.
+  bool get nodeVerified => _nodeVerified;
+
+  /// Time left in the sync/verify wait, or null if not currently syncing.
+  Duration? get nodeSyncRemaining {
+    final at = _syncCompleteAt;
+    if (at == null) return null;
+    final left = at.difference(DateTime.now());
+    return left.isNegative ? Duration.zero : left;
+  }
 
   /// Whether new-message notifications are on.
   bool get notificationsEnabled => _notify;
@@ -210,8 +239,14 @@ class AegisEngineController extends ChangeNotifier {
       }
     }
     // Resume node mode (defaults per platform on first run).
+    _nodeVerified = prefs.getBool(_nodeVerifiedKey) ?? false;
     _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
-    if (_nodeEnabled) await _startNode();
+    if (_nodeEnabled) {
+      await _startNode();
+      // An unverified node that resumes must complete the sync wait again (it
+      // was down while the app was closed).
+      if (!_nodeVerified) _startSyncWait();
+    }
   }
 
   /// Create a brand-new identity from fresh randomness and persist the seed.
@@ -281,7 +316,23 @@ class AegisEngineController extends ChangeNotifier {
 
   /// Turn opt-in node mode on or off (persisted). On desktop/Linux this both
   /// carries others' traffic and (in network mode) enables anonymous receive.
+  ///
+  /// Enabling requires a **publicly reachable IP** — a device with only a
+  /// local/private/loopback address can't be a node, so we refuse and throw
+  /// [NodeModeError]. The first time, the node must then stay up for
+  /// [nodeSyncDuration] ("synchronizing") to be verified; after that it toggles
+  /// instantly.
   Future<void> setNodeEnabled(bool enabled) async {
+    if (enabled) {
+      final ip = await _publicIp();
+      if (ip == null) {
+        throw NodeModeError(
+          'This device has only a local or private IP address, so other people '
+          'can’t reach it as a node. Enable node mode where the device has a '
+          'public address (a server, or with a forwarded port).',
+        );
+      }
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_nodeKey, enabled);
     _nodeEnabled = enabled;
@@ -300,7 +351,71 @@ class AegisEngineController extends ChangeNotifier {
     } else {
       _node = null;
     }
+    // Verification: a first-time enable starts the sync wait; disabling before
+    // it finishes cancels it (stays unverified).
+    if (enabled && !_nodeVerified) {
+      _startSyncWait();
+    } else if (!enabled) {
+      _cancelSyncWait();
+    }
     notifyListeners();
+  }
+
+  void _startSyncWait() {
+    _syncTimer?.cancel();
+    _syncCompleteAt = DateTime.now().add(nodeSyncDuration);
+    _syncTimer = Timer.periodic(const Duration(seconds: 20), (t) async {
+      if (_syncCompleteAt == null ||
+          !DateTime.now().isBefore(_syncCompleteAt!)) {
+        t.cancel();
+        _syncTimer = null;
+        _syncCompleteAt = null;
+        _nodeVerified = true;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_nodeVerifiedKey, true);
+      }
+      notifyListeners();
+    });
+  }
+
+  void _cancelSyncWait() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+    _syncCompleteAt = null;
+  }
+
+  /// This device's first public (non-private, non-loopback) IPv4, or null if it
+  /// has only local addresses.
+  Future<String?> _publicIp() async {
+    try {
+      final ifaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      for (final iface in ifaces) {
+        for (final a in iface.addresses) {
+          if (!_isLocalIp(a.address)) return a.address;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static bool _isLocalIp(String ip) {
+    if (ip == '0.0.0.0' ||
+        ip == 'localhost' ||
+        ip.startsWith('127.') ||
+        ip.startsWith('169.254.') || // link-local
+        ip.startsWith('10.') ||
+        ip.startsWith('192.168.')) {
+      return true;
+    }
+    final m = RegExp(r'^172\.(\d{1,3})\.').firstMatch(ip);
+    if (m != null) {
+      final o = int.tryParse(m.group(1)!) ?? 0;
+      if (o >= 16 && o <= 31) return true; // 172.16/12 private range
+    }
+    return false;
   }
 
   /// Wipe this device's identity: forget the master seed and all saved state
@@ -310,11 +425,14 @@ class AegisEngineController extends ChangeNotifier {
   Future<void> resetIdentity() async {
     _pollTimer?.cancel();
     _coverTimer?.cancel();
+    _cancelSyncWait();
+    _nodeVerified = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_seedKey);
     await prefs.remove(_vaultKey);
     await prefs.remove(_stateKey);
     await prefs.remove(_modeKey);
+    await prefs.remove(_nodeVerifiedKey);
     await prefs.remove(_nodeKey);
     _engine = null;
     _node = null;
@@ -419,6 +537,7 @@ class AegisEngineController extends ChangeNotifier {
   void dispose() {
     _pollTimer?.cancel();
     _coverTimer?.cancel();
+    _syncTimer?.cancel();
     super.dispose();
   }
 

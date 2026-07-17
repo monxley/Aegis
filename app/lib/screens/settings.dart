@@ -23,7 +23,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleNode(bool on) async {
     setState(() => _busy = true);
-    await widget.engine.setNodeEnabled(on);
+    try {
+      await widget.engine.setNodeEnabled(on);
+    } on NodeModeError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), duration: const Duration(seconds: 6)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Node error: $e')));
+      }
+    }
     if (mounted) setState(() => _busy = false);
   }
 
@@ -174,6 +187,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: TextStyle(color: AegisTheme.accent, fontSize: 12),
                   ),
                 ],
+                // Live sync/verify status.
+                AnimatedBuilder(
+                  animation: e,
+                  builder: (_, __) {
+                    final left = e.nodeSyncRemaining;
+                    if (e.nodeEnabled && left != null) {
+                      final mins = (left.inSeconds / 60).ceil();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Synchronizing… ~$mins min left. Keep node mode on to '
+                          'finish verifying; after that it turns on instantly.',
+                          style: const TextStyle(
+                              color: AegisTheme.accent2, fontSize: 12, height: 1.4),
+                        ),
+                      );
+                    }
+                    if (e.nodeVerified) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('Verified — node mode toggles instantly.',
+                            style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
               ],
             ),
           ),
