@@ -152,6 +152,10 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | App-lock password: master seed encrypted at rest (PBKDF2 + ChaCha20-Poly1305) | ✅ implemented |
 | — | Network nodes view: browse the gossiped directory, star preferred nodes | ✅ implemented |
 | — | Opt-in new-message notifications (content-free, privacy-preserving) | ✅ implemented |
+| — | Self-cleaning mailbox: node TTL sweep so it can't fill the disk | ✅ implemented |
+| — | Node mode gate: reject local IPs, 20-min verify, online/offline node list | ✅ implemented |
+| — | 24-word recovery phrase: back up & restore the identity | ✅ implemented |
+| — | Disappearing messages: per-chat timer, synced, auto-pruned both sides | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
