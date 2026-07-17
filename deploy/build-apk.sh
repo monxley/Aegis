@@ -120,7 +120,19 @@ if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; th
         print "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>";
         print "    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>";
         print "    <uses-permission android:name=\"android.permission.USE_BIOMETRIC\"/>";
+        print "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>";
+        print "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_DATA_SYNC\"/>";
         d=1
+      } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+fi
+
+# Register the background foreground-service in the manifest (idempotent), so
+# the app can keep receiving 24/7. Inserted just before </application>.
+if [ -f "$MANIFEST" ] && ! grep -q 'AegisBackgroundService' "$MANIFEST"; then
+  log "registering AegisBackgroundService in AndroidManifest"
+  awk '/<\/application>/ && !s {
+        print "        <service android:name=\".AegisBackgroundService\" android:exported=\"false\" android:foregroundServiceType=\"dataSync\"/>";
+        s=1
       } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 fi
 
@@ -198,6 +210,8 @@ m = re.search(r"^\s*package\s+[\w.]+", s, re.M)
 pkg = m.group(0).strip() if m else "package com.example.aegis"
 open(p, "w").write(pkg + """
 
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -206,6 +220,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
     private val secureChannel = "aegis/screen_security"
+    private val backgroundChannel = "aegis/background"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Secure by default: block screenshots / screen recording immediately.
@@ -234,10 +249,87 @@ class MainActivity : FlutterFragmentActivity() {
                     result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, backgroundChannel)
+            .setMethodCallHandler { call, result ->
+                val intent = Intent(this, AegisBackgroundService::class.java)
+                when (call.method) {
+                    "start" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        result.success(null)
+                    }
+                    "stop" -> {
+                        stopService(intent)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 }
 """)
-print("patched", p, "for FLAG_SECURE + toggle channel")
+print("patched", p, "for FLAG_SECURE + toggle + background channels")
+
+# Write the foreground service next to MainActivity (same package/dir), so the
+# app can keep polling and receiving 24/7 with a quiet persistent notification.
+import os
+pkg_name = pkg.replace("package", "").strip()
+svc = os.path.join(os.path.dirname(p), "AegisBackgroundService.kt")
+open(svc, "w").write("package " + pkg_name + """
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+
+// A minimal foreground service: it runs no logic itself, it just keeps the app
+// process alive (with a quiet, ongoing notification) so the Dart poll timer
+// keeps pulling messages while the app is backgrounded — 24/7 delivery.
+class AegisBackgroundService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val channelId = "aegis_background"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (nm.getNotificationChannel(channelId) == null) {
+                val ch = NotificationChannel(
+                    channelId, "Aegis background",
+                    NotificationManager.IMPORTANCE_MIN
+                )
+                ch.setShowBadge(false)
+                nm.createNotificationChannel(ch)
+            }
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION") Notification.Builder(this)
+        }
+        val notification = builder
+            .setContentTitle("Aegis")
+            .setContentText("Active — receiving messages")
+            .setSmallIcon(applicationInfo.icon)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(1001, notification)
+        }
+        return START_STICKY
+    }
+}
+""")
+print("wrote", svc)
 PY
 
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it
