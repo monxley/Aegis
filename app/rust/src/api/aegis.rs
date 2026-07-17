@@ -61,6 +61,14 @@ pub fn phrase_to_seed(phrase: String) -> Result<Vec<u8>, String> {
         .ok_or_else(|| "invalid recovery phrase (check the 24 words)".to_string())
 }
 
+/// Whether `latest` (a GitHub release tag) is a strictly newer version than
+/// `current` (the running app version). Tolerates a leading `v` and pre-release
+/// suffixes; returns false if either is unparseable.
+#[frb(sync)]
+pub fn is_newer_version(current: String, latest: String) -> bool {
+    aegis_api::is_newer_version(&current, &latest)
+}
+
 /// A running opt-in mix node (returned by [`start_forwarder_node`]).
 pub struct NodeInfo {
     pub address: String,

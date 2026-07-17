@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
+import '../updater.dart';
 import '../widgets.dart';
 import 'add_contact.dart';
 import 'chat.dart';
@@ -13,9 +14,40 @@ import 'settings.dart';
 
 /// The home screen: the list of conversations. Rebuilds whenever the engine
 /// signals new state (a sent or polled message, a new contact).
-class ChatsScreen extends StatelessWidget {
+class ChatsScreen extends StatefulWidget {
   final AegisEngineController engine;
   const ChatsScreen({super.key, required this.engine});
+
+  @override
+  State<ChatsScreen> createState() => _ChatsScreenState();
+}
+
+class _ChatsScreenState extends State<ChatsScreen> {
+  AegisEngineController get engine => widget.engine;
+  bool _updateDialogShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    engine.addListener(_maybeShowUpdate);
+    _maybeShowUpdate();
+  }
+
+  @override
+  void dispose() {
+    engine.removeListener(_maybeShowUpdate);
+    super.dispose();
+  }
+
+  /// Show the update dialog once per session, the first time a newer release is
+  /// detected (the check runs asynchronously at launch).
+  void _maybeShowUpdate() {
+    if (_updateDialogShown || engine.availableUpdate == null) return;
+    _updateDialogShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) showUpdateDialog(context, engine, engine.availableUpdate!);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,18 +100,27 @@ class ChatsScreen extends StatelessWidget {
       body: AnimatedBuilder(
         animation: engine,
         builder: (context, _) {
+          final update = engine.availableUpdate;
           final contacts = engine.contacts();
-          if (contacts.isEmpty) return const _EmptyState();
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: contacts.length,
-            separatorBuilder: (_, __) => const Divider(
-              height: 1,
-              indent: 82,
-              color: Color(0xFF1B1E29),
-            ),
-            itemBuilder: (context, i) =>
-                _ContactTile(engine: engine, contact: contacts[i]),
+          return Column(
+            children: [
+              if (update != null) _UpdateBanner(engine: engine, update: update),
+              Expanded(
+                child: contacts.isEmpty
+                    ? const _EmptyState()
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: contacts.length,
+                        separatorBuilder: (_, __) => const Divider(
+                          height: 1,
+                          indent: 82,
+                          color: Color(0xFF1B1E29),
+                        ),
+                        itemBuilder: (context, i) =>
+                            _ContactTile(engine: engine, contact: contacts[i]),
+                      ),
+              ),
+            ],
           );
         },
       ),
@@ -360,4 +401,127 @@ class _EmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A persistent strip at the top of the chat list when a newer release exists.
+/// Tapping it opens the update dialog. Amber, because ignoring it can break
+/// messaging.
+class _UpdateBanner extends StatelessWidget {
+  final AegisEngineController engine;
+  final UpdateInfo update;
+  const _UpdateBanner({required this.engine, required this.update});
+
+  @override
+  Widget build(BuildContext context) {
+    const amber = Color(0xFFFFC24B);
+    return Material(
+      color: amber.withOpacity(0.12),
+      child: InkWell(
+        onTap: () => showUpdateDialog(context, engine, update),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.system_update_rounded, color: amber, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Update available (${update.version}). Older versions may '
+                  'stop working — tap to update.',
+                  style: const TextStyle(color: amber, fontSize: 12.5, height: 1.3),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: amber, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The update dialog: what's new, and why updating matters. Deliberately warns
+/// that an out-of-date client can stop working when the protocol/network moves.
+Future<void> showUpdateDialog(
+  BuildContext context,
+  AegisEngineController engine,
+  UpdateInfo update,
+) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AegisTheme.surface,
+      title: Row(
+        children: [
+          const Icon(Icons.system_update_rounded, color: AegisTheme.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Update ${update.version}',
+              style: const TextStyle(color: AegisTheme.textHi, fontSize: 18),
+            ),
+          ),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'A newer version of Aegis is available. Please update: the '
+              'protocol and network can change between versions, and an '
+              'out-of-date app may fail to send or receive — or stop working '
+              'entirely.',
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.45),
+            ),
+            if (update.notes.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const Text("What's new",
+                  style: TextStyle(
+                      color: AegisTheme.textHi,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13)),
+              const SizedBox(height: 6),
+              Text(
+                update.notes,
+                style: const TextStyle(
+                    color: AegisTheme.textLo, fontSize: 12.5, height: 1.4),
+              ),
+            ],
+            if (!update.hasApk) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Opens the release page — download the APK there and install it.',
+                style: TextStyle(color: AegisTheme.textLo, fontSize: 11, height: 1.4),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Later', style: TextStyle(color: AegisTheme.textLo)),
+        ),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: AegisTheme.accent,
+            foregroundColor: const Color(0xFF06110F),
+          ),
+          icon: const Icon(Icons.download_rounded, size: 18),
+          label: const Text('Download update'),
+          onPressed: () async {
+            final ok = await Updater.openDownload(update);
+            if (ctx.mounted) Navigator.pop(ctx);
+            if (!ok && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Could not open the download link')),
+              );
+            }
+          },
+        ),
+      ],
+    ),
+  );
 }

@@ -1033,6 +1033,29 @@ fn hex(bytes: &[u8]) -> String {
     s
 }
 
+/// Parse a dotted numeric version — `"v1.2.3"`, `"1.2"`, `"1.2.3-beta"` — into
+/// `(major, minor, patch)`. A leading `v`/`V` and any `-pre`/`+build` suffix are
+/// ignored, and missing components default to 0. `None` if there's no leading
+/// number.
+fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
+    let s = s.trim().trim_start_matches(['v', 'V']);
+    let core = s.split(['-', '+']).next().unwrap_or(s);
+    let mut it = core.split('.');
+    let major = it.next()?.trim().parse::<u64>().ok()?;
+    let minor = it.next().and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+    let patch = it.next().and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+    Some((major, minor, patch))
+}
+
+/// Whether `latest` is a strictly newer version than `current`. If either can't
+/// be parsed, returns `false` (don't nag on garbage or a dev build).
+pub fn is_newer_version(current: &str, latest: &str) -> bool {
+    match (parse_version(current), parse_version(latest)) {
+        (Some(c), Some(l)) => l > c,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1137,6 +1160,21 @@ mod tests {
         let got = bob.poll().unwrap();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].text, "queued while offline");
+    }
+
+    #[test]
+    fn version_comparison_handles_prefixes_and_precedence() {
+        assert!(is_newer_version("1.0.0", "1.0.1"));
+        assert!(is_newer_version("1.0.0", "v1.1.0"));
+        assert!(is_newer_version("1.9.0", "1.10.0")); // numeric, not lexical
+        assert!(is_newer_version("v0.1.0", "0.2"));
+        // Equal or older ⇒ not newer.
+        assert!(!is_newer_version("1.2.0", "1.2"));
+        assert!(!is_newer_version("2.0.0", "1.9.9"));
+        assert!(!is_newer_version("1.0.0", "1.0.0-beta")); // suffix ignored ⇒ equal
+        // Unparseable ⇒ never nags.
+        assert!(!is_newer_version("1.0.0", "not-a-version"));
+        assert!(!is_newer_version("dev", "1.0.0"));
     }
 
     #[test]

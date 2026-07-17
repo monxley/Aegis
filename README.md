@@ -163,6 +163,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Biometric unlock: fingerprint / face over the app password (keystore-held key) | ✅ implemented |
 | — | Chat management: pin to top, manual reorder, delete for me / for everyone | ✅ implemented |
 | — | 24/7 background operation: foreground service keeps receiving (on by default) | ✅ implemented |
+| — | Auto-update check against GitHub releases, with a prominent "update or it may break" prompt | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
@@ -329,6 +330,22 @@ To leave an installed APK you can sideload later:
 flutter build apk --release
 # → build/app/outputs/flutter-apk/app-release.apk
 ```
+
+**Releases & auto-update.** The app checks the GitHub **releases** of this repo
+on launch and shows a prominent prompt when a newer one exists (an out-of-date
+client can stop working when the protocol/network moves, so the prompt warns
+about that). It compares the running `versionName` (from `app/pubspec.yaml`'s
+`version:`) against the release **tag**, so to ship an update:
+
+1. bump `version:` in `app/pubspec.yaml` (e.g. `0.1.0+1` → `0.1.1+2`),
+2. build the APK, and
+3. publish a GitHub Release tagged to match (e.g. `v0.1.1`), attaching the
+   `.apk` as a release asset.
+
+Clients on the older build then see the update prompt; "Download update" opens
+the APK asset (or the release page) to install. Tags may include a leading `v`
+and are compared numerically (`1.10.0` > `1.9.0`); pre-release/build suffixes
+are ignored.
 
 **Linux desktop** (same engine, no Android tooling needed):
 
