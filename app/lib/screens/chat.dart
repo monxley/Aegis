@@ -58,6 +58,74 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  static String _fmtTimer(int secs) {
+    if (secs == 0) return 'Off';
+    if (secs < 3600) return '${secs ~/ 60} min';
+    if (secs < 86400) return '${secs ~/ 3600} hour${secs == 3600 ? '' : 's'}';
+    if (secs < 604800) return '${secs ~/ 86400} day${secs == 86400 ? '' : 's'}';
+    return '${secs ~/ 604800} week${secs == 604800 ? '' : 's'}';
+  }
+
+  Future<void> _showDisappearing() async {
+    const options = [0, 300, 3600, 86400, 604800]; // off · 5m · 1h · 1d · 1w
+    final current = widget.engine.disappearingSecs(widget.contact.aegisId);
+    final choice = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Disappearing messages',
+                  style: TextStyle(
+                      color: AegisTheme.textHi,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'New messages vanish from both devices after the timer. Applies '
+                  'to this conversation.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                ),
+              ),
+            ),
+            for (final o in options)
+              ListTile(
+                title: Text(o == 0 ? 'Off' : _fmtTimer(o),
+                    style: const TextStyle(color: AegisTheme.textHi)),
+                trailing: o == current
+                    ? const Icon(Icons.check_rounded, color: AegisTheme.accent)
+                    : null,
+                onTap: () => Navigator.pop(ctx, o),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    widget.engine.setDisappearing(widget.contact.aegisId, choice);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(choice == 0
+          ? 'Disappearing messages off'
+          : 'Messages disappear after ${_fmtTimer(choice)}'),
+    ));
+  }
+
   void _showSafetyNumber() {
     String number;
     try {
@@ -159,6 +227,18 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Disappearing messages',
+            icon: Icon(
+              widget.engine.disappearingSecs(widget.contact.aegisId) > 0
+                  ? Icons.timer_rounded
+                  : Icons.timer_off_outlined,
+              color: widget.engine.disappearingSecs(widget.contact.aegisId) > 0
+                  ? AegisTheme.accent
+                  : AegisTheme.textHi,
+            ),
+            onPressed: _showDisappearing,
+          ),
+          IconButton(
             tooltip: 'Verify safety number',
             icon: const Icon(Icons.verified_user_rounded, color: AegisTheme.textHi),
             onPressed: _showSafetyNumber,
@@ -167,6 +247,24 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
+          if (widget.engine.disappearingSecs(widget.contact.aegisId) > 0)
+            Container(
+              width: double.infinity,
+              color: AegisTheme.surface,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.timer_rounded, size: 14, color: AegisTheme.accent),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Messages disappear after '
+                    '${_fmtTimer(widget.engine.disappearingSecs(widget.contact.aegisId))}',
+                    style: const TextStyle(color: AegisTheme.accent, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: history.isEmpty
                 ? const _ChatEmpty()
