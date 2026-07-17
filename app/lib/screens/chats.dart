@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
@@ -148,13 +149,24 @@ class _ContactTile extends StatelessWidget {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
       leading: ContactAvatar(name: contact.name),
-      title: Text(
-        contact.name,
-        style: const TextStyle(
-          color: AegisTheme.textHi,
-          fontWeight: FontWeight.w600,
-          fontSize: 16,
-        ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              contact.name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AegisTheme.textHi,
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          if (contact.pinned) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.push_pin_rounded, size: 13, color: AegisTheme.accent),
+          ],
+        ],
       ),
       subtitle: Text(
         preview,
@@ -174,6 +186,141 @@ class _ContactTile extends StatelessWidget {
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ChatScreen(engine: engine, contact: contact),
+        ),
+      ),
+      onLongPress: () => _showActions(context),
+    );
+  }
+
+  void _showActions(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                children: [
+                  ContactAvatar(name: contact.name, size: 34),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      contact.name,
+                      style: const TextStyle(
+                        color: AegisTheme.textHi,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _action(
+              sheetCtx,
+              icon: contact.pinned
+                  ? Icons.push_pin_outlined
+                  : Icons.push_pin_rounded,
+              label: contact.pinned ? 'Unpin' : 'Pin to top',
+              onTap: () => engine.setPinned(contact.aegisId, !contact.pinned),
+            ),
+            _action(
+              sheetCtx,
+              icon: Icons.arrow_upward_rounded,
+              label: 'Move up',
+              onTap: () => engine.moveChat(contact.aegisId, up: true),
+            ),
+            _action(
+              sheetCtx,
+              icon: Icons.arrow_downward_rounded,
+              label: 'Move down',
+              onTap: () => engine.moveChat(contact.aegisId, up: false),
+            ),
+            const Divider(height: 1, color: Color(0xFF1B1E29)),
+            _action(
+              sheetCtx,
+              icon: Icons.delete_outline_rounded,
+              label: 'Delete chat…',
+              danger: true,
+              onTap: () => _confirmDelete(context),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _action(
+    BuildContext ctx, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool danger = false,
+  }) {
+    final color = danger ? AegisTheme.danger : AegisTheme.textHi;
+    return ListTile(
+      leading: Icon(icon, color: color, size: 22),
+      title: Text(label, style: TextStyle(color: color, fontSize: 15)),
+      onTap: () {
+        Navigator.pop(ctx);
+        onTap();
+      },
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
+              child: Text(
+                'Delete this chat?',
+                style: TextStyle(
+                  color: AegisTheme.textHi,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text(
+                'This cannot be undone.',
+                style: TextStyle(color: AegisTheme.textLo, fontSize: 13),
+              ),
+            ),
+            _action(
+              sheetCtx,
+              icon: Icons.person_remove_rounded,
+              label: 'Delete for me',
+              danger: true,
+              onTap: () => engine.deleteChat(contact.aegisId),
+            ),
+            _action(
+              sheetCtx,
+              icon: Icons.delete_forever_rounded,
+              label: 'Delete for everyone',
+              danger: true,
+              onTap: () => engine.deleteChatForBoth(contact.aegisId),
+            ),
+            const SizedBox(height: 8),
+          ],
         ),
       ),
     );
