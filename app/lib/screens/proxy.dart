@@ -20,8 +20,11 @@ class _ProxyScreenState extends State<ProxyScreen> {
   late final _host = TextEditingController(text: widget.engine.proxyHost);
   late final _user = TextEditingController(text: widget.engine.proxyUser);
   late final _pass = TextEditingController(text: widget.engine.proxyPass);
+  late bool _torFirst = widget.engine.proxyTorFirst;
   bool _busy = false;
   String? _error;
+
+  bool get _needsSocks => _mode == 'socks5' || _mode == 'chain';
 
   @override
   void dispose() {
@@ -39,7 +42,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
   }
 
   Future<void> _save() async {
-    if (_mode == 'socks5' && !_validHostPort(_host.text.trim())) {
+    if (_needsSocks && !_validHostPort(_host.text.trim())) {
       setState(() => _error = 'Enter the proxy as host:port, e.g. 127.0.0.1:1080');
       return;
     }
@@ -52,6 +55,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
       host: _host.text.trim(),
       user: _user.text,
       pass: _pass.text,
+      torFirst: _torFirst,
     );
     if (!mounted) return;
     setState(() => _busy = false);
@@ -81,14 +85,34 @@ class _ProxyScreenState extends State<ProxyScreen> {
               '$_torHint. Install and start Orbot first.'),
           _option('socks5', 'SOCKS5 proxy', 'Route through a SOCKS5 proxy you '
               'specify below.'),
-          if (_mode == 'socks5') ...[
+          _option('chain', 'SOCKS5 → Tor (chain)', 'Two hops: your SOCKS5 proxy '
+              'and Tor, chained. Order is configurable below.'),
+          if (_needsSocks) ...[
             const SizedBox(height: 12),
-            _field(_host, 'Proxy host:port', 'e.g. 127.0.0.1:1080',
+            _field(_host, 'SOCKS5 host:port', 'e.g. 127.0.0.1:1080',
                 error: _error),
             const SizedBox(height: 10),
             _field(_user, 'Username (optional)', ''),
             const SizedBox(height: 10),
             _field(_pass, 'Password (optional)', '', obscure: true),
+          ],
+          if (_mode == 'chain') ...[
+            const SizedBox(height: 6),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _torFirst,
+              onChanged: _busy ? null : (v) => setState(() => _torFirst = v),
+              activeColor: AegisTheme.accent,
+              title: Text(
+                _torFirst ? 'Order: app → Tor → SOCKS5' : 'Order: app → SOCKS5 → Tor',
+                style: const TextStyle(color: AegisTheme.textHi, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'If Tor is Orbot on this phone, put Tor first — a remote SOCKS5 '
+                'can’t reach your local Tor.',
+                style: TextStyle(color: AegisTheme.textLo, fontSize: 11.5, height: 1.35),
+              ),
+            ),
           ],
           const SizedBox(height: 22),
           GradientButton(

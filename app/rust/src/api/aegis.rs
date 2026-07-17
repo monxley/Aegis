@@ -69,6 +69,13 @@ pub fn is_newer_version(current: String, latest: String) -> bool {
     aegis_api::is_newer_version(&current, &latest)
 }
 
+/// One SOCKS5 hop for a proxy chain (mirrored to Dart).
+pub struct ProxyHop {
+    pub proxy: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 /// Route all outbound traffic (mixnet + provider mailbox) through a SOCKS5
 /// proxy. `proxy` is `host:port` (e.g. `127.0.0.1:9050` for Tor via Orbot);
 /// `username`/`password` are optional SOCKS5 auth. Pass `None` for `proxy` to go
@@ -77,6 +84,23 @@ pub fn is_newer_version(current: String, latest: String) -> bool {
 #[frb(sync)]
 pub fn set_proxy(proxy: Option<String>, username: Option<String>, password: Option<String>) {
     aegis_api::set_proxy(proxy, username, password);
+}
+
+/// Route all outbound traffic through a **chain** of SOCKS5 hops, in order
+/// (`app → chain[0] → … → target`). An empty chain goes direct. Tor is a SOCKS5
+/// proxy, so `app → SOCKS5 → Tor` is `[my_socks5, tor]`. Sync + process-wide.
+#[frb(sync)]
+pub fn set_proxy_chain(chain: Vec<ProxyHop>) {
+    aegis_api::set_proxy_chain(
+        chain
+            .into_iter()
+            .map(|h| aegis_api::ProxyHop {
+                proxy: h.proxy,
+                username: h.username,
+                password: h.password,
+            })
+            .collect(),
+    );
 }
 
 /// A running opt-in mix node (returned by [`start_forwarder_node`]).

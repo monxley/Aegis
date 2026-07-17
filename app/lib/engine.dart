@@ -29,10 +29,11 @@ const _decoyStateKey = 'aegis.decoy_state'; // separate state for the decoy acco
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _ownNodesOnlyKey = 'aegis.own_nodes_only'; // route only through my nodes
-const _proxyModeKey = 'aegis.proxy_mode'; // 'off' | 'tor' | 'socks5'
-const _proxyHostKey = 'aegis.proxy_host'; // host:port for socks5 mode
+const _proxyModeKey = 'aegis.proxy_mode'; // 'off' | 'tor' | 'socks5' | 'chain'
+const _proxyHostKey = 'aegis.proxy_host'; // host:port for socks5 / chain mode
 const _proxyUserKey = 'aegis.proxy_user';
 const _proxyPassKey = 'aegis.proxy_pass';
+const _proxyTorFirstKey = 'aegis.proxy_tor_first'; // chain order: Tor→SOCKS5 vs SOCKS5→Tor
 
 /// The default Tor SOCKS5 endpoint (Orbot on Android).
 const _torEndpoint = '127.0.0.1:9050';
@@ -74,10 +75,11 @@ class AegisEngineController extends ChangeNotifier {
   NodeInfo? _node;
   List<String> _userBootstrap = const [];
   bool _ownNodesOnly = false; // route only through the user's own nodes
-  String _proxyMode = 'off'; // 'off' | 'tor' | 'socks5'
-  String _proxyHost = ''; // host:port for socks5 mode
+  String _proxyMode = 'off'; // 'off' | 'tor' | 'socks5' | 'chain'
+  String _proxyHost = ''; // host:port for socks5 / chain mode
   String _proxyUser = '';
   String _proxyPass = '';
+  bool _proxyTorFirst = false; // chain: Tor→SOCKS5 (true) vs SOCKS5→Tor (false)
   Uint8List? _seed; // kept in memory to rebuild the engine on a node toggle
   bool _anonReceive = false; // network + node mode: the engine runs its own node
   bool _passwordSet = false; // the seed is protected by an app-lock password
@@ -165,13 +167,25 @@ class AegisEngineController extends ChangeNotifier {
   /// Whether the app routes exclusively through the user's own nodes.
   bool get ownNodesOnly => _ownNodesOnly;
 
-  /// The proxy mode: `off`, `tor`, or `socks5`.
+  /// The proxy mode: `off`, `tor`, `socks5`, or `chain` (SOCKS5 + Tor).
   String get proxyMode => _proxyMode;
 
-  /// The custom SOCKS5 endpoint (`host:port`) for `socks5` mode.
+  /// The custom SOCKS5 endpoint (`host:port`) for `socks5` / `chain` mode.
   String get proxyHost => _proxyHost;
   String get proxyUser => _proxyUser;
   String get proxyPass => _proxyPass;
+
+  /// In `chain` mode, whether Tor is the first hop (`Tor → SOCKS5`) rather than
+  /// the last (`SOCKS5 → Tor`).
+  bool get proxyTorFirst => _proxyTorFirst;
+
+  ProxyHop get _socksHop => ProxyHop(
+        proxy: _proxyHost,
+        username: _proxyUser.isEmpty ? null : _proxyUser,
+        password: _proxyPass.isEmpty ? null : _proxyPass,
+      );
+  ProxyHop get _torHop =>
+      ProxyHop(proxy: _torEndpoint, username: null, password: null);
 
   /// Push the current proxy choice into the Rust transport (process-wide). Both
   /// the mixnet and the provider connection honour it. Safe to call before a
@@ -179,40 +193,43 @@ class AegisEngineController extends ChangeNotifier {
   void _applyProxy() {
     switch (_proxyMode) {
       case 'tor':
-        setProxy(proxy: _torEndpoint, username: null, password: null);
+        setProxyChain(chain: [_torHop]);
       case 'socks5':
-        if (_proxyHost.isNotEmpty) {
-          setProxy(
-            proxy: _proxyHost,
-            username: _proxyUser.isEmpty ? null : _proxyUser,
-            password: _proxyPass.isEmpty ? null : _proxyPass,
-          );
-        } else {
-          setProxy(proxy: null, username: null, password: null);
-        }
+        setProxyChain(chain: _proxyHost.isEmpty ? [] : [_socksHop]);
+      case 'chain':
+        // app → SOCKS5 → Tor by default, or Tor first if chosen.
+        setProxyChain(
+          chain: _proxyHost.isEmpty
+              ? [_torHop]
+              : (_proxyTorFirst ? [_torHop, _socksHop] : [_socksHop, _torHop]),
+        );
       default:
-        setProxy(proxy: null, username: null, password: null);
+        setProxyChain(chain: []);
     }
   }
 
-  /// Change the proxy: `off`, `tor`, or `socks5` (with a `host:port` and
-  /// optional credentials). Persisted, applied to the transport, then the engine
-  /// reconnects so it takes effect immediately.
+  /// Change the proxy: `off`, `tor`, `socks5`, or `chain` (SOCKS5 + Tor). For
+  /// `socks5`/`chain`, pass the SOCKS5 `host:port` and optional credentials;
+  /// `torFirst` sets the chain order. Persisted, applied to the transport, then
+  /// the engine reconnects so it takes effect immediately.
   Future<void> updateProxy(
     String mode, {
     String host = '',
     String user = '',
     String pass = '',
+    bool torFirst = false,
   }) async {
     _proxyMode = mode;
     _proxyHost = host.trim();
     _proxyUser = user;
     _proxyPass = pass;
+    _proxyTorFirst = torFirst;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_proxyModeKey, _proxyMode);
     await prefs.setString(_proxyHostKey, _proxyHost);
     await prefs.setString(_proxyUserKey, _proxyUser);
     await prefs.setString(_proxyPassKey, _proxyPass);
+    await prefs.setBool(_proxyTorFirstKey, _proxyTorFirst);
     _applyProxy();
     await _reconnect();
   }
@@ -321,6 +338,7 @@ class AegisEngineController extends ChangeNotifier {
     _proxyHost = prefs.getString(_proxyHostKey) ?? '';
     _proxyUser = prefs.getString(_proxyUserKey) ?? '';
     _proxyPass = prefs.getString(_proxyPassKey) ?? '';
+    _proxyTorFirst = prefs.getBool(_proxyTorFirstKey) ?? false;
     _applyProxy();
     _secureScreen = prefs.getBool(_secureScreenKey) ?? true;
     // Native onCreate already set the flag on; only need to relax it if the user

@@ -402,6 +402,15 @@ through infrastructure they control, reached over Tor. (Node/provider targets
 are IPs, so no separate DNS resolution leaks; a hostname relay would still
 resolve locally.)
 
+The proxy is an **ordered chain** of SOCKS5 hops
+(`app → hop₁ → hop₂ → … → target`): each hop is reached by a SOCKS5 CONNECT
+through the previous one, with a DOMAINNAME CONNECT for hostname hops so
+intermediate resolution happens at the proxy, not locally. A common two-hop
+setup is **app → SOCKS5 → Tor** (or **Tor → SOCKS5**); when Tor is a local
+Orbot, put Tor first, since a remote SOCKS5 can't reach the phone's loopback
+Tor. Chaining lets a user stack their own proxy with Tor rather than trusting
+either alone.
+
 ---
 
 ## 7. End-to-end message lifecycle

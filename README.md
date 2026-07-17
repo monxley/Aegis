@@ -165,7 +165,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | 24/7 background operation: foreground service keeps receiving (on by default) | ✅ implemented |
 | — | Auto-update check against GitHub releases, with a prominent "update or it may break" prompt | ✅ implemented |
 | — | Own nodes: add host:port and route exclusively through your own infrastructure | ✅ implemented |
-| — | SOCKS5 / Tor proxy: route all traffic (mixnet + mailbox) through a proxy or Tor | ✅ implemented |
+| — | SOCKS5 / Tor proxy (chainable): route all traffic through a proxy, Tor, or app→SOCKS5→Tor | ✅ implemented |
 | — | App disguise: swap the launcher icon + name to a decoy (calculator / notes / weather) | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
