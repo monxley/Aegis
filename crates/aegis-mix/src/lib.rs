@@ -236,14 +236,15 @@ const NET_TIMEOUT: Duration = Duration::from_secs(10);
 /// arm read/write deadlines so no later blocking read can hang indefinitely.
 fn connect_bounded(addr: impl ToSocketAddrs) -> io::Result<TcpStream> {
     let addrs = addr.to_socket_addrs()?;
-    let proxy = socks5::current();
+    let chain = socks5::current_chain();
     let mut last_err =
         io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to");
     for a in addrs {
-        // Through a SOCKS5 proxy (incl. Tor) when one is set, else direct.
-        let result = match &proxy {
-            Some(p) => socks5::connect(p, a, NET_TIMEOUT),
-            None => TcpStream::connect_timeout(&a, NET_TIMEOUT),
+        // Through the SOCKS5 chain (incl. Tor) when one is set, else direct.
+        let result = if chain.is_empty() {
+            TcpStream::connect_timeout(&a, NET_TIMEOUT)
+        } else {
+            socks5::dial(a)
         };
         match result {
             Ok(stream) => {
