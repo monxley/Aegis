@@ -10,6 +10,8 @@ reuses Ciphra's blind, replicated server as a store-and-forward relay.
 The design goal, in one line: **a message you cannot intercept, and if you do,
 cannot read — and cannot tell who it was between.**
 
+![Aegis — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
+
 ## Status
 
 **All five protocol layers are implemented, and folded into one client.** Under
@@ -46,6 +48,23 @@ aegis-api     :  9 ok   # UI engine + mixnet end-to-end + sent/delivered/read re
 
 The **Flutter app** (`app/`) is the interface on top of `aegis-api`; see
 [app/README.md](app/README.md) for the build.
+
+## Screenshots
+
+The Android app — Android-first, anonymous by default, private under pressure.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/chats.jpg" alt="Chats — Mixnet, anonymous send"/><br/><sub><b>Chats.</b> Anonymous send over the mixnet.</sub></td>
+    <td width="33%"><img src="docs/screenshots/lock.jpg" alt="Lock screen — password, biometrics, hold to wipe"/><br/><sub><b>Lock screen.</b> Password or biometrics; hold to wipe everything.</sub></td>
+    <td width="33%"><img src="docs/screenshots/nodes.jpg" alt="Network nodes — add your own, route only through them"/><br/><sub><b>Nodes.</b> Add your own by host:port; route only through them.</sub></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/settings-identity.jpg" alt="Settings — profile, app password, duress password, biometric unlock"/><br/><sub><b>Identity & locks.</b> Share code, app password, duress/decoy, biometrics.</sub></td>
+    <td width="33%"><img src="docs/screenshots/settings-privacy.jpg" alt="Settings — recovery phrase, notifications, block screenshots, background, proxy/Tor"/><br/><sub><b>Privacy.</b> Recovery phrase, screenshot block, 24/7 background, SOCKS5/Tor.</sub></td>
+    <td width="33%"><img src="docs/screenshots/settings-security.jpg" alt="Settings — disguise, run a node, panic wipe, reset identity"/><br/><sub><b>Under pressure.</b> Disguise as a calculator, panic wipe, reset.</sub></td>
+  </tr>
+</table>
 
 ## Quick start
 
