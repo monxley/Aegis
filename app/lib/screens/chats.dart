@@ -10,6 +10,7 @@ import 'add_contact.dart';
 import 'chat.dart';
 import 'identity.dart';
 import 'nodes.dart';
+import 'notes.dart';
 import 'settings.dart';
 
 /// The home screen: the list of conversations. Rebuilds whenever the engine
@@ -105,6 +106,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
           return Column(
             children: [
               if (update != null) _UpdateBanner(engine: engine, update: update),
+              _NotesTile(engine: engine),
+              const Divider(height: 1, indent: 82, color: Color(0xFF1B1E29)),
               Expanded(
                 child: contacts.isEmpty
                     ? const _EmptyState()
@@ -170,6 +173,60 @@ class _ConnectionStatus extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// The always-present "Notes" entry at the top of the list: a private,
+/// local-only, encrypted self-chat.
+class _NotesTile extends StatelessWidget {
+  final AegisEngineController engine;
+  const _NotesTile({required this.engine});
+
+  @override
+  Widget build(BuildContext context) {
+    final notes = engine.notes();
+    final last = notes.isNotEmpty ? notes.last : null;
+    final preview =
+        last?.text ?? 'Private, encrypted — only on this device.';
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+      leading: Container(
+        width: 46,
+        height: 46,
+        decoration: const BoxDecoration(
+          gradient: AegisTheme.shield,
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.bookmark_rounded, color: Color(0xFF06110F)),
+      ),
+      title: Row(
+        children: const [
+          Text('Notes',
+              style: TextStyle(
+                  color: AegisTheme.textHi,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16)),
+          SizedBox(width: 6),
+          Icon(Icons.lock_rounded, size: 13, color: AegisTheme.accent),
+        ],
+      ),
+      subtitle: Text(
+        preview,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: AegisTheme.textLo,
+          fontStyle: last == null ? FontStyle.italic : FontStyle.normal,
+        ),
+      ),
+      trailing: last == null
+          ? null
+          : Text(formatListTime(last.timestampMs.toInt()),
+              style: const TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => NotesScreen(engine: engine)),
+      ),
     );
   }
 }
