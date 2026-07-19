@@ -86,7 +86,12 @@ nothing an observer or relay sees, so they add no metadata. They narrow the
   blob, sealed with ChaCha20-Poly1305 under a key derived from the master seed
   (HKDF), so a stealer that exfiltrates the app's files gets only ciphertext.
   With an app password set, the seed — and thus the notes key — is itself
-  unreadable without the password.
+  unreadable without the password. **Optional separate notes password:** a
+  second encryption layer whose key is stretched from a dedicated password with
+  PBKDF2-HMAC-SHA256 (~314k iterations). Reading the notes then requires **both**
+  the device seed and this password — even someone who has unlocked the app
+  can't open the notes without it. A **panic wipe** clears all notes (and the
+  password) in one tap.
 - **Launcher disguise.** The app's home-screen icon and name can be swapped
   for an ordinary utility (calculator, notes, weather) via Android
   `activity-alias` components toggled at runtime — exactly one launcher entry is
