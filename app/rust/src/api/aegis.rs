@@ -155,6 +155,23 @@ pub struct IncomingMessage {
     pub text: String,
 }
 
+/// A private, local-only note (mirrored to Dart).
+pub struct Note {
+    pub id: u64,
+    pub text: String,
+    pub timestamp_ms: u64,
+}
+
+impl From<aegis_api::Note> for Note {
+    fn from(n: aegis_api::Note) -> Self {
+        Note {
+            id: n.id,
+            text: n.text,
+            timestamp_ms: n.timestamp_ms,
+        }
+    }
+}
+
 impl From<ApiContact> for Contact {
     fn from(c: ApiContact) -> Self {
         Contact {
@@ -340,6 +357,50 @@ impl AegisEngine {
     /// it too, then delete it here.
     pub fn delete_chat_for_both(&self, aegis_id: String) -> Result<(), String> {
         self.with(|app| app.delete_chat_for_both(aegis_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The private notes (local-only self-chat), oldest first.
+    #[frb(sync)]
+    pub fn notes(&self) -> Vec<Note> {
+        self.with(|app| app.notes())
+            .into_iter()
+            .map(Note::from)
+            .collect()
+    }
+
+    /// Append a private note. Local only — nothing is ever sent.
+    #[frb(sync)]
+    pub fn add_note(&self, text: String) {
+        self.with(|app| {
+            app.add_note(text);
+        });
+    }
+
+    /// Replace the text of note `id`.
+    #[frb(sync)]
+    pub fn edit_note(&self, id: u64, text: String) {
+        self.with(|app| app.edit_note(id, text));
+    }
+
+    /// Delete note `id`.
+    #[frb(sync)]
+    pub fn delete_note(&self, id: u64) {
+        self.with(|app| app.delete_note(id));
+    }
+
+    /// The encrypted notes blob to persist on the device (ciphertext; the seed
+    /// decrypts it, and the seed is itself behind the app password when set).
+    #[frb(sync)]
+    pub fn export_notes(&self) -> Vec<u8> {
+        self.with(|app| app.export_notes())
+    }
+
+    /// Restore notes from an [`AegisEngine::export_notes`] blob. Errors if it is
+    /// malformed or can't be decrypted with this identity's key.
+    #[frb(sync)]
+    pub fn restore_notes(&self, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.restore_notes(blob))
             .map_err(|e| e.to_string())
     }
 
