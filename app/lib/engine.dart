@@ -26,6 +26,8 @@ const _duressVaultKey = 'aegis.duress_vault'; // vault for the decoy seed
 const _modeKey = 'aegis.mode'; // 'network' | 'relay:<addr>' | 'memory'
 const _stateKey = 'aegis.state_blob'; // base64 sessions + contacts + history
 const _decoyStateKey = 'aegis.decoy_state'; // separate state for the decoy account
+const _notesKey = 'aegis.notes_blob'; // encrypted local-only notes (real account)
+const _decoyNotesKey = 'aegis.decoy_notes'; // encrypted notes for the decoy account
 const _nodeKey = 'aegis.node_enabled';
 const _bootstrapKey = 'aegis.bootstrap'; // comma-separated user-added nodes
 const _ownNodesOnlyKey = 'aegis.own_nodes_only'; // route only through my nodes
@@ -136,6 +138,60 @@ class AegisEngineController extends ChangeNotifier {
   /// The state blob key for whichever account is booted (real vs decoy), so the
   /// decoy's chats never touch the real account's saved state.
   String get _activeStateKey => _isDecoy ? _decoyStateKey : _stateKey;
+
+  /// The encrypted-notes blob key for the booted account (real vs decoy).
+  String get _activeNotesKey => _isDecoy ? _decoyNotesKey : _notesKey;
+
+  /// The private notes (local-only "Notes" chat), oldest first.
+  List<Note> notes() => _engine?.notes() ?? const [];
+
+  /// Add a private note (local only, encrypted at rest). Persisted immediately.
+  Future<void> addNote(String text) async {
+    _engine?.addNote(text: text);
+    await _persistNotes();
+    notifyListeners();
+  }
+
+  /// Edit note [id].
+  Future<void> editNote(BigInt id, String text) async {
+    _engine?.editNote(id: id, text: text);
+    await _persistNotes();
+    notifyListeners();
+  }
+
+  /// Delete note [id].
+  Future<void> deleteNote(BigInt id) async {
+    _engine?.deleteNote(id: id);
+    await _persistNotes();
+    notifyListeners();
+  }
+
+  /// Save the encrypted notes blob (ciphertext) to this account's storage.
+  Future<void> _persistNotes() async {
+    final engine = _engine;
+    if (engine == null) return;
+    try {
+      final blob = engine.exportNotes();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_activeNotesKey, base64Encode(blob));
+    } catch (e) {
+      debugPrint('notes save failed: $e');
+    }
+  }
+
+  /// Load and decrypt this account's notes blob (no-op if none / wrong key).
+  Future<void> _restoreNotes() async {
+    final engine = _engine;
+    if (engine == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final b64 = prefs.getString(_activeNotesKey);
+    if (b64 == null) return;
+    try {
+      engine.restoreNotes(blob: base64Decode(b64));
+    } catch (e) {
+      debugPrint('notes restore failed (starting empty): $e');
+    }
+  }
 
   /// The nodes this client currently knows from the gossiped directory.
   List<NodeSummary> networkNodes() => _engine?.networkNodes() ?? const [];
@@ -596,12 +652,15 @@ class AegisEngineController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     if (decoyOnly) {
       await prefs.remove(_decoyStateKey);
+      await prefs.remove(_decoyNotesKey);
     } else {
       await prefs.remove(_seedKey);
       await prefs.remove(_vaultKey);
       await prefs.remove(_duressVaultKey);
       await prefs.remove(_stateKey);
       await prefs.remove(_decoyStateKey);
+      await prefs.remove(_notesKey);
+      await prefs.remove(_decoyNotesKey);
       await prefs.remove(_modeKey);
       await prefs.remove(_nodeVerifiedKey);
       await prefs.remove(_nodeKey);
@@ -642,6 +701,7 @@ class AegisEngineController extends ChangeNotifier {
         debugPrint('state restore failed (starting fresh): $e');
       }
     }
+    await _restoreNotes();
     // Resume node mode (defaults per platform on first run).
     _nodeVerified = prefs.getBool(_nodeVerifiedKey) ?? false;
     _nodeEnabled = prefs.getBool(_nodeKey) ?? kNodeDefaultOn;
@@ -677,6 +737,7 @@ class AegisEngineController extends ChangeNotifier {
         debugPrint('decoy state restore failed (starting fresh): $e');
       }
     }
+    await _restoreNotes();
   }
 
   /// Create a brand-new identity from fresh randomness and persist the seed.
@@ -903,6 +964,8 @@ class AegisEngineController extends ChangeNotifier {
     await prefs.remove(_duressVaultKey);
     await prefs.remove(_stateKey);
     await prefs.remove(_decoyStateKey);
+    await prefs.remove(_notesKey);
+    await prefs.remove(_decoyNotesKey);
     await prefs.remove(_modeKey);
     await prefs.remove(_nodeVerifiedKey);
     await prefs.remove(_nodeKey);
