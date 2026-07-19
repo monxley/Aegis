@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aegis_client::{AegisClient, ClientError};
+use aegis_crypto::aead;
 use aegis_identity::AegisId;
 use aegis_mailbox::{Envelope, InMemoryStore, MailboxError, MailboxStore};
 use aegis_mix::MixnetStore;
@@ -270,6 +271,28 @@ pub struct ChatMessage {
     pub expires_at_ms: u64,
 }
 
+/// A private note in the local-only "Notes" chat. These never touch the network
+/// — they are stored only on this device, encrypted at rest.
+#[derive(Clone, Debug)]
+pub struct Note {
+    /// Stable id, so a note can be edited or deleted.
+    pub id: u64,
+    pub text: String,
+    pub timestamp_ms: u64,
+}
+
+/// AAD tag binding the notes ciphertext to its purpose/version.
+const NOTES_AAD: &[u8] = b"aegis-notes-v1";
+
+/// Derive the notes-encryption key from the master seed (HKDF-SHA256). Distinct
+/// from every messaging key, so it can't be confused with session material.
+fn derive_notes_key(seed: &[u8; 32]) -> [u8; 32] {
+    let prk = aegis_crypto::hmac::hkdf_extract(b"aegis/notes/salt/v1", seed);
+    let mut key = [0u8; 32];
+    aegis_crypto::hmac::hkdf_expand(&prk, b"aegis/notes/key/v1", &mut key);
+    key
+}
+
 /// A message just delivered by [`AegisApp::poll`].
 #[derive(Clone, Debug)]
 pub struct IncomingMessage {
@@ -376,6 +399,11 @@ pub struct AegisApp {
     /// Per-conversation disappearing-message timer (aegis_id → lifetime in
     /// seconds, 0/absent = off). Synced to the peer via [`MSG_TIMER`].
     disappearing: HashMap<String, u32>,
+    /// The local-only "Notes" self-chat. Never sent anywhere; persisted
+    /// separately and encrypted at rest under [`AegisApp::notes_key`].
+    notes: Vec<Note>,
+    /// Symmetric key (derived from the master seed) for the notes blob.
+    notes_key: [u8; 32],
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -385,9 +413,11 @@ fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
 impl AegisApp {
     /// Create an app with a **local in-memory relay** (demos and tests).
     pub fn create_in_memory(master_seed: Vec<u8>) -> Result<AegisApp, AppError> {
+        let seed = seed_array(master_seed)?;
         Ok(Self::from_parts(
-            AegisClient::from_master_seed(seed_array(master_seed)?),
+            AegisClient::from_master_seed(seed),
             Store::Memory(InMemoryStore::new()),
+            &seed,
         ))
     }
 
@@ -397,10 +427,11 @@ impl AegisApp {
         master_seed: Vec<u8>,
         relay_addr: String,
     ) -> Result<AegisApp, AppError> {
-        let client = AegisClient::from_master_seed(seed_array(master_seed)?);
+        let seed = seed_array(master_seed)?;
+        let client = AegisClient::from_master_seed(seed);
         let store = CiphraStore::connect(relay_addr.as_str(), None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
-        Ok(Self::from_parts(client, Store::Ciphra(Box::new(store))))
+        Ok(Self::from_parts(client, Store::Ciphra(Box::new(store)), &seed))
     }
 
     /// Create an app that **auto-discovers the mixnet** and routes over it — the
@@ -416,7 +447,8 @@ impl AegisApp {
         master_seed: Vec<u8>,
         bootstrap: Vec<String>,
     ) -> Result<AegisApp, AppError> {
-        let client = AegisClient::from_master_seed(seed_array(master_seed)?);
+        let seed = seed_array(master_seed)?;
+        let client = AegisClient::from_master_seed(seed);
         let nodes = discover_network(&bootstrap)?;
 
         // The provider set (sorted by id so all clients agree) shards the mail;
@@ -438,7 +470,7 @@ impl AegisApp {
         let reader = CiphraStore::connect(provider_addr, None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
         let store = MixnetStore::new(reader, providers, pool, own_provider, 2);
-        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store))))
+        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store)), &seed))
     }
 
     /// Like [`create_on_network`](Self::create_on_network) but with **anonymous
@@ -457,7 +489,8 @@ impl AegisApp {
     ) -> Result<AegisApp, AppError> {
         use std::net::ToSocketAddrs;
 
-        let client = AegisClient::from_master_seed(seed_array(master_seed)?);
+        let seed = seed_array(master_seed)?;
+        let client = AegisClient::from_master_seed(seed);
         let nodes = discover_network(&bootstrap)?;
 
         let mut providers: Vec<_> = nodes.iter().filter(|n| n.is_provider()).cloned().collect();
@@ -489,10 +522,10 @@ impl AegisApp {
 
         let store = MixnetStore::new(reader, providers, pool, own_provider, 2)
             .with_anon_receive(inbox, own_node);
-        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store))))
+        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store)), &seed))
     }
 
-    fn from_parts(client: AegisClient, store: Store) -> Self {
+    fn from_parts(client: AegisClient, store: Store, seed: &[u8; 32]) -> Self {
         AegisApp {
             client,
             store,
@@ -500,6 +533,8 @@ impl AegisApp {
             history: HashMap::new(),
             read_acked: std::collections::HashSet::new(),
             disappearing: HashMap::new(),
+            notes: Vec::new(),
+            notes_key: derive_notes_key(seed),
         }
     }
 
@@ -656,6 +691,92 @@ impl AegisApp {
         self.contacts.retain(|c| c.aegis_id != aegis_id);
         self.history.remove(aegis_id);
         self.disappearing.remove(aegis_id);
+    }
+
+    // --- Notes (local-only, encrypted self-chat) ------------------------------
+
+    /// The private notes, oldest first. These never touch the network.
+    pub fn notes(&self) -> Vec<Note> {
+        self.notes.clone()
+    }
+
+    /// Append a note. Returns its id. Purely local — nothing is sent.
+    pub fn add_note(&mut self, text: String) -> u64 {
+        let id = rand_u64();
+        self.notes.push(Note {
+            id,
+            text,
+            timestamp_ms: now_ms(),
+        });
+        id
+    }
+
+    /// Replace the text of note `id` (no-op if it doesn't exist).
+    pub fn edit_note(&mut self, id: u64, text: String) {
+        if let Some(n) = self.notes.iter_mut().find(|n| n.id == id) {
+            n.text = text;
+        }
+    }
+
+    /// Delete note `id`.
+    pub fn delete_note(&mut self, id: u64) {
+        self.notes.retain(|n| n.id != id);
+    }
+
+    /// Serialize the notes into an **encrypted** blob (ChaCha20-Poly1305 under a
+    /// seed-derived key). Persist this on the device; without the seed — which is
+    /// itself locked behind the app password when set — it is unreadable, so a
+    /// stealer that grabs the file gets only ciphertext.
+    pub fn export_notes(&self) -> Vec<u8> {
+        let mut w = StateWriter::new();
+        w.push_u32(self.notes.len() as u32);
+        for n in &self.notes {
+            w.push_u64(n.id);
+            w.push_bytes(n.text.as_bytes());
+            w.push_u64(n.timestamp_ms);
+        }
+        let plain = w.into_bytes();
+        let mut nonce = [0u8; 12];
+        aegis_crypto::fill_random(&mut nonce);
+        let sealed = aead::seal(&self.notes_key, &nonce, &plain, NOTES_AAD);
+        let mut out = Vec::with_capacity(1 + nonce.len() + sealed.len());
+        out.push(1); // blob version
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&sealed);
+        out
+    }
+
+    /// Restore notes from an [`export_notes`] blob. Errors (leaving notes
+    /// unchanged) if the blob is malformed or fails to decrypt/authenticate —
+    /// e.g. it was written under a different identity's key.
+    pub fn restore_notes(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        if blob.len() < 13 || blob[0] != 1 {
+            return Err(AppError::Protocol("bad notes blob".into()));
+        }
+        let nonce: [u8; 12] = blob[1..13].try_into().unwrap();
+        let plain = aead::open(&self.notes_key, &nonce, &blob[13..], NOTES_AAD)
+            .ok_or_else(|| AppError::Protocol("notes decryption failed".into()))?;
+        let mut r = StateReader::new(&plain);
+        let n = r
+            .u32()
+            .ok_or_else(|| AppError::Protocol("truncated notes".into()))? as usize;
+        let mut notes = Vec::with_capacity(n);
+        for _ in 0..n {
+            let id = r.u64().ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            let text = r
+                .string()
+                .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            let timestamp_ms = r
+                .u64()
+                .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            notes.push(Note {
+                id,
+                text,
+                timestamp_ms,
+            });
+        }
+        self.notes = notes;
+        Ok(())
     }
 
     /// The conversation history with `aegis_id`, oldest first. Expired
@@ -1226,6 +1347,39 @@ mod tests {
         // Unparseable ⇒ never nags.
         assert!(!is_newer_version("1.0.0", "not-a-version"));
         assert!(!is_newer_version("dev", "1.0.0"));
+    }
+
+    #[test]
+    fn notes_are_local_and_encrypted_round_trip() {
+        let mut a = AegisApp::create_in_memory(vec![7u8; 32]).unwrap();
+        let id = a.add_note("secret note".into());
+        a.add_note("second".into());
+        assert_eq!(a.notes().len(), 2);
+        a.edit_note(id, "edited".into());
+        assert_eq!(a.notes()[0].text, "edited");
+
+        // The persisted blob is ciphertext — the plaintext must not appear in it.
+        let blob = a.export_notes();
+        assert!(
+            !blob.windows(6).any(|w| w == b"edited"),
+            "notes must not be stored in the clear"
+        );
+        assert!(!blob.windows(6).any(|w| w == b"second"));
+
+        // The same seed restores it; a different seed (identity) cannot decrypt.
+        let mut same = AegisApp::create_in_memory(vec![7u8; 32]).unwrap();
+        same.restore_notes(blob.clone()).unwrap();
+        assert_eq!(same.notes().len(), 2);
+        assert_eq!(same.notes()[0].text, "edited");
+        let mut other = AegisApp::create_in_memory(vec![9u8; 32]).unwrap();
+        assert!(
+            other.restore_notes(blob).is_err(),
+            "a stealer without the key can't read the notes"
+        );
+
+        same.delete_note(id);
+        assert_eq!(same.notes().len(), 1);
+        assert_eq!(same.notes()[0].text, "second");
     }
 
     #[test]

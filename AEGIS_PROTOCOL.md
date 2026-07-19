@@ -81,6 +81,12 @@ nothing an observer or relay sees, so they add no metadata. They narrow the
   the seed, both vaults, all state, and node settings in one step. Fired from
   the decoy it clears only the decoy, so the real account is never destroyed —
   or disclosed — by an attacker who finds the button.
+- **Local notes, encrypted at rest.** A private "Notes" self-chat that **never
+  touches the network** — no send, no relay, no mailbox. It is stored in its own
+  blob, sealed with ChaCha20-Poly1305 under a key derived from the master seed
+  (HKDF), so a stealer that exfiltrates the app's files gets only ciphertext.
+  With an app password set, the seed — and thus the notes key — is itself
+  unreadable without the password.
 - **Launcher disguise.** The app's home-screen icon and name can be swapped
   for an ordinary utility (calculator, notes, weather) via Android
   `activity-alias` components toggled at runtime — exactly one launcher entry is
