@@ -21,12 +21,123 @@ class NotesScreen extends StatefulWidget {
 class _NotesScreenState extends State<NotesScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _pw = TextEditingController();
+  bool _busy = false;
+  String? _pwError;
 
   @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
+    _pw.dispose();
     super.dispose();
+  }
+
+  Future<void> _unlock() async {
+    if (_pw.text.isEmpty || _busy) return;
+    setState(() {
+      _busy = true;
+      _pwError = null;
+    });
+    final ok = await widget.engine.unlockNotes(_pw.text);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _pwError = ok ? null : 'Wrong password';
+    });
+    if (ok) _pw.clear();
+  }
+
+  Future<void> _panicWipe() async {
+    await widget.engine.panicWipeNotes();
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  Future<void> _setOrChangePassword() async {
+    final pw = await _promptNewPassword();
+    if (pw == null || !mounted) return;
+    await widget.engine.setNotesPassword(pw);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notes password set')),
+      );
+    }
+  }
+
+  Future<void> _removePassword() async {
+    await widget.engine.removeNotesPassword();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Notes password removed')),
+      );
+    }
+  }
+
+  Future<String?> _promptNewPassword() {
+    final a = TextEditingController();
+    final b = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        String? err;
+        return StatefulBuilder(
+          builder: (ctx, setD) => AlertDialog(
+            backgroundColor: AegisTheme.surface,
+            title: Text(
+              widget.engine.notesHasPassword
+                  ? 'Change notes password'
+                  : 'Set notes password',
+              style: const TextStyle(color: AegisTheme.textHi, fontSize: 18),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'A separate password just for your notes, on top of the '
+                  'device key. You’ll need it to open Notes.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: a,
+                  obscureText: true,
+                  autofocus: true,
+                  style: const TextStyle(color: AegisTheme.textHi),
+                  decoration: const InputDecoration(hintText: 'New password'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: b,
+                  obscureText: true,
+                  style: const TextStyle(color: AegisTheme.textHi),
+                  decoration: InputDecoration(hintText: 'Repeat', errorText: err),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, null),
+                child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (a.text.length < 4) {
+                    setD(() => err = 'At least 4 characters');
+                    return;
+                  }
+                  if (a.text != b.text) {
+                    setD(() => err = 'Passwords do not match');
+                    return;
+                  }
+                  Navigator.pop(ctx, a.text);
+                },
+                child: const Text('Save', style: TextStyle(color: AegisTheme.accent)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _add() async {
@@ -60,29 +171,146 @@ class _NotesScreenState extends State<NotesScreen> {
                 style: TextStyle(color: AegisTheme.textLo, fontSize: 11)),
           ],
         ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: AnimatedBuilder(
-              animation: widget.engine,
-              builder: (context, _) {
-                final notes = widget.engine.notes();
-                if (notes.isEmpty) return const _NotesEmpty();
-                return ListView.builder(
-                  controller: _scroll,
-                  padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
-                  itemCount: notes.length,
-                  itemBuilder: (context, i) =>
-                      _NoteBubble(engine: widget.engine, note: notes[i]),
-                );
+        actions: [
+          AnimatedBuilder(
+            animation: widget.engine,
+            builder: (context, _) => PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded, color: AegisTheme.textHi),
+              color: AegisTheme.surface,
+              onSelected: (v) {
+                switch (v) {
+                  case 'set':
+                    _setOrChangePassword();
+                  case 'remove':
+                    _removePassword();
+                  case 'panic':
+                    _confirmPanic();
+                }
               },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'set',
+                  child: Text(
+                    widget.engine.notesHasPassword
+                        ? 'Change notes password'
+                        : 'Set notes password',
+                    style: const TextStyle(color: AegisTheme.textHi),
+                  ),
+                ),
+                if (widget.engine.notesHasPassword && !widget.engine.notesLocked)
+                  const PopupMenuItem(
+                    value: 'remove',
+                    child: Text('Remove notes password',
+                        style: TextStyle(color: AegisTheme.textHi)),
+                  ),
+                const PopupMenuItem(
+                  value: 'panic',
+                  child: Text('Wipe all notes',
+                      style: TextStyle(color: AegisTheme.danger)),
+                ),
+              ],
             ),
           ),
-          _Composer(controller: _input, onAdd: _add),
+        ],
+      ),
+      body: AnimatedBuilder(
+        animation: widget.engine,
+        builder: (context, _) {
+          if (widget.engine.notesLocked) return _lockView();
+          return Column(
+            children: [
+              Expanded(
+                child: Builder(builder: (context) {
+                  final notes = widget.engine.notes();
+                  if (notes.isEmpty) return const _NotesEmpty();
+                  return ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
+                    itemCount: notes.length,
+                    itemBuilder: (context, i) =>
+                        _NoteBubble(engine: widget.engine, note: notes[i]),
+                  );
+                }),
+              ),
+              _Composer(controller: _input, onAdd: _add),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _lockView() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Icon(Icons.lock_rounded, size: 56, color: AegisTheme.accent),
+          const SizedBox(height: 16),
+          const Text('Notes are locked',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: AegisTheme.textHi,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          const Text(
+            'Enter your notes password. It’s separate from the app password and '
+            'never leaves this device.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _pw,
+            autofocus: true,
+            obscureText: true,
+            enabled: !_busy,
+            style: const TextStyle(color: AegisTheme.textHi),
+            onSubmitted: (_) => _unlock(),
+            decoration: InputDecoration(
+              hintText: 'Notes password',
+              prefixIcon: const Icon(Icons.lock_rounded, color: AegisTheme.textLo),
+              errorText: _pwError,
+            ),
+          ),
+          const SizedBox(height: 16),
+          GradientButton(
+            label: _busy ? 'Unlocking…' : 'Unlock notes',
+            icon: Icons.lock_open_rounded,
+            onPressed: _busy ? null : _unlock,
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmPanic() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Wipe all notes?',
+            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+        content: const Text(
+          'Every note on this device is erased. This cannot be undone.',
+          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Wipe', style: TextStyle(color: AegisTheme.danger)),
+          ),
+        ],
+      ),
+    );
+    if (yes == true) await _panicWipe();
   }
 }
 

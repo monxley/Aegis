@@ -69,6 +69,12 @@ pub fn is_newer_version(current: String, latest: String) -> bool {
     aegis_api::is_newer_version(&current, &latest)
 }
 
+/// Whether a persisted notes blob is password-protected (needs `unlock_notes`).
+#[frb(sync)]
+pub fn notes_blob_encrypted(blob: Vec<u8>) -> bool {
+    aegis_api::notes_blob_encrypted(&blob)
+}
+
 /// One SOCKS5 hop for a proxy chain (mirrored to Dart).
 pub struct ProxyHop {
     pub proxy: String,
@@ -390,18 +396,54 @@ impl AegisEngine {
     }
 
     /// The encrypted notes blob to persist on the device (ciphertext; the seed
-    /// decrypts it, and the seed is itself behind the app password when set).
+    /// decrypts the inner layer, and a notes password the outer one when set).
     #[frb(sync)]
     pub fn export_notes(&self) -> Vec<u8> {
         self.with(|app| app.export_notes())
     }
 
-    /// Restore notes from an [`AegisEngine::export_notes`] blob. Errors if it is
-    /// malformed or can't be decrypted with this identity's key.
+    /// Restore notes from an [`AegisEngine::export_notes`] blob. Errors — with
+    /// the message "notes are locked" — if the blob is password-protected (call
+    /// [`AegisEngine::unlock_notes`]); other errors mean it's malformed or from a
+    /// different identity's key.
     #[frb(sync)]
     pub fn restore_notes(&self, blob: Vec<u8>) -> Result<(), String> {
         self.with(|app| app.restore_notes(blob))
             .map_err(|e| e.to_string())
+    }
+
+    /// Whether a separate notes password is currently in effect.
+    #[frb(sync)]
+    pub fn notes_password_set(&self) -> bool {
+        self.with(|app| app.notes_password_set())
+    }
+
+    /// Set (or change) the notes password — a second encryption layer (PBKDF2,
+    /// ~314k iterations) so reading notes needs both the device seed and this
+    /// password. Re-export afterwards to persist.
+    #[frb(sync)]
+    pub fn set_notes_password(&self, password: String) {
+        self.with(|app| app.set_notes_password(password));
+    }
+
+    /// Remove the notes password (back to seed-only encryption).
+    #[frb(sync)]
+    pub fn remove_notes_password(&self) {
+        self.with(|app| app.remove_notes_password());
+    }
+
+    /// Unlock a password-protected notes blob with `password`. Errors on a wrong
+    /// password.
+    #[frb(sync)]
+    pub fn unlock_notes(&self, password: String, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.unlock_notes(password, blob))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Panic-wipe the notes from memory (the caller also deletes the blob).
+    #[frb(sync)]
+    pub fn wipe_notes(&self) {
+        self.with(|app| app.wipe_notes());
     }
 
     /// Mark the conversation with `aegis_id` as read — sends read receipts for

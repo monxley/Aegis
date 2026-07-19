@@ -142,8 +142,60 @@ class AegisEngineController extends ChangeNotifier {
   /// The encrypted-notes blob key for the booted account (real vs decoy).
   String get _activeNotesKey => _isDecoy ? _decoyNotesKey : _notesKey;
 
+  bool _notesLocked = false; // notes blob is password-protected, not yet unlocked
+
   /// The private notes (local-only "Notes" chat), oldest first.
   List<Note> notes() => _engine?.notes() ?? const [];
+
+  /// Whether the notes are behind a separate password and still locked this
+  /// session (the UI shows an unlock prompt).
+  bool get notesLocked => _notesLocked;
+
+  /// Whether a separate notes password is configured (locked, or set in memory).
+  bool get notesHasPassword =>
+      _notesLocked || (_engine?.notesPasswordSet() ?? false);
+
+  /// Unlock password-protected notes for this session. Returns false on a wrong
+  /// password.
+  Future<bool> unlockNotes(String password) async {
+    final engine = _engine;
+    if (engine == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final b64 = prefs.getString(_activeNotesKey);
+    if (b64 == null) return false;
+    try {
+      engine.unlockNotes(password: password, blob: base64Decode(b64));
+      _notesLocked = false;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Set (or change) the notes password (double-layer encryption). Requires the
+  /// notes to be unlocked. Persisted immediately.
+  Future<void> setNotesPassword(String password) async {
+    _engine?.setNotesPassword(password: password);
+    await _persistNotes();
+    notifyListeners();
+  }
+
+  /// Remove the notes password (back to seed-only encryption).
+  Future<void> removeNotesPassword() async {
+    _engine?.removeNotesPassword();
+    await _persistNotes();
+    notifyListeners();
+  }
+
+  /// Panic-wipe just the notes: clear them and delete the stored blob.
+  Future<void> panicWipeNotes() async {
+    _engine?.wipeNotes();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_activeNotesKey);
+    _notesLocked = false;
+    notifyListeners();
+  }
 
   /// Add a private note (local only, encrypted at rest). Persisted immediately.
   Future<void> addNote(String text) async {
@@ -179,15 +231,22 @@ class AegisEngineController extends ChangeNotifier {
     }
   }
 
-  /// Load and decrypt this account's notes blob (no-op if none / wrong key).
+  /// Load this account's notes blob. A password-protected blob stays locked
+  /// (the Notes screen prompts for the notes password); a seed-only blob loads.
   Future<void> _restoreNotes() async {
     final engine = _engine;
     if (engine == null) return;
+    _notesLocked = false;
     final prefs = await SharedPreferences.getInstance();
     final b64 = prefs.getString(_activeNotesKey);
     if (b64 == null) return;
+    final blob = base64Decode(b64);
+    if (notesBlobEncrypted(blob: blob)) {
+      _notesLocked = true; // needs the notes password before it can be read
+      return;
+    }
     try {
-      engine.restoreNotes(blob: base64Decode(b64));
+      engine.restoreNotes(blob: blob);
     } catch (e) {
       debugPrint('notes restore failed (starting empty): $e');
     }

@@ -187,6 +187,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | SOCKS5 / Tor proxy (chainable): route all traffic through a proxy, Tor, or app→SOCKS5→Tor | ✅ implemented |
 | — | App disguise: swap the launcher icon + name to a decoy (calculator / notes / weather) | ✅ implemented |
 | — | Notes: a local-only self-chat, never networked, encrypted at rest with a seed-derived key | ✅ implemented |
+| — | Notes password: optional second layer (PBKDF2 ~314k), needs seed **and** password; panic-wipe | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one

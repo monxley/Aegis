@@ -281,8 +281,22 @@ pub struct Note {
     pub timestamp_ms: u64,
 }
 
-/// AAD tag binding the notes ciphertext to its purpose/version.
+/// AAD tag binding the inner (seed-key) notes layer to its purpose.
 const NOTES_AAD: &[u8] = b"aegis-notes-v1";
+/// AAD tag for the outer (password) layer of the notes blob.
+const NOTES_PW_AAD: &[u8] = b"aegis-notes-pw-v1";
+/// PBKDF2 iterations for the notes password — deliberately heavy (this is a
+/// human-typed secret and unlocking notes is rare, so we spend real work on it).
+const NOTES_ITERATIONS: u32 = 314_159;
+
+/// The in-memory state for a set/unlocked notes password: the salt + iteration
+/// count (persisted in the blob) and the derived key (never persisted).
+#[derive(Clone)]
+struct NotesPw {
+    salt: [u8; 16],
+    iters: u32,
+    key: [u8; 32],
+}
 
 /// Derive the notes-encryption key from the master seed (HKDF-SHA256). Distinct
 /// from every messaging key, so it can't be confused with session material.
@@ -291,6 +305,18 @@ fn derive_notes_key(seed: &[u8; 32]) -> [u8; 32] {
     let mut key = [0u8; 32];
     aegis_crypto::hmac::hkdf_expand(&prk, b"aegis/notes/key/v1", &mut key);
     key
+}
+
+/// Stretch a notes password into a 32-byte key (PBKDF2-HMAC-SHA256).
+fn derive_pw_key(password: &str, salt: &[u8; 16], iters: u32) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    aegis_crypto::pbkdf2_sha256(password.as_bytes(), salt, iters, &mut key);
+    key
+}
+
+/// Whether a persisted notes blob is password-protected (needs `unlock_notes`).
+pub fn notes_blob_encrypted(blob: &[u8]) -> bool {
+    blob.len() >= 2 && blob[0] == 2 && blob[1] == 1
 }
 
 /// A message just delivered by [`AegisApp::poll`].
@@ -315,6 +341,8 @@ pub enum AppError {
     UnknownContact,
     /// A protocol error (bad bundle, MITM, encryption failure, …).
     Protocol(String),
+    /// The notes are protected by a separate password and need unlocking.
+    NotesLocked,
 }
 
 impl core::fmt::Display for AppError {
@@ -325,6 +353,7 @@ impl core::fmt::Display for AppError {
             AppError::BadContact => f.write_str("malformed Aegis ID or bundle"),
             AppError::UnknownContact => f.write_str("no such contact"),
             AppError::Protocol(e) => write!(f, "protocol error: {e}"),
+            AppError::NotesLocked => f.write_str("notes are locked"),
         }
     }
 }
@@ -402,8 +431,12 @@ pub struct AegisApp {
     /// The local-only "Notes" self-chat. Never sent anywhere; persisted
     /// separately and encrypted at rest under [`AegisApp::notes_key`].
     notes: Vec<Note>,
-    /// Symmetric key (derived from the master seed) for the notes blob.
+    /// Symmetric key (derived from the master seed) for the inner notes layer.
     notes_key: [u8; 32],
+    /// When set, notes get a second encryption layer under a password-derived
+    /// key (device seed **and** the notes password are both required to read
+    /// them). `None` = seed-only.
+    notes_pw: Option<NotesPw>,
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -535,6 +568,7 @@ impl AegisApp {
             disappearing: HashMap::new(),
             notes: Vec::new(),
             notes_key: derive_notes_key(seed),
+            notes_pw: None,
         }
     }
 
@@ -723,11 +757,114 @@ impl AegisApp {
         self.notes.retain(|n| n.id != id);
     }
 
-    /// Serialize the notes into an **encrypted** blob (ChaCha20-Poly1305 under a
-    /// seed-derived key). Persist this on the device; without the seed — which is
-    /// itself locked behind the app password when set — it is unreadable, so a
-    /// stealer that grabs the file gets only ciphertext.
+    /// Whether a separate notes password is currently in effect (in memory).
+    pub fn notes_password_set(&self) -> bool {
+        self.notes_pw.is_some()
+    }
+
+    /// Set (or change) the notes password. From now on the notes blob is
+    /// double-encrypted: the inner layer under the seed key, the outer under a
+    /// key stretched from this password (PBKDF2, [`NOTES_ITERATIONS`]). Reading
+    /// the notes then needs **both** the device seed and this password. The
+    /// engine must have the notes loaded (unlocked) so re-export re-seals them.
+    pub fn set_notes_password(&mut self, password: String) {
+        let mut salt = [0u8; 16];
+        aegis_crypto::fill_random(&mut salt);
+        self.notes_pw = Some(NotesPw {
+            salt,
+            iters: NOTES_ITERATIONS,
+            key: derive_pw_key(&password, &salt, NOTES_ITERATIONS),
+        });
+    }
+
+    /// Remove the notes password (back to seed-only encryption).
+    pub fn remove_notes_password(&mut self) {
+        self.notes_pw = None;
+    }
+
+    /// Unlock a password-protected notes blob: stretch the password with the
+    /// blob's own salt/iterations, peel the outer layer, then the seed layer,
+    /// and load the notes. Remembers the key so the next export re-seals under
+    /// the same password. Errors on a wrong password.
+    pub fn unlock_notes(&mut self, password: String, blob: Vec<u8>) -> Result<(), AppError> {
+        if blob.len() < 34 || blob[0] != 2 || blob[1] != 1 {
+            return Err(AppError::Protocol("not a password-protected notes blob".into()));
+        }
+        let salt: [u8; 16] = blob[2..18].try_into().unwrap();
+        let iters = u32::from_le_bytes(blob[18..22].try_into().unwrap());
+        let key = derive_pw_key(&password, &salt, iters);
+        let nonce: [u8; 12] = blob[22..34].try_into().unwrap();
+        let inner = aead::open(&key, &nonce, &blob[34..], NOTES_PW_AAD)
+            .ok_or_else(|| AppError::Protocol("wrong notes password".into()))?;
+        self.notes = self.open_seed_layer(&inner)?;
+        self.notes_pw = Some(NotesPw { salt, iters, key });
+        Ok(())
+    }
+
+    /// Panic-wipe the notes: drop them from memory and forget the password. The
+    /// caller also deletes the persisted blob.
+    pub fn wipe_notes(&mut self) {
+        self.notes.clear();
+        self.notes_pw = None;
+    }
+
+    /// Serialize the notes into an **encrypted** blob. The inner layer is always
+    /// ChaCha20-Poly1305 under the seed-derived key; if a notes password is set,
+    /// a second ChaCha20-Poly1305 layer wraps it under the password-stretched
+    /// key. Persist this on the device — a stealer gets only ciphertext.
     pub fn export_notes(&self) -> Vec<u8> {
+        let inner = self.seal_seed_layer();
+        match &self.notes_pw {
+            None => {
+                let mut out = Vec::with_capacity(2 + inner.len());
+                out.push(2); // blob version
+                out.push(0); // flag: seed-only
+                out.extend_from_slice(&inner);
+                out
+            }
+            Some(pw) => {
+                let mut nonce = [0u8; 12];
+                aegis_crypto::fill_random(&mut nonce);
+                let sealed = aead::seal(&pw.key, &nonce, &inner, NOTES_PW_AAD);
+                let mut out = Vec::with_capacity(2 + 16 + 4 + 12 + sealed.len());
+                out.push(2); // blob version
+                out.push(1); // flag: password-protected
+                out.extend_from_slice(&pw.salt);
+                out.extend_from_slice(&pw.iters.to_le_bytes());
+                out.extend_from_slice(&nonce);
+                out.extend_from_slice(&sealed);
+                out
+            }
+        }
+    }
+
+    /// Restore notes from an [`export_notes`] blob. Loads them if the blob is
+    /// seed-only (v1, or v2 flag 0); returns [`AppError::NotesLocked`] if it is
+    /// password-protected (call [`unlock_notes`]); errors if malformed or if it
+    /// was written under a different identity's key.
+    pub fn restore_notes(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        match blob.first() {
+            // v1: seed-only, no flag byte — payload starts right after the tag.
+            Some(1) => {
+                self.notes = self.open_seed_layer(&blob[1..])?;
+                self.notes_pw = None;
+                Ok(())
+            }
+            Some(2) => match blob.get(1) {
+                Some(0) => {
+                    self.notes = self.open_seed_layer(&blob[2..])?;
+                    self.notes_pw = None;
+                    Ok(())
+                }
+                Some(1) => Err(AppError::NotesLocked),
+                _ => Err(AppError::Protocol("bad notes blob".into())),
+            },
+            _ => Err(AppError::Protocol("bad notes blob".into())),
+        }
+    }
+
+    /// Seal the current notes under the seed key: `nonce ‖ ciphertext`.
+    fn seal_seed_layer(&self) -> Vec<u8> {
         let mut w = StateWriter::new();
         w.push_u32(self.notes.len() as u32);
         for n in &self.notes {
@@ -739,22 +876,19 @@ impl AegisApp {
         let mut nonce = [0u8; 12];
         aegis_crypto::fill_random(&mut nonce);
         let sealed = aead::seal(&self.notes_key, &nonce, &plain, NOTES_AAD);
-        let mut out = Vec::with_capacity(1 + nonce.len() + sealed.len());
-        out.push(1); // blob version
-        out.extend_from_slice(&nonce);
-        out.extend_from_slice(&sealed);
-        out
+        let mut inner = Vec::with_capacity(12 + sealed.len());
+        inner.extend_from_slice(&nonce);
+        inner.extend_from_slice(&sealed);
+        inner
     }
 
-    /// Restore notes from an [`export_notes`] blob. Errors (leaving notes
-    /// unchanged) if the blob is malformed or fails to decrypt/authenticate —
-    /// e.g. it was written under a different identity's key.
-    pub fn restore_notes(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
-        if blob.len() < 13 || blob[0] != 1 {
-            return Err(AppError::Protocol("bad notes blob".into()));
+    /// Open a seed-layer blob (`nonce ‖ ciphertext`) into notes.
+    fn open_seed_layer(&self, inner: &[u8]) -> Result<Vec<Note>, AppError> {
+        if inner.len() < 12 {
+            return Err(AppError::Protocol("truncated notes".into()));
         }
-        let nonce: [u8; 12] = blob[1..13].try_into().unwrap();
-        let plain = aead::open(&self.notes_key, &nonce, &blob[13..], NOTES_AAD)
+        let nonce: [u8; 12] = inner[..12].try_into().unwrap();
+        let plain = aead::open(&self.notes_key, &nonce, &inner[12..], NOTES_AAD)
             .ok_or_else(|| AppError::Protocol("notes decryption failed".into()))?;
         let mut r = StateReader::new(&plain);
         let n = r
@@ -775,8 +909,7 @@ impl AegisApp {
                 timestamp_ms,
             });
         }
-        self.notes = notes;
-        Ok(())
+        Ok(notes)
     }
 
     /// The conversation history with `aegis_id`, oldest first. Expired
@@ -1380,6 +1513,36 @@ mod tests {
         same.delete_note(id);
         assert_eq!(same.notes().len(), 1);
         assert_eq!(same.notes()[0].text, "second");
+    }
+
+    #[test]
+    fn notes_password_double_encrypts_and_panic_wipes() {
+        let mut a = AegisApp::create_in_memory(vec![7u8; 32]).unwrap();
+        a.add_note("bank pin 1234".into());
+        a.set_notes_password("open-sesame".into());
+        assert!(a.notes_password_set());
+
+        let blob = a.export_notes();
+        assert!(notes_blob_encrypted(&blob), "blob must be password-protected");
+        assert!(!blob.windows(4).any(|w| w == b"1234"), "no plaintext in blob");
+
+        // Right seed alone is not enough — a password-protected blob is locked.
+        let mut b = AegisApp::create_in_memory(vec![7u8; 32]).unwrap();
+        assert!(matches!(b.restore_notes(blob.clone()), Err(AppError::NotesLocked)));
+        assert!(b.notes().is_empty(), "locked notes stay hidden");
+        // Wrong password fails; the right one unlocks.
+        assert!(b.unlock_notes("nope".into(), blob.clone()).is_err());
+        b.unlock_notes("open-sesame".into(), blob.clone()).unwrap();
+        assert_eq!(b.notes()[0].text, "bank pin 1234");
+
+        // A different seed can't unlock even with the right password (needs both).
+        let mut c = AegisApp::create_in_memory(vec![9u8; 32]).unwrap();
+        assert!(c.unlock_notes("open-sesame".into(), blob).is_err());
+
+        // Panic wipe clears the notes and the password in memory.
+        b.wipe_notes();
+        assert!(b.notes().is_empty());
+        assert!(!b.notes_password_set());
     }
 
     #[test]
