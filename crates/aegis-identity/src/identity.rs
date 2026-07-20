@@ -59,7 +59,11 @@ impl ViewKeypair {
             Err(_) => return false,
         };
         let recomputed = stealth::tags_from_shared(&shared, &ephemeral.0, &self.public.0);
-        recomputed.view_tag == address.view_tag && recomputed.addr_tag == address.addr_tag
+        // view_tag is a deliberately coarse 1-byte fast-reject; the full 16-byte
+        // addr_tag confirm is constant-time so scan timing can't leak a partial
+        // tag match.
+        recomputed.view_tag == address.view_tag
+            && aegis_crypto::ct_eq(&recomputed.addr_tag, &address.addr_tag)
     }
 
     /// Like [`matches`](Self::matches), but on a match also returns the
@@ -69,7 +73,9 @@ impl ViewKeypair {
     pub fn open(&self, ephemeral: &EphemeralPublic, address: &StealthAddress) -> Option<[u8; 32]> {
         let shared = stealth::checked_shared(self.secret.diffie_hellman(&ephemeral.0)).ok()?;
         let recomputed = stealth::tags_from_shared(&shared, &ephemeral.0, &self.public.0);
-        if recomputed.view_tag == address.view_tag && recomputed.addr_tag == address.addr_tag {
+        if recomputed.view_tag == address.view_tag
+            && aegis_crypto::ct_eq(&recomputed.addr_tag, &address.addr_tag)
+        {
             Some(stealth::envelope_key_from_shared(
                 &shared,
                 &ephemeral.0,
