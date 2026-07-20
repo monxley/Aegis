@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../brand.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -85,11 +86,31 @@ class _NodesScreenState extends State<NodesScreen> {
               _MyNodesCard(engine: widget.engine),
               if (nodes.isEmpty)
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(6, 20, 6, 8),
-                  child: Text(
-                    'No gossiped nodes known yet. The directory fills in as it '
-                    'reaches you; it’s empty in offline or plain-relay mode.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                  padding: EdgeInsets.fromLTRB(6, 28, 6, 12),
+                  child: Column(
+                    children: [
+                      BrandGlyph(Brand.broadcast, size: 76),
+                      SizedBox(height: 16),
+                      Text(
+                        'No gossiped nodes known yet',
+                        style: TextStyle(
+                          color: AegisTheme.textHi,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'The directory fills in as it reaches you; it’s empty in '
+                        'offline or plain-relay mode.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AegisTheme.textLo,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               if (online.isNotEmpty) ...[
