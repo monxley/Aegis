@@ -18,6 +18,7 @@ import 'config.dart';
 import 'disguise.dart';
 import 'notifications.dart';
 import 'screen_security.dart';
+import 'secure_store.dart';
 import 'updater.dart';
 
 const _seedKey = 'aegis.master_seed';
@@ -65,8 +66,10 @@ enum ConnMode { network, relay, memory }
 enum AccountState { none, plaintext, locked }
 
 /// Owns the one Rust [AegisEngine] and the app's chat state. Screens listen to
-/// this and call into it; the seed lives in [SharedPreferences] and all crypto
-/// stays in Rust.
+/// this and call into it. The seed is stored **encrypted at rest** — sealed in
+/// the password vault when an app password is set, else in keystore-backed
+/// secure storage — and all crypto stays in Rust. Chat state and notes are also
+/// encrypted on disk with seed-derived keys.
 class AegisEngineController extends ChangeNotifier {
   AegisEngine? _engine;
   Timer? _pollTimer;
@@ -390,7 +393,7 @@ class AegisEngineController extends ChangeNotifier {
     final blob = prefs.getString(_activeStateKey);
     if (blob != null) {
       try {
-        _engine!.restoreState(blob: base64Decode(blob));
+        _engine!.restoreStateEncrypted(blob: base64Decode(blob));
       } catch (_) {}
     }
     notifyListeners();
@@ -532,18 +535,31 @@ class AegisEngineController extends ChangeNotifier {
   Future<AccountState> accountState() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString(_vaultKey) != null) return AccountState.locked;
-    if (prefs.getString(_seedKey) != null) return AccountState.plaintext;
+    // A no-password seed lives in the keystore now; a legacy plaintext one in
+    // prefs still counts (it's migrated on boot).
+    if (await SecureStore.hasSeed() || prefs.getString(_seedKey) != null) {
+      return AccountState.plaintext;
+    }
     return AccountState.none;
   }
 
-  /// Boot from a plaintext-stored seed (no app password set).
+  /// Boot from a keystore-held seed (no app password set). Migrates a legacy
+  /// plaintext seed out of SharedPreferences into the keystore on first run.
   Future<void> bootPlaintext() async {
     final prefs = await SharedPreferences.getInstance();
-    final seed = prefs.getString(_seedKey);
-    if (seed == null) throw StateError('no seed saved');
+    var seedHex = await SecureStore.readSeed();
+    if (seedHex == null) {
+      final legacy = prefs.getString(_seedKey);
+      if (legacy != null) {
+        await SecureStore.writeSeed(legacy);
+        await prefs.remove(_seedKey);
+        seedHex = legacy;
+      }
+    }
+    if (seedHex == null) throw StateError('no seed saved');
     _passwordSet = false;
     _isDecoy = false;
-    await _bootWithSeed(_decodeSeed(seed));
+    await _bootWithSeed(_decodeSeed(seedHex));
   }
 
   /// Decrypt the password vault and boot. Throws if the password matches neither
@@ -592,19 +608,22 @@ class AegisEngineController extends ChangeNotifier {
     final blob = await sealSeed(password: password, seed: seed);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_vaultKey, base64Encode(blob));
-    await prefs.remove(_seedKey);
+    await prefs.remove(_seedKey); // clear any legacy plaintext seed
+    await SecureStore.clear(); // seed now lives only in the password vault
     _passwordSet = true;
     notifyListeners();
   }
 
-  /// Remove the app-lock password: write the seed back in the clear and drop the
-  /// vault. Requires the engine to be running (unlocked).
+  /// Remove the app-lock password: move the seed into keystore-backed storage
+  /// (still not plaintext on disk) and drop the vault. Requires the engine to be
+  /// running (unlocked).
   Future<void> removeAppPassword() async {
     if (_isDecoy) throw StateError('not available in the decoy account');
     final seed = _seed;
     if (seed == null) throw StateError('no seed loaded');
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_seedKey, _encodeSeed(seed));
+    await SecureStore.writeSeed(_encodeSeed(seed));
+    await prefs.remove(_seedKey); // never leave a plaintext copy behind
     await prefs.remove(_vaultKey);
     _passwordSet = false;
     // Biometric unlock is layered over the password; without a password it makes
@@ -714,6 +733,7 @@ class AegisEngineController extends ChangeNotifier {
       await prefs.remove(_decoyNotesKey);
     } else {
       await prefs.remove(_seedKey);
+      await SecureStore.clear();
       await prefs.remove(_vaultKey);
       await prefs.remove(_duressVaultKey);
       await prefs.remove(_stateKey);
@@ -755,7 +775,7 @@ class AegisEngineController extends ChangeNotifier {
     final blob = prefs.getString(_stateKey);
     if (blob != null) {
       try {
-        _engine!.restoreState(blob: base64Decode(blob));
+        _engine!.restoreStateEncrypted(blob: base64Decode(blob));
       } catch (e) {
         debugPrint('state restore failed (starting fresh): $e');
       }
@@ -791,7 +811,7 @@ class AegisEngineController extends ChangeNotifier {
     final blob = prefs.getString(_decoyStateKey);
     if (blob != null) {
       try {
-        _engine!.restoreState(blob: base64Decode(blob));
+        _engine!.restoreStateEncrypted(blob: base64Decode(blob));
       } catch (e) {
         debugPrint('decoy state restore failed (starting fresh): $e');
       }
@@ -817,7 +837,7 @@ class AegisEngineController extends ChangeNotifier {
       _userBootstrap = bootstrap;
       await prefs.setStringList(_bootstrapKey, bootstrap);
     }
-    await prefs.setString(_seedKey, _encodeSeed(seed));
+    await SecureStore.writeSeed(_encodeSeed(seed));
     await prefs.setString(_modeKey, _mode);
     await prefs.remove(_stateKey); // a fresh identity has no prior sessions
     await _start(seed);
@@ -854,7 +874,7 @@ class AegisEngineController extends ChangeNotifier {
       _userBootstrap = bootstrap;
       await prefs.setStringList(_bootstrapKey, bootstrap);
     }
-    await prefs.setString(_seedKey, _encodeSeed(seed));
+    await SecureStore.writeSeed(_encodeSeed(seed));
     await prefs.setString(_modeKey, _mode);
     await prefs.remove(_stateKey);
     await _start(seed);
@@ -930,7 +950,7 @@ class AegisEngineController extends ChangeNotifier {
       final blob = prefs.getString(_activeStateKey);
       if (blob != null) {
         try {
-          _engine!.restoreState(blob: base64Decode(blob));
+          _engine!.restoreStateEncrypted(blob: base64Decode(blob));
         } catch (_) {}
       }
     } else if (enabled) {
@@ -1019,6 +1039,7 @@ class AegisEngineController extends ChangeNotifier {
     _nodeVerified = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_seedKey);
+    await SecureStore.clear();
     await prefs.remove(_vaultKey);
     await prefs.remove(_duressVaultKey);
     await prefs.remove(_stateKey);
@@ -1167,7 +1188,7 @@ class AegisEngineController extends ChangeNotifier {
     final engine = _engine;
     if (engine == null) return;
     try {
-      final blob = engine.exportState();
+      final blob = engine.exportStateEncrypted();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_activeStateKey, base64Encode(blob));
     } catch (e) {
