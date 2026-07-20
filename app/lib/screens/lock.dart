@@ -75,11 +75,16 @@ class _LockScreenState extends State<LockScreen> {
       await widget.engine.unlock(_pw.text);
       if (!mounted) return;
       widget.onUnlocked();
+    } on AccountWipedException {
+      if (mounted) widget.onWiped();
     } catch (e) {
       if (!mounted) return;
+      final left = widget.engine.attemptsRemaining;
       setState(() {
         _busy = false;
-        _error = 'Wrong password.';
+        _error = left != null
+            ? 'Wrong password — $left attempt${left == 1 ? '' : 's'} left before wipe.'
+            : 'Wrong password.';
       });
     }
   }
