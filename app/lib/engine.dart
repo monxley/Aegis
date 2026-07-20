@@ -46,6 +46,10 @@ const _nodeVerifiedKey = 'aegis.node_verified'; // completed the sync/verify wai
 const _secureScreenKey = 'aegis.secure_screen'; // block screenshots (default on)
 const _backgroundKey = 'aegis.background'; // 24/7 background service (default on)
 const _disguiseKey = 'aegis.disguise'; // launcher icon/name: default|calculator|notes|weather
+const _autoLockMinKey = 'aegis.autolock_minutes'; // 0 = off, else re-lock after N min
+const _lockOnBgKey = 'aegis.lock_on_background'; // re-lock the moment the app backgrounds
+const _wipeAttemptsKey = 'aegis.wipe_after_attempts'; // 0 = off, else wipe after N wrong unlocks
+const _failedUnlocksKey = 'aegis.failed_unlocks'; // persisted wrong-password counter
 
 /// How long a first-time node must stay up to be "verified" before it can be
 /// toggled freely — a deliberate confirmation-of-intent + anti-abuse delay.
@@ -58,6 +62,10 @@ class NodeModeError implements Exception {
   @override
   String toString() => message;
 }
+
+/// Thrown by [AegisEngineController.unlock] when the failed-attempt limit is hit
+/// and the account is wiped; the UI should route to onboarding.
+class AccountWipedException implements Exception {}
 
 /// How this device reaches the network.
 enum ConnMode { network, relay, memory }
@@ -94,6 +102,11 @@ class AegisEngineController extends ChangeNotifier {
   bool _secureScreen = true; // block screenshots / screen recording (default on)
   bool _background = true; // keep receiving in the background (default on)
   String _disguise = 'default'; // launcher disguise: default|calculator|notes|weather
+  int _autoLockMinutes = 0; // 0 = off
+  bool _lockOnBackground = false;
+  int _wipeAfterAttempts = 0; // 0 = off
+  int _failedUnlocks = 0; // persisted wrong-password count
+  bool _locked = false; // session locked (engine torn down, needs re-unlock)
   bool _nodeVerified = false; // finished the one-time 20-min sync/verify
   Timer? _syncTimer; // ticks during the sync wait
   DateTime? _syncCompleteAt; // when the sync wait finishes (null if not syncing)
@@ -468,8 +481,87 @@ class AegisEngineController extends ChangeNotifier {
       await BackgroundService.start();
     }
     _disguise = prefs.getString(_disguiseKey) ?? 'default';
+    _autoLockMinutes = prefs.getInt(_autoLockMinKey) ?? 0;
+    _lockOnBackground = prefs.getBool(_lockOnBgKey) ?? false;
+    _wipeAfterAttempts = prefs.getInt(_wipeAttemptsKey) ?? 0;
+    _failedUnlocks = prefs.getInt(_failedUnlocksKey) ?? 0;
     // Check for a newer release in the background (never blocks startup).
     unawaited(checkForUpdate());
+  }
+
+  // --- auto-lock & wipe-after-failed-attempts -------------------------------
+
+  /// Minutes of inactivity / background before the app re-locks (0 = off).
+  int get autoLockMinutes => _autoLockMinutes;
+
+  /// Whether the app re-locks the instant it goes to the background.
+  bool get lockOnBackground => _lockOnBackground;
+
+  /// Wipe everything after this many consecutive wrong unlock attempts (0 = off).
+  int get wipeAfterAttempts => _wipeAfterAttempts;
+
+  /// Attempts left before the wipe fires (or null if that protection is off).
+  int? get attemptsRemaining => _wipeAfterAttempts > 0
+      ? (_wipeAfterAttempts - _failedUnlocks).clamp(0, _wipeAfterAttempts)
+      : null;
+
+  /// Whether the session is currently locked (needs a re-unlock).
+  bool get locked => _locked;
+
+  Future<void> setAutoLockMinutes(int minutes) async {
+    _autoLockMinutes = minutes;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_autoLockMinKey, minutes);
+    notifyListeners();
+  }
+
+  Future<void> setLockOnBackground(bool on) async {
+    _lockOnBackground = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_lockOnBgKey, on);
+    notifyListeners();
+  }
+
+  Future<void> setWipeAfterAttempts(int n) async {
+    _wipeAfterAttempts = n;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_wipeAttemptsKey, n);
+    notifyListeners();
+  }
+
+  /// Re-lock the session: tear down the running engine and drop the seed from
+  /// memory, so the password (vault) is needed again. No-op without an app
+  /// password (there'd be nothing to unlock with) or if already locked.
+  void lock() {
+    if (!_passwordSet || _engine == null || _isDecoy) return;
+    _pollTimer?.cancel();
+    _coverTimer?.cancel();
+    _cancelSyncWait();
+    _engine = null;
+    _seed = null;
+    _node = null;
+    _locked = true;
+    notifyListeners();
+  }
+
+  Future<void> _resetFailedUnlocks() async {
+    if (_failedUnlocks == 0) return;
+    _failedUnlocks = 0;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_failedUnlocksKey, 0);
+  }
+
+  /// Count a wrong unlock; returns true if it tripped the wipe threshold (and
+  /// the account was wiped).
+  Future<bool> _recordFailedUnlock() async {
+    _failedUnlocks += 1;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_failedUnlocksKey, _failedUnlocks);
+    if (_wipeAfterAttempts > 0 && _failedUnlocks >= _wipeAfterAttempts) {
+      await panicWipe();
+      return true;
+    }
+    return false;
   }
 
   /// The current launcher disguise: `default`, `calculator`, `notes`, or
@@ -581,6 +673,8 @@ class AegisEngineController extends ChangeNotifier {
       final seed = await openSeed(password: password, blob: base64Decode(b64));
       _passwordSet = true;
       _isDecoy = false;
+      _locked = false;
+      await _resetFailedUnlocks();
       await _bootWithSeed(Uint8List.fromList(seed));
       return;
     } catch (_) {
@@ -589,12 +683,21 @@ class AegisEngineController extends ChangeNotifier {
     // A matching duress password opens the decoy account.
     final d64 = prefs.getString(_duressVaultKey);
     if (d64 != null) {
-      final seed = await openSeed(password: password, blob: base64Decode(d64));
-      _passwordSet = true;
-      await _bootDecoy(Uint8List.fromList(seed));
-      return;
+      try {
+        final seed = await openSeed(password: password, blob: base64Decode(d64));
+        _passwordSet = true;
+        _locked = false;
+        await _resetFailedUnlocks();
+        await _bootDecoy(Uint8List.fromList(seed));
+        return;
+      } catch (_) {
+        // Not the duress password either — fall through to the failure path.
+      }
     }
-    // Neither vault opened: wrong password.
+    // Neither vault opened: a wrong password. Count it, and wipe if the limit
+    // is reached.
+    final wiped = await _recordFailedUnlock();
+    if (wiped) throw AccountWipedException();
     throw StateError('wrong password');
   }
 
