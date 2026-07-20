@@ -1118,6 +1118,13 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Block or unblock a contact (a blocked contact's messages are dropped).
+  Future<void> setBlocked(String aegisId, bool blocked) async {
+    await _engine?.setBlocked(aegisId: aegisId, blocked: blocked);
+    _persist();
+    notifyListeners();
+  }
+
   /// Move a chat one place up or down within its pinned group.
   Future<void> moveChat(String aegisId, {required bool up}) async {
     await _engine?.moveChat(aegisId: aegisId, up: up);
