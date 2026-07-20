@@ -56,13 +56,16 @@ class _ChatsScreenState extends State<ChatsScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            const ShieldMark(size: 26),
-            const SizedBox(width: 10),
+            const ShieldMark(size: 30),
+            const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Aegis'),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 2),
+                  child: AegisWordmark(height: 18),
+                ),
                 _ConnectionStatus(engine: engine),
               ],
             ),

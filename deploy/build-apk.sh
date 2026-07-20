@@ -107,6 +107,12 @@ export FLUTTER_ALLOW_ROOT=true   # this VPS session runs as root; that's fine he
 flutter create --platforms=android --project-name aegis . >/dev/null
 flutter pub get >/dev/null
 
+# Generate the Aegis launcher icon (all densities + adaptive) from the bundled
+# source PNG, per the flutter_launcher_icons config in pubspec.yaml. Best-effort:
+# if it fails, the default Flutter icon remains rather than breaking the build.
+log "generating launcher icon"
+dart run flutter_launcher_icons >/dev/null 2>&1 || log "warning: launcher-icon generation failed (keeping default)"
+
 # Flutter's generated MAIN manifest has no INTERNET permission — it ships only
 # in the debug/profile manifests, so a release build would have no network at
 # all and every socket (all our traffic runs from Rust) would fail. Declare the
