@@ -46,11 +46,16 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  void _scrollToEnd() {
+  void _scrollToEnd({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
+      if (!_scroll.hasClients) return;
+      final pos = _scroll.position;
+      // Don't yank the view down if the user has scrolled up to read history;
+      // only follow new content when already near the bottom (or on send).
+      final nearBottom = pos.maxScrollExtent - pos.pixels < 240;
+      if (force || nearBottom || pos.pixels == 0) {
         _scroll.animateTo(
-          _scroll.position.maxScrollExtent,
+          pos.maxScrollExtent,
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
@@ -190,7 +195,7 @@ class _ChatScreenState extends State<ChatScreen> {
       // Always stores the message locally (even if the network send fails, it's
       // kept and retried), so it never vanishes from the chat.
       await widget.engine.send(aegisId: widget.contact.aegisId, text: text);
-      _scrollToEnd();
+      _scrollToEnd(force: true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -1270,21 +1270,22 @@ class AegisEngineController extends ChangeNotifier {
     final engine = _engine;
     if (engine == null) return;
     try {
-      final incoming = await engine.poll();
-      if (incoming.isNotEmpty) {
-        _persist();
-        if (_notify) {
-          for (final m in incoming) {
-            Notifications.showMessage(
-              title: m.fromName ?? 'New message',
-              id: m.fromAegisId.hashCode,
-            );
-          }
+      final res = await engine.poll();
+      if (res.messages.isNotEmpty && _notify) {
+        for (final m in res.messages) {
+          Notifications.showMessage(
+            title: m.fromName ?? 'New message',
+            id: m.fromAegisId.hashCode,
+          );
         }
       }
-      // Always notify: delivery/read receipts advance a message's status
-      // without adding a message, and the bubble ticks must refresh live.
-      notifyListeners();
+      // Only touch disk and rebuild the UI when something actually changed
+      // (new message, a receipt advancing a tick, a timer/delete, a retry
+      // landing). An idle poll is now free — no lag from 3-second rebuilds.
+      if (res.changed) {
+        _persist();
+        notifyListeners();
+      }
     } catch (e) {
       // Relay unreachable — stay quiet; the next tick retries.
       debugPrint('poll failed: $e');
