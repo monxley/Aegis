@@ -62,11 +62,23 @@ These are client mitigations, **outside the wire protocol** — they change
 nothing an observer or relay sees, so they add no metadata. They narrow the
 "attacker holds the physical device" gap that §1.3 leaves open at rest.
 
-- **At-rest encryption (app-lock).** The master seed is sealed under a password
-  with PBKDF2-HMAC-SHA256 (120k iterations) + ChaCha20-Poly1305; the plaintext
-  seed is deleted, so a locked device holds only ciphertext. There is no
-  plaintext fallback and the engine is never constructed until the password
-  decrypts the seed — bypassing the lock UI reaches nothing.
+- **At-rest encryption (everything).** Nothing is stored on disk in the clear.
+  The **chat state** (contacts, history, sessions) and the **notes** are sealed
+  with ChaCha20-Poly1305 under keys derived from the master seed (HKDF), so a
+  file-stealer gets only ciphertext. The **seed** itself is protected two ways:
+  - **With an app password** — sealed under it with PBKDF2-HMAC-SHA256 (120k
+    iterations) + ChaCha20-Poly1305; the plaintext seed is deleted, the engine
+    is never constructed until the password decrypts it, and bypassing the lock
+    UI reaches nothing.
+  - **Without a password** — held in **keystore-backed secure storage**
+    (Android `EncryptedSharedPreferences`, keyed by a hardware-backed Keystore
+    master key), not plaintext prefs. A stealer without the device's TEE can't
+    read it, and the state/notes keys derive from it. (A legacy plaintext seed
+    from older builds is migrated into the keystore on first launch.)
+
+  So the honest gap narrows to a *fully compromised, unlocked* device with root
+  (where a running process can reach the Keystore key); a password closes even
+  that, since the seed is then encrypted, not merely Keystore-wrapped.
 - **Duress / decoy password.** A second password seals a *separate, random*
   decoy seed. Entering it at the lock screen boots an empty but fully working
   account with its own state store; the real vault stays encrypted and is never

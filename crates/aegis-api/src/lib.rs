@@ -307,6 +307,22 @@ fn derive_notes_key(seed: &[u8; 32]) -> [u8; 32] {
     key
 }
 
+/// Derive the at-rest key for the app-state blob (contacts, history, sessions)
+/// from the master seed. Encrypting the state means a file-stealer gets only
+/// ciphertext even when no app password is set.
+fn derive_state_key(seed: &[u8; 32]) -> [u8; 32] {
+    let prk = aegis_crypto::hmac::hkdf_extract(b"aegis/state/salt/v1", seed);
+    let mut key = [0u8; 32];
+    aegis_crypto::hmac::hkdf_expand(&prk, b"aegis/state/key/v1", &mut key);
+    key
+}
+
+/// First byte of an encrypted state blob — distinguishes it from a legacy
+/// plaintext blob (whose first byte is the state version, 1..=4).
+const STATE_SEAL_MAGIC: u8 = 0xE1;
+/// AAD binding the state ciphertext to its purpose.
+const STATE_AAD: &[u8] = b"aegis-state-v1";
+
 /// Stretch a notes password into a 32-byte key (PBKDF2-HMAC-SHA256).
 fn derive_pw_key(password: &str, salt: &[u8; 16], iters: u32) -> [u8; 32] {
     let mut key = [0u8; 32];
@@ -433,6 +449,9 @@ pub struct AegisApp {
     notes: Vec<Note>,
     /// Symmetric key (derived from the master seed) for the inner notes layer.
     notes_key: [u8; 32],
+    /// Symmetric key (derived from the master seed) that encrypts the app-state
+    /// blob at rest, so history/contacts are never stored in the clear.
+    state_key: [u8; 32],
     /// When set, notes get a second encryption layer under a password-derived
     /// key (device seed **and** the notes password are both required to read
     /// them). `None` = seed-only.
@@ -568,6 +587,7 @@ impl AegisApp {
             disappearing: HashMap::new(),
             notes: Vec::new(),
             notes_key: derive_notes_key(seed),
+            state_key: derive_state_key(seed),
             notes_pw: None,
         }
     }
@@ -1152,6 +1172,43 @@ impl AegisApp {
         Ok(())
     }
 
+    /// Like [`export_state`] but **encrypted at rest** under a seed-derived key
+    /// (ChaCha20-Poly1305). Persist this instead of the plaintext blob so a
+    /// stealer that grabs the file gets only ciphertext, even with no app
+    /// password set (the app password, when present, additionally locks the
+    /// seed, hence this key).
+    pub fn export_state_encrypted(&self) -> Vec<u8> {
+        let plain = self.export_state();
+        let mut nonce = [0u8; 12];
+        aegis_crypto::fill_random(&mut nonce);
+        let sealed = aead::seal(&self.state_key, &nonce, &plain, STATE_AAD);
+        let mut out = Vec::with_capacity(1 + 12 + sealed.len());
+        out.push(STATE_SEAL_MAGIC);
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&sealed);
+        out
+    }
+
+    /// Restore from an [`export_state_encrypted`] blob. Transparently accepts a
+    /// **legacy plaintext** blob too (older builds stored state unencrypted), so
+    /// upgrades migrate seamlessly — the caller just re-saves encrypted next
+    /// time. Errors if an encrypted blob can't be decrypted with this identity's
+    /// key.
+    pub fn restore_state_encrypted(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        if blob.first() == Some(&STATE_SEAL_MAGIC) {
+            if blob.len() < 13 {
+                return Err(AppError::Protocol("truncated state blob".into()));
+            }
+            let nonce: [u8; 12] = blob[1..13].try_into().unwrap();
+            let plain = aead::open(&self.state_key, &nonce, &blob[13..], STATE_AAD)
+                .ok_or_else(|| AppError::Protocol("state decryption failed".into()))?;
+            self.restore_state(plain)
+        } else {
+            // Legacy: the blob is the plaintext state (first byte is its version).
+            self.restore_state(blob)
+        }
+    }
+
     /// Poll the relay for new messages, decrypt them, append to history, and
     /// return what arrived. Call this on a timer or a push wake-up.
     pub fn poll(&mut self) -> Result<Vec<IncomingMessage>, AppError> {
@@ -1513,6 +1570,42 @@ mod tests {
         same.delete_note(id);
         assert_eq!(same.notes().len(), 1);
         assert_eq!(same.notes()[0].text, "second");
+    }
+
+    #[test]
+    fn state_is_encrypted_at_rest_and_legacy_still_loads() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bobby".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        alice.send(bob.my_aegis_id(), "top secret".into()).unwrap();
+
+        // The encrypted blob must not leak contact names or message text.
+        let enc = alice.export_state_encrypted();
+        assert_eq!(enc[0], STATE_SEAL_MAGIC);
+        assert!(!contains(&enc, b"Bobby"), "contact name in the clear");
+        assert!(!contains(&enc, b"top secret"), "message text in the clear");
+
+        // Same seed restores it; a different identity's key can't.
+        let mut a2 = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        a2.restore_state_encrypted(enc.clone()).unwrap();
+        assert_eq!(a2.contacts()[0].name, "Bobby");
+        assert_eq!(a2.history(bob.my_aegis_id()).len(), 1);
+        let mut other = AegisApp::create_in_memory(vec![9u8; 32]).unwrap();
+        assert!(other.restore_state_encrypted(enc).is_err());
+
+        // A legacy plaintext blob (old builds) still restores through the same
+        // entry point.
+        let legacy = alice.export_state();
+        assert_ne!(legacy[0], STATE_SEAL_MAGIC);
+        let mut a3 = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        a3.restore_state_encrypted(legacy).unwrap();
+        assert_eq!(a3.contacts()[0].name, "Bobby");
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
     }
 
     #[test]
