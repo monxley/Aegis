@@ -200,6 +200,12 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  bool get _isBlocked => widget.engine
+      .contacts()
+      .firstWhere((c) => c.aegisId == widget.contact.aegisId,
+          orElse: () => widget.contact)
+      .blocked;
+
   @override
   Widget build(BuildContext context) {
     final history = widget.engine.history(widget.contact.aegisId);
@@ -251,6 +257,21 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
+          if (_isBlocked)
+            Container(
+              width: double.infinity,
+              color: AegisTheme.surface,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.block_rounded, size: 14, color: AegisTheme.danger),
+                  SizedBox(width: 6),
+                  Text('Blocked — their messages are dropped',
+                      style: TextStyle(color: AegisTheme.danger, fontSize: 12)),
+                ],
+              ),
+            ),
           if (widget.engine.disappearingSecs(widget.contact.aegisId) > 0)
             Container(
               width: double.infinity,

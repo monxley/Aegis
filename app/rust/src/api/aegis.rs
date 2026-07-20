@@ -138,6 +138,8 @@ pub struct Contact {
     pub aegis_id: String,
     /// Whether this chat is pinned to the top of the list.
     pub pinned: bool,
+    /// Whether this contact is blocked.
+    pub blocked: bool,
 }
 
 /// One message in a conversation (mirrored to Dart).
@@ -184,6 +186,7 @@ impl From<ApiContact> for Contact {
             name: c.name,
             aegis_id: c.aegis_id,
             pinned: c.pinned,
+            blocked: c.blocked,
         }
     }
 }
@@ -344,6 +347,12 @@ impl AegisEngine {
     /// Pin or unpin a chat (pinned chats sort to the top of the list).
     pub fn set_pinned(&self, aegis_id: String, pinned: bool) -> Result<(), String> {
         self.with(|app| app.set_pinned(aegis_id, pinned))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Block or unblock a contact (blocked contacts' messages are dropped).
+    pub fn set_blocked(&self, aegis_id: String, blocked: bool) -> Result<(), String> {
+        self.with(|app| app.set_blocked(aegis_id, blocked))
             .map_err(|e| e.to_string())
     }
 
