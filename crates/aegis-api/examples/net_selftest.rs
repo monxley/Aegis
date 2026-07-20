@@ -61,7 +61,7 @@ fn main() {
     let start = Instant::now();
     let mut got = false;
     for _ in 0..100 {
-        let inbox = bob.poll().unwrap_or_default();
+        let inbox = bob.poll().map(|r| r.messages).unwrap_or_default();
         if inbox.iter().any(|m| m.text == "selftest ping") {
             println!("← bob received it after {} ms", start.elapsed().as_millis());
             got = true;
