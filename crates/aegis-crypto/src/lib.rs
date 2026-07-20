@@ -39,6 +39,21 @@ pub use hmac::{hkdf_expand, hkdf_extract, hmac_sha256, pbkdf2_sha256, MAC_LEN};
 pub use rand::fill_random;
 pub use sha256::{sha256, Sha256};
 
+/// Constant-time byte-slice equality. Runs in time dependent only on the
+/// (public) length, never on where the bytes differ — use this instead of `==`
+/// whenever one side is secret or attacker-influenced (tags, MACs, one-time
+/// address tags), so a comparison never leaks a timing oracle.
+pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 #[cfg(test)]
 pub(crate) mod test_util {
     /// Decode a hex string; test helper only.

@@ -32,6 +32,12 @@ implementation of a *reviewed spec*.
 - 🧮 **[docs/CRYPTO_MATH.md](docs/CRYPTO_MATH.md)** — the exact mathematics of
   every process: group operations, byte-precise KDF inputs, correctness proofs,
   and the security assumption each step rests on.
+- 🗺️ **[ROADMAP.md](ROADMAP.md)** — where the project is going: near-term UX,
+  the pre-release foundation work, message content, platforms (incl. iOS), and
+  deeper network anonymity.
+- 🔍 **[SECURITY_AUDIT.md](SECURITY_AUDIT.md)** — an internal security review of
+  the protocol and implementation (findings + fix order). Not a substitute for
+  the external audit, which remains a release blocker.
 
 ```console
 $ cargo test --all
