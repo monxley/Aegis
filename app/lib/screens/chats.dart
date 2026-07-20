@@ -264,6 +264,10 @@ class _ContactTile extends StatelessWidget {
             const SizedBox(width: 6),
             const Icon(Icons.push_pin_rounded, size: 13, color: AegisTheme.accent),
           ],
+          if (contact.blocked) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.block_rounded, size: 13, color: AegisTheme.danger),
+          ],
         ],
       ),
       subtitle: Text(
@@ -340,6 +344,15 @@ class _ContactTile extends StatelessWidget {
               icon: Icons.arrow_downward_rounded,
               label: 'Move down',
               onTap: () => engine.moveChat(contact.aegisId, up: false),
+            ),
+            _action(
+              sheetCtx,
+              icon: contact.blocked
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.block_rounded,
+              label: contact.blocked ? 'Unblock' : 'Block',
+              danger: !contact.blocked,
+              onTap: () => engine.setBlocked(contact.aegisId, !contact.blocked),
             ),
             const Divider(height: 1, color: Color(0xFF1B1E29)),
             _action(
