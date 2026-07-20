@@ -10,9 +10,29 @@ class ShieldMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ShaderMask(
-      shaderCallback: (r) => AegisTheme.shield.createShader(r),
-      child: Icon(Icons.shield_rounded, size: size, color: Colors.white),
+    // The brand shield (metallic + cyan chevron, transparent background) — reads
+    // on the dark UI. Rendered a touch larger than the nominal size since the
+    // asset carries transparent margin.
+    return Image.asset(
+      'assets/logo/shield.png',
+      width: size * 1.18,
+      height: size * 1.18,
+      filterQuality: FilterQuality.medium,
+    );
+  }
+}
+
+/// The "AEGIS" wordmark (light gradient, transparent background).
+class AegisWordmark extends StatelessWidget {
+  final double height;
+  const AegisWordmark({super.key, this.height = 34});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/logo/wordmark.png',
+      height: height,
+      filterQuality: FilterQuality.medium,
     );
   }
 }

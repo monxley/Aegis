@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../engine.dart';
 import '../share.dart';
@@ -162,6 +163,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
     if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _openUrl(String url) async {
+    try {
+      final ok = await launchUrl(Uri.parse(url),
+          mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not open $url')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not open $url')));
+      }
+    }
   }
 
   /// Run a quick setting change with the busy flag toggled around it.
@@ -756,6 +773,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 14),
+          _card(
+            icon: Icons.groups_rounded,
+            title: 'Community',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Follow Aegis for news and releases.',
+                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.send_rounded, size: 18),
+                        label: const Text('Telegram'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AegisTheme.textHi,
+                          side: const BorderSide(color: AegisTheme.surfaceHi),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => _openUrl('https://t.me/aegis_private'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                        label: const Text('Instagram'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AegisTheme.textHi,
+                          side: const BorderSide(color: AegisTheme.surfaceHi),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () =>
+                            _openUrl('https://www.instagram.com/aegis.private'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 14),
           _card(
             icon: Icons.system_update_rounded,

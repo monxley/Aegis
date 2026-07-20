@@ -192,8 +192,20 @@ class _Splash extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            ShieldMark(size: 72),
-            SizedBox(height: 24),
+            ShieldMark(size: 108),
+            SizedBox(height: 22),
+            AegisWordmark(height: 40),
+            SizedBox(height: 10),
+            Text(
+              'NOTHING TO INTERCEPT.',
+              style: TextStyle(
+                color: AegisTheme.textLo,
+                fontSize: 11,
+                letterSpacing: 3,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 34),
             SizedBox(
               width: 22,
               height: 22,
