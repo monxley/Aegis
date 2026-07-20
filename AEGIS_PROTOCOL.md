@@ -89,6 +89,12 @@ nothing an observer or relay sees, so they add no metadata. They narrow the
   screenshots, no screen recording, and a blank card in the app switcher. On by
   default; the user can turn it off in Settings (a runtime `MethodChannel`
   toggles the flag).
+- **Auto-lock & brute-force wipe.** The session re-locks after a configurable
+  idle timeout and/or the instant the app is backgrounded, so an unlocked phone
+  left unattended doesn't stay open (the engine is torn down and the seed
+  dropped from memory until the password re-opens it). A wrong-password counter,
+  persisted across restarts, **wipes everything after N failed attempts** — a
+  brute-force / seized-phone defence that pairs with duress and panic wipe.
 - **Panic wipe.** A hold-to-confirm control (lock screen and Settings) erases
   the seed, both vaults, all state, and node settings in one step. Fired from
   the decoy it clears only the decoy, so the real account is never destroyed —

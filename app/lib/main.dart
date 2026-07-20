@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'engine.dart';
@@ -45,14 +47,70 @@ class _Bootstrap extends StatefulWidget {
 
 enum _Phase { booting, onboarding, chats, locked, error }
 
-class _BootstrapState extends State<_Bootstrap> {
+class _BootstrapState extends State<_Bootstrap> with WidgetsBindingObserver {
   _Phase _phase = _Phase.booting;
   Object? _error;
+  DateTime? _backgroundedAt;
+  Timer? _inactivityTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.engine.addListener(_onEngineChanged);
     _boot();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.engine.removeListener(_onEngineChanged);
+    _inactivityTimer?.cancel();
+    super.dispose();
+  }
+
+  /// The engine re-locked itself (auto-lock timeout / background) — show the
+  /// lock screen.
+  void _onEngineChanged() {
+    if (widget.engine.locked && _phase == _Phase.chats && mounted) {
+      _inactivityTimer?.cancel();
+      setState(() => _phase = _Phase.locked);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final e = widget.engine;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _backgroundedAt = DateTime.now();
+      _inactivityTimer?.cancel();
+      if (e.lockOnBackground) e.lock();
+    } else if (state == AppLifecycleState.resumed) {
+      final bg = _backgroundedAt;
+      if (!e.locked &&
+          e.autoLockMinutes > 0 &&
+          bg != null &&
+          DateTime.now().difference(bg).inMinutes >= e.autoLockMinutes) {
+        e.lock();
+      }
+      _backgroundedAt = null;
+      _restartInactivityTimer();
+    }
+  }
+
+  /// (Re)arm the foreground inactivity timer that auto-locks after N minutes of
+  /// no interaction. No-op unless auto-lock is on and a password is set.
+  void _restartInactivityTimer() {
+    _inactivityTimer?.cancel();
+    final e = widget.engine;
+    if (e.autoLockMinutes > 0 &&
+        e.hasPassword &&
+        !e.locked &&
+        _phase == _Phase.chats) {
+      _inactivityTimer =
+          Timer(Duration(minutes: e.autoLockMinutes), widget.engine.lock);
+    }
   }
 
   Future<void> _boot() async {
@@ -82,6 +140,16 @@ class _BootstrapState extends State<_Bootstrap> {
 
   @override
   Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) {
+        if (_phase == _Phase.chats) _restartInactivityTimer();
+      },
+      child: _screen(),
+    );
+  }
+
+  Widget _screen() {
     switch (_phase) {
       case _Phase.booting:
         return const _Splash();
@@ -90,7 +158,10 @@ class _BootstrapState extends State<_Bootstrap> {
       case _Phase.locked:
         return LockScreen(
           engine: widget.engine,
-          onUnlocked: () => setState(() => _phase = _Phase.chats),
+          onUnlocked: () {
+            setState(() => _phase = _Phase.chats);
+            _restartInactivityTimer();
+          },
           onWiped: () => setState(() => _phase = _Phase.onboarding),
         );
       case _Phase.onboarding:
