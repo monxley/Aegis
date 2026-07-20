@@ -47,7 +47,7 @@ fn now_ms() -> u64 {
 
 /// Version tag on exported app state; bump on a format change. v2 adds the
 /// per-message id and delivery status; v1 blobs still load (id 0, status sent).
-const APP_STATE_VERSION: u8 = 4;
+const APP_STATE_VERSION: u8 = 5;
 
 // --- app-level message framing (inside the E2E plaintext) ----------------
 //
@@ -177,11 +177,14 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
         let bundle = r.bytes()?.to_vec();
         // v4 adds the pinned flag; earlier versions default it off.
         let pinned = if version >= 4 { r.u8()? != 0 } else { false };
+        // v5 adds the blocked flag.
+        let blocked = if version >= 5 { r.u8()? != 0 } else { false };
         contacts.push(StoredContact {
             name,
             aegis_id,
             bundle,
             pinned,
+            blocked,
         });
     }
 
@@ -240,6 +243,8 @@ pub struct Contact {
     pub aegis_id: String,
     /// Whether this chat is pinned to the top of the list.
     pub pinned: bool,
+    /// Whether this contact is blocked (their messages are dropped silently).
+    pub blocked: bool,
 }
 
 /// A node visible in the gossiped directory (for the network view).
@@ -429,6 +434,8 @@ struct StoredContact {
     /// Pinned chats sort above the rest. The contacts Vec keeps the invariant
     /// "all pinned first, then unpinned", each in manual order.
     pinned: bool,
+    /// Blocked: incoming messages from this contact are dropped silently.
+    blocked: bool,
 }
 
 /// The whole messenger behind one object: identity, relay, contacts, history.
@@ -642,6 +649,7 @@ impl AegisApp {
                 aegis_id,
                 bundle,
                 pinned: false,
+                blocked: false,
             });
         }
         Ok(())
@@ -673,8 +681,21 @@ impl AegisApp {
                 name: c.name.clone(),
                 aegis_id: c.aegis_id.clone(),
                 pinned: c.pinned,
+                blocked: c.blocked,
             })
             .collect()
+    }
+
+    /// Block or unblock a contact. A blocked contact's incoming messages are
+    /// dropped silently on [`poll`] (no history, no receipt, no notification).
+    pub fn set_blocked(&mut self, aegis_id: String, blocked: bool) -> Result<(), AppError> {
+        let c = self
+            .contacts
+            .iter_mut()
+            .find(|c| c.aegis_id == aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        c.blocked = blocked;
+        Ok(())
     }
 
     /// Pin or unpin a chat. Pinning moves it to the top of the pinned section;
@@ -1132,6 +1153,7 @@ impl AegisApp {
             w.push_bytes(c.aegis_id.as_bytes());
             w.push_bytes(&c.bundle);
             w.push_u8(c.pinned as u8); // v4
+            w.push_u8(c.blocked as u8); // v5
         }
 
         w.push_u32(self.history.len() as u32);
@@ -1216,6 +1238,11 @@ impl AegisApp {
         let mut out = Vec::with_capacity(received.len());
         for r in received {
             let aegis_id = r.from.encode();
+            // Drop everything from a blocked contact — no history, no receipt,
+            // no notification.
+            if self.contacts.iter().any(|c| c.aegis_id == aegis_id && c.blocked) {
+                continue;
+            }
             let Some((kind, id, ttl, content)) = parse_frame(&r.message) else {
                 continue; // not a framed Aegis payload — ignore
             };
@@ -1636,6 +1663,32 @@ mod tests {
         b.wipe_notes();
         assert!(b.notes().is_empty());
         assert!(!b.notes_password_set());
+    }
+
+    #[test]
+    fn blocking_drops_incoming_messages() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // Block Bob; his message is dropped on poll.
+        alice.set_blocked(bob.my_aegis_id(), true).unwrap();
+        assert!(alice.contacts()[0].blocked);
+        bob.send(alice.my_aegis_id(), "let me in".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        assert!(alice.poll().unwrap().is_empty(), "blocked message delivered");
+        assert!(alice.history(bob.my_aegis_id()).is_empty());
+
+        // Unblock; a new message now arrives (the blocked one stays dropped).
+        alice.set_blocked(bob.my_aegis_id(), false).unwrap();
+        bob.send(alice.my_aegis_id(), "hi again".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let got = alice.poll().unwrap();
+        assert_eq!(got.last().map(|m| m.text.as_str()), Some("hi again"));
     }
 
     #[test]
