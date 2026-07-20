@@ -36,6 +36,17 @@ class AegisTheme {
       // Transparent so the app-wide AuroraBackground (painted once at the root
       // in main.dart) shows through every screen; opaque bars/cards sit on top.
       scaffoldBackgroundColor: Colors.transparent,
+      // A soft fade + rise on every push/pop, on every platform.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: AegisPageTransitionsBuilder(),
+          TargetPlatform.iOS: AegisPageTransitionsBuilder(),
+          TargetPlatform.linux: AegisPageTransitionsBuilder(),
+          TargetPlatform.macOS: AegisPageTransitionsBuilder(),
+          TargetPlatform.windows: AegisPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: AegisPageTransitionsBuilder(),
+        },
+      ),
       fontFamily: 'sans-serif',
       appBarTheme: const AppBarTheme(
         backgroundColor: bg,
@@ -76,6 +87,37 @@ class AegisTheme {
         backgroundColor: surfaceHi,
         contentTextStyle: TextStyle(color: textHi),
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+/// The Aegis page transition: a fade with a small upward rise, used for every
+/// route push/pop across platforms (wired in [AegisTheme.dark]).
+class AegisPageTransitionsBuilder extends PageTransitionsBuilder {
+  const AegisPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.035),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
       ),
     );
   }

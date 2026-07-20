@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../brand.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -247,7 +248,7 @@ class _NotesScreenState extends State<NotesScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.lock_rounded, size: 56, color: AegisTheme.accent),
+          const Center(child: BrandGlyph(Brand.lock, size: 76)),
           const SizedBox(height: 16),
           const Text('Notes are locked',
               textAlign: TextAlign.center,
@@ -496,8 +497,8 @@ class _NotesEmpty extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lock_rounded, size: 48, color: AegisTheme.surfaceHi),
-            SizedBox(height: 14),
+            BrandGlyph(Brand.shieldLayered, size: 96),
+            SizedBox(height: 16),
             Text('Your private notes',
                 style: TextStyle(
                     color: AegisTheme.textHi,
