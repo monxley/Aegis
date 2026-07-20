@@ -506,11 +506,33 @@ pub fn decapsulate(dk: &[u8], ct: &[u8]) -> [u8; 32] {
     let k_bar = j(&reject_input);
 
     let ct_prime = pke_encrypt(ek_pke, &m_prime, &r);
-    if ct == ct_prime.as_slice() {
-        shared
-    } else {
-        k_bar
+    // Fujisaki–Okamoto implicit rejection. The comparison and the choice of
+    // output MUST be constant-time: a data-dependent branch here leaks whether
+    // (and how far) `ct` matched `ct_prime`, which is a decapsulation-failure
+    // oracle against a reused KEM key. Compare the full ciphertext with no early
+    // exit and select the 32-byte result byte-wise under a mask.
+    let mask = ct_eq_mask(ct, ct_prime.as_slice());
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = (shared[i] & mask) | (k_bar[i] & !mask);
     }
+    out
+}
+
+/// Constant-time slice equality as a select mask: `0xFF` if `a == b`, else
+/// `0x00`. Runs in time dependent only on the (public) length. Used for the
+/// ML-KEM implicit-rejection compare so decapsulation timing never leaks
+/// ciphertext validity.
+fn ct_eq_mask(a: &[u8], b: &[u8]) -> u8 {
+    if a.len() != b.len() {
+        return 0;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    // diff == 0  → 0xFF ; diff in 1..=255 → 0x00
+    (((diff as u16).wrapping_sub(1)) >> 8) as u8
 }
 
 #[cfg(test)]
