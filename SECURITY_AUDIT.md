@@ -24,14 +24,14 @@ the threat model in §1 of the protocol.
 
 ## Summary
 
-| ID | Severity | Area | One line |
-|----|----------|------|----------|
-| F-1 | **High** | ML-KEM | Decapsulation compares ciphertexts non-constant-time → FO reject timing oracle |
-| F-2 | **Medium** | Password KDF | PBKDF2-HMAC-SHA256 at 120k iters, not memory-hard — weak vs a seized device |
-| F-3 | **Medium** | RNG | Randomness reads `/dev/urandom` via a file handle each call (panic / seeding / sandbox) |
-| F-4 | **Low** | Stealth scan | `addr_tag` / `view_tag` compared with `==` (non-constant-time) during scanning |
-| F-5 | **Info** | Whole system | Self-implemented PQ primitives + protocol, validated only by test vectors |
-| F-6 | **Info** | Infra | Single seed node = single point of failure and weakens the mix anonymity set |
+| ID | Severity | Area | One line | Status |
+|----|----------|------|----------|--------|
+| F-1 | **High** | ML-KEM | Decapsulation compares ciphertexts non-constant-time → FO reject timing oracle | ✅ fixed |
+| F-2 | **Medium** | Password KDF | PBKDF2-HMAC-SHA256 at 120k iters, not memory-hard — weak vs a seized device | ⚠️ mitigated (600k); Argon2id still TODO |
+| F-3 | **Medium** | RNG | Randomness reads `/dev/urandom` via a file handle each call (panic / seeding / sandbox) | ✅ fixed |
+| F-4 | **Low** | Stealth scan | `addr_tag` / `view_tag` compared with `==` (non-constant-time) during scanning | ✅ fixed |
+| F-5 | **Info** | Whole system | Self-implemented PQ primitives + protocol, validated only by test vectors | 🔒 external audit |
+| F-6 | **Info** | Infra | Single seed node = single point of failure and weakens the mix anonymity set | 📋 roadmap 2.1 |
 
 Confirmed-good properties (things that were checked and are correct) are listed
 at the end, so this reads as a review and not just a bug list.
@@ -39,6 +39,11 @@ at the end, so this reads as a review and not just a bug list.
 ---
 
 ## F-1 · High · Non-constant-time ciphertext compare in ML-KEM decapsulation
+
+> **Status: ✅ fixed.** `decapsulate()` now compares the full ciphertext with
+> `ct_eq_mask` (no early exit) and selects the 32-byte output byte-wise under the
+> resulting mask, so neither the compare nor the choice branches on validity. The
+> existing `kem_roundtrip_and_implicit_rejection` test covers both mask branches.
 
 **Where:** `crates/aegis-crypto/src/ml_kem.rs`, `decapsulate()`:
 
@@ -79,6 +84,13 @@ multiply-shift, but confirm on the ARM release target).
 
 ## F-2 · Medium · Password stretching is under-parameterized and not memory-hard
 
+> **Status: ⚠️ partially fixed.** Vault PBKDF2 iterations raised **120k → 600k**
+> (OWASP-2023 floor) with a versioned blob (v2) so existing v1 vaults still open
+> and upgrade to v2 on the next re-seal (`legacy_v1_blob_still_opens` test). The
+> deeper fix — a **memory-hard KDF (Argon2id)** — is deliberately *not* done here:
+> hand-rolling Argon2id zero-dependency under time pressure would be riskier than
+> the finding. Tracked as roadmap 2.5.
+
 **Where:** `crates/aegis-api/src/vault.rs` (`ITERATIONS = 120_000`) for the app
 password that encrypts the master seed; `crates/aegis-api/src/lib.rs`
 (`NOTES_ITERATIONS = 314_159`) for the notes password. Both call
@@ -104,6 +116,13 @@ at-rest / coercion posture.)
 ---
 
 ## F-3 · Medium · RNG opens `/dev/urandom` as a file on every call
+
+> **Status: ✅ fixed.** `fill_random()` now prefers the **`getrandom(2)` syscall**
+> on Linux/Android (x86_64 + aarch64) — no file descriptor, blocks until the
+> CSPRNG is seeded — and falls back to a **single lazily-opened, reused**
+> `/dev/urandom` handle (no per-call `open`, so no fd churn) on other targets or
+> if the syscall returns `ENOSYS`. Both paths are covered by tests. The
+> `SecRandomCopyBytes`/`getentropy` path for iOS slots in the same way later.
 
 **Where:** `crates/aegis-crypto/src/rand.rs`, `fill_random()` — `File::open(
 "/dev/urandom")` + `read_exact`, and **panics** on failure.
@@ -134,6 +153,11 @@ failure near-impossible rather than fd/sandbox-dependent.
 ---
 
 ## F-4 · Low · Non-constant-time tag comparison during stealth scanning
+
+> **Status: ✅ fixed.** The 16-byte `addr_tag` confirm now uses the new
+> constant-time `aegis_crypto::ct_eq`. The 1-byte `view_tag` fast-reject stays a
+> plain compare by design (it is a coarse speed optimization, per Monero) and is
+> documented as such in the code.
 
 **Where:** `crates/aegis-identity/src/identity.rs` (`recomputed.view_tag ==
 address.view_tag && recomputed.addr_tag == address.addr_tag`).
@@ -204,13 +228,21 @@ These were reviewed and found sound — recorded so the review is honest both wa
 
 ---
 
-## Recommended fix order
+## Fix status
 
-1. **F-1** (High) — constant-time ML-KEM decapsulation compare. Small, contained,
-   removes a key-recovery-class oracle. → roadmap 2.4.
-2. **F-3** (Medium) — `getrandom(2)` RNG. Everything depends on it; also unblocks
-   iOS. → roadmap 2.6.
-3. **F-2** (Medium) — Argon2id for the vault(s). Directly strengthens the seized-
-   device model the device-hardening features advertise. → roadmap 2.5.
-4. **F-4** (Low) — constant-time `addr_tag` compare (hygiene).
-5. **F-5 / F-6** (Info) — the external audit (2.9) and multi-node rollout (2.1).
+Addressed in this branch (the code changes are constant-time / behaviour-
+preserving and covered by tests):
+
+- ✅ **F-1** — constant-time ML-KEM decapsulation (masked compare + byte-wise
+  select). The key-recovery-class oracle is closed.
+- ✅ **F-3** — `getrandom(2)` RNG with a cached `/dev/urandom` fallback.
+- ✅ **F-4** — constant-time `addr_tag` compare via `aegis_crypto::ct_eq`.
+- ⚠️ **F-2** — PBKDF2 raised to 600k with a versioned, backward-compatible vault.
+  The memory-hard **Argon2id** upgrade is intentionally left for dedicated work
+  (a vetted implementation, not a rushed from-scratch one) → roadmap 2.5.
+
+Still open (not code-level quick fixes):
+
+- 🔒 **F-5** — the external security audit (roadmap 2.9). This internal review is
+  not a substitute.
+- 📋 **F-6** — multi-node rollout (roadmap 2.1).
