@@ -53,7 +53,7 @@ fn spawn_provider(seed: u8, ciphra_addr: std::net::SocketAddr) -> NodeDescriptor
 fn poll_until(app: &mut AegisApp, want: usize) -> Vec<aegis_api::IncomingMessage> {
     let mut all = Vec::new();
     for _ in 0..100 {
-        all.extend(app.poll().expect("poll"));
+        all.extend(app.poll().expect("poll").messages);
         if all.len() >= want {
             return all;
         }

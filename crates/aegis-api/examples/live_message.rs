@@ -62,7 +62,7 @@ fn main() {
     println!("→ Alice sent:  \"{msg}\"");
 
     // Bob polls the live relay, decrypts, and reads it.
-    let inbox = bob.poll().expect("bob polls");
+    let inbox = bob.poll().expect("bob polls").messages;
     assert_eq!(inbox.len(), 1, "bob should receive exactly one message");
     let got = &inbox[0];
     println!(
@@ -78,7 +78,7 @@ fn main() {
         .expect("bob replies");
     println!("→ Bob sent:    \"{reply}\"");
 
-    let inbox = alice.poll().expect("alice polls");
+    let inbox = alice.poll().expect("alice polls").messages;
     assert_eq!(inbox.len(), 1);
     println!(
         "← Alice got:   \"{}\"   (from {})",
