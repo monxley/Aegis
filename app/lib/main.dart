@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'brand.dart';
 import 'engine.dart';
 import 'screens/chats.dart';
 import 'screens/lock.dart';
 import 'screens/onboarding.dart';
 import 'theme.dart';
-import 'widgets.dart';
 
 void main() {
   // Render immediately, then boot the Rust engine in the background. Doing the
@@ -182,36 +182,49 @@ class _BootstrapState extends State<_Bootstrap> with WidgetsBindingObserver {
 
 /// The splash shown while the engine boots — the shield mark over the app
 /// background, with a quiet progress hint.
-class _Splash extends StatelessWidget {
+class _Splash extends StatefulWidget {
   const _Splash();
 
   @override
+  State<_Splash> createState() => _SplashState();
+}
+
+class _SplashState extends State<_Splash>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _intro = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..forward();
+
+  @override
+  void dispose() {
+    _intro.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final fade = CurvedAnimation(parent: _intro, curve: Curves.easeOut);
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            ShieldMark(size: 108),
-            SizedBox(height: 22),
-            AegisWordmark(height: 40),
-            SizedBox(height: 10),
-            Text(
-              'NOTHING TO INTERCEPT.',
-              style: TextStyle(
-                color: AegisTheme.textLo,
-                fontSize: 11,
-                letterSpacing: 3,
-                fontWeight: FontWeight.w600,
+      backgroundColor: Colors.transparent,
+      body: AuroraBackground(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FadeTransition(
+                opacity: fade,
+                child: ScaleTransition(
+                  scale: Tween(begin: 0.86, end: 1.0).animate(
+                    CurvedAnimation(parent: _intro, curve: Curves.easeOutBack),
+                  ),
+                  child: const AegisLockupVertical(width: 240),
+                ),
               ),
-            ),
-            SizedBox(height: 34),
-            SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ],
+              const SizedBox(height: 44),
+              FadeTransition(opacity: fade, child: const ShimmerBar()),
+            ],
+          ),
         ),
       ),
     );
