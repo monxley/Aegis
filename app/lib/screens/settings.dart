@@ -164,6 +164,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// Run a quick setting change with the busy flag toggled around it.
+  Future<void> _apply(Future<void> Function() action) async {
+    setState(() => _busy = true);
+    await action();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  /// A small selectable pill for the auto-lock / wipe choice rows.
+  Widget _pill(String label, bool selected, VoidCallback onTap,
+      {bool danger = false}) {
+    final c = danger ? AegisTheme.danger : AegisTheme.accent;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: _busy ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? c.withOpacity(0.15) : AegisTheme.surfaceHi,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? c : AegisTheme.surfaceHi),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? c : AegisTheme.textHi,
+            fontSize: 13,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _toggleNode(bool on) async {
     setState(() => _busy = true);
     try {
@@ -330,6 +363,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: _bioEnabled,
                     onChanged: _busy ? null : _toggleBiometric,
                     activeColor: AegisTheme.accent,
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (e.hasPassword) ...[
+            const SizedBox(height: 14),
+            _card(
+              icon: Icons.lock_clock_rounded,
+              title: 'Auto-lock',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Re-lock the app after inactivity, or the moment it goes to '
+                    'the background. The app password re-opens it.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Lock after',
+                      style: TextStyle(color: AegisTheme.textHi, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final m in const [0, 1, 5, 15])
+                        _pill(m == 0 ? 'Off' : '$m min', e.autoLockMinutes == m,
+                            () => _apply(() => widget.engine.setAutoLockMinutes(m))),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Lock when app goes to background',
+                            style: TextStyle(color: AegisTheme.textHi, fontSize: 14)),
+                      ),
+                      Switch(
+                        value: e.lockOnBackground,
+                        activeColor: AegisTheme.accent,
+                        onChanged: _busy
+                            ? null
+                            : (v) => _apply(() => widget.engine.setLockOnBackground(v)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            _card(
+              icon: Icons.gpp_bad_rounded,
+              title: 'Wipe after failed attempts',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Erase everything after this many wrong password attempts — '
+                    'protects a lost or seized phone from brute-force.',
+                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final n in const [0, 5, 10, 20])
+                        _pill(n == 0 ? 'Off' : '$n', e.wipeAfterAttempts == n,
+                            () => _apply(() => widget.engine.setWipeAfterAttempts(n)),
+                            danger: n > 0),
+                    ],
                   ),
                 ],
               ),
