@@ -188,6 +188,7 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | App disguise: swap the launcher icon + name to a decoy (calculator / notes / weather) | ✅ implemented |
 | — | Notes: a local-only self-chat, never networked, encrypted at rest with a seed-derived key | ✅ implemented |
 | — | Notes password: optional second layer (PBKDF2 ~314k), needs seed **and** password; panic-wipe | ✅ implemented |
+| — | Encrypted at rest by default: state & notes sealed with seed-derived keys; seed in the Keystore | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
 non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
