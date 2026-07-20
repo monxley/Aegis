@@ -140,6 +140,10 @@ pub struct Contact {
     pub pinned: bool,
     /// Whether this contact is blocked.
     pub blocked: bool,
+    /// Last-message preview so the chat list needs no per-row history clone.
+    pub last_text: Option<String>,
+    pub last_from_me: bool,
+    pub last_ts: u64,
 }
 
 /// One message in a conversation (mirrored to Dart).
@@ -161,6 +165,13 @@ pub struct IncomingMessage {
     pub from_aegis_id: String,
     pub from_name: Option<String>,
     pub text: String,
+}
+
+/// The result of a poll: new messages plus whether anything changed (so the UI
+/// can skip a rebuild on an idle poll).
+pub struct PollResult {
+    pub messages: Vec<IncomingMessage>,
+    pub changed: bool,
 }
 
 /// A private, local-only note (mirrored to Dart).
@@ -187,6 +198,9 @@ impl From<ApiContact> for Contact {
             aegis_id: c.aegis_id,
             pinned: c.pinned,
             blocked: c.blocked,
+            last_text: c.last_text,
+            last_from_me: c.last_from_me,
+            last_ts: c.last_ts,
         }
     }
 }
@@ -516,16 +530,21 @@ impl AegisEngine {
     }
 
     /// Poll the relay for new messages, decrypt them, append to history, and
-    /// return what arrived. Call on a timer or a push wake-up.
-    pub fn poll(&self) -> Result<Vec<IncomingMessage>, String> {
-        let received = self.with(|app| app.poll()).map_err(|e| e.to_string())?;
-        Ok(received
-            .into_iter()
-            .map(|m| IncomingMessage {
-                from_aegis_id: m.from_aegis_id,
-                from_name: m.from_name,
-                text: m.text,
-            })
-            .collect())
+    /// return what arrived plus whether anything changed (so the UI can skip a
+    /// rebuild on an idle poll). Call on a timer or a push wake-up.
+    pub fn poll(&self) -> Result<PollResult, String> {
+        let res = self.with(|app| app.poll()).map_err(|e| e.to_string())?;
+        Ok(PollResult {
+            messages: res
+                .messages
+                .into_iter()
+                .map(|m| IncomingMessage {
+                    from_aegis_id: m.from_aegis_id,
+                    from_name: m.from_name,
+                    text: m.text,
+                })
+                .collect(),
+            changed: res.changed,
+        })
     }
 }

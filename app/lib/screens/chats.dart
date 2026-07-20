@@ -238,11 +238,13 @@ class _ContactTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final history = engine.history(contact.aegisId);
-    final last = history.isNotEmpty ? history.last : null;
-    final preview = last == null
+    // Use the lightweight preview carried on the contact — no per-row history
+    // clone (that was the chat list's main source of lag).
+    final lastText = contact.lastText;
+    final preview = lastText == null
         ? 'Say hello — end-to-end encrypted.'
-        : '${last.fromMe ? 'You: ' : ''}${last.text}';
+        : '${contact.lastFromMe ? 'You: ' : ''}$lastText';
+    final hasLast = lastText != null;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
@@ -276,15 +278,15 @@ class _ContactTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: AegisTheme.textLo,
-          fontStyle: last == null ? FontStyle.italic : FontStyle.normal,
+          fontStyle: hasLast ? FontStyle.normal : FontStyle.italic,
         ),
       ),
-      trailing: last == null
-          ? null
-          : Text(
-              formatListTime(last.timestampMs.toInt()),
+      trailing: hasLast
+          ? Text(
+              formatListTime(contact.lastTs.toInt()),
               style: const TextStyle(color: AegisTheme.textLo, fontSize: 12),
-            ),
+            )
+          : null,
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ChatScreen(engine: engine, contact: contact),

@@ -245,6 +245,13 @@ pub struct Contact {
     pub pinned: bool,
     /// Whether this contact is blocked (their messages are dropped silently).
     pub blocked: bool,
+    /// Preview of the last message (None if the chat is empty) — so the chat
+    /// list needs no per-contact history clone.
+    pub last_text: Option<String>,
+    /// Whether that last message was sent by us (for the "You: " prefix).
+    pub last_from_me: bool,
+    /// Timestamp (Unix ms) of the last message, 0 if none.
+    pub last_ts: u64,
 }
 
 /// A node visible in the gossiped directory (for the network view).
@@ -338,6 +345,14 @@ fn derive_pw_key(password: &str, salt: &[u8; 16], iters: u32) -> [u8; 32] {
 /// Whether a persisted notes blob is password-protected (needs `unlock_notes`).
 pub fn notes_blob_encrypted(blob: &[u8]) -> bool {
     blob.len() >= 2 && blob[0] == 2 && blob[1] == 1
+}
+
+/// The outcome of a [`AegisApp::poll`]: the newly-arrived messages plus whether
+/// any state changed at all (so the UI can skip a rebuild on an idle poll).
+#[derive(Clone, Debug)]
+pub struct PollResult {
+    pub messages: Vec<IncomingMessage>,
+    pub changed: bool,
 }
 
 /// A message just delivered by [`AegisApp::poll`].
@@ -677,11 +692,17 @@ impl AegisApp {
     pub fn contacts(&self) -> Vec<Contact> {
         self.contacts
             .iter()
-            .map(|c| Contact {
-                name: c.name.clone(),
-                aegis_id: c.aegis_id.clone(),
-                pinned: c.pinned,
-                blocked: c.blocked,
+            .map(|c| {
+                let last = self.history.get(&c.aegis_id).and_then(|v| v.last());
+                Contact {
+                    name: c.name.clone(),
+                    aegis_id: c.aegis_id.clone(),
+                    pinned: c.pinned,
+                    blocked: c.blocked,
+                    last_text: last.map(|m| m.text.clone()),
+                    last_from_me: last.map(|m| m.from_me).unwrap_or(false),
+                    last_ts: last.map(|m| m.timestamp_ms).unwrap_or(0),
+                }
             })
             .collect()
     }
@@ -982,12 +1003,17 @@ impl AegisApp {
         Ok(())
     }
 
-    /// Delete any disappearing message whose lifetime has passed.
-    fn prune_expired(&mut self) {
+    /// Delete any disappearing message whose lifetime has passed. Returns
+    /// whether anything was removed.
+    fn prune_expired(&mut self) -> bool {
         let now = now_ms();
+        let mut changed = false;
         for msgs in self.history.values_mut() {
+            let before = msgs.len();
             msgs.retain(|m| m.expires_at_ms == 0 || m.expires_at_ms > now);
+            changed |= msgs.len() != before;
         }
+        changed
     }
 
     /// Send `text` to the contact with `aegis_id`. Establishes the session on
@@ -1078,7 +1104,7 @@ impl AegisApp {
     /// ids, so a message that actually did go out can't be duplicated. Best
     /// effort — called from [`poll`] so delivery self-heals when the relay or a
     /// route comes back.
-    fn retry_failed(&mut self) {
+    fn retry_failed(&mut self) -> bool {
         let pending: Vec<(String, u64)> = self
             .history
             .iter()
@@ -1089,9 +1115,16 @@ impl AegisApp {
                     .collect::<Vec<_>>()
             })
             .collect();
+        let mut changed = false;
         for (aid, id) in pending {
-            let _ = self.resend(aid, id);
+            let _ = self.resend(aid.clone(), id);
+            if let Some(msgs) = self.history.get(&aid) {
+                changed |= msgs
+                    .iter()
+                    .any(|m| m.from_me && m.id == id && m.status == STATUS_SENT);
+            }
         }
+        changed
     }
 
     /// Send a receipt (delivered/read) for message `id` back to `peer` on the
@@ -1104,15 +1137,18 @@ impl AegisApp {
     }
 
     /// Advance the status of our sent message `id` in the conversation with
-    /// `aegis_id` (never downgrades).
-    fn advance_status(&mut self, aegis_id: &str, id: u64, status: u8) {
+    /// `aegis_id` (never downgrades). Returns whether the status actually moved.
+    fn advance_status(&mut self, aegis_id: &str, id: u64, status: u8) -> bool {
+        let mut changed = false;
         if let Some(msgs) = self.history.get_mut(aegis_id) {
             for m in msgs.iter_mut() {
                 if m.from_me && m.id == id && status > m.status {
                     m.status = status;
+                    changed = true;
                 }
             }
         }
+        changed
     }
 
     /// Mark the conversation with `aegis_id` as read: send a read receipt for
@@ -1232,10 +1268,13 @@ impl AegisApp {
     }
 
     /// Poll the relay for new messages, decrypt them, append to history, and
-    /// return what arrived. Call this on a timer or a push wake-up.
-    pub fn poll(&mut self) -> Result<Vec<IncomingMessage>, AppError> {
+    /// return what arrived plus whether **anything** changed (new messages,
+    /// receipts advancing a tick, a timer sync, a delete, or a retry landing).
+    /// The UI can skip a rebuild when nothing changed. Call on a timer or push.
+    pub fn poll(&mut self) -> Result<PollResult, AppError> {
         let received = self.client.receive(&self.store)?;
         let mut out = Vec::with_capacity(received.len());
+        let mut changed = false;
         for r in received {
             let aegis_id = r.from.encode();
             // Drop everything from a blocked contact — no history, no receipt,
@@ -1275,14 +1314,15 @@ impl AegisApp {
                         });
                     // Confirm receipt to the sender (their copy turns "delivered").
                     self.send_receipt(&r.from, id, MSG_DELIVERED);
+                    changed = true;
                     out.push(IncomingMessage {
                         from_aegis_id: aegis_id,
                         from_name,
                         text,
                     });
                 }
-                MSG_DELIVERED => self.advance_status(&aegis_id, id, STATUS_DELIVERED),
-                MSG_READ => self.advance_status(&aegis_id, id, STATUS_READ),
+                MSG_DELIVERED => changed |= self.advance_status(&aegis_id, id, STATUS_DELIVERED),
+                MSG_READ => changed |= self.advance_status(&aegis_id, id, STATUS_READ),
                 MSG_TIMER => {
                     // The peer set (or cleared) the disappearing timer for this
                     // conversation — mirror it so our outgoing messages match.
@@ -1291,20 +1331,22 @@ impl AegisApp {
                     } else {
                         self.disappearing.insert(aegis_id.clone(), ttl);
                     }
+                    changed = true;
                 }
                 MSG_DELETE => {
                     // The peer deleted this conversation for both of us — drop
                     // our copy too.
                     self.remove_conversation(&aegis_id);
+                    changed = true;
                 }
                 _ => {}
             }
         }
         // Self-heal: retry anything that failed to send earlier now that we've
         // just talked to the relay.
-        self.retry_failed();
-        self.prune_expired();
-        Ok(out)
+        changed |= self.retry_failed();
+        changed |= self.prune_expired();
+        Ok(PollResult { messages: out, changed })
     }
 }
 
@@ -1495,14 +1537,14 @@ mod tests {
         // hold separate in-memory stores; a real deployment shares one server).
         alice.send(bob.my_aegis_id(), "hi bob".into()).unwrap();
         transfer(&mut alice.store, &mut bob.store);
-        let got = bob.poll().unwrap();
+        let got = bob.poll().unwrap().messages;
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].text, "hi bob");
         assert_eq!(got[0].from_name.as_deref(), Some("Alice"));
 
         bob.send(alice.my_aegis_id(), "hi alice".into()).unwrap();
         transfer(&mut bob.store, &mut alice.store);
-        let got = alice.poll().unwrap();
+        let got = alice.poll().unwrap().messages;
         assert_eq!(got[0].text, "hi alice");
 
         assert_eq!(alice.history(bob.my_aegis_id()).len(), 2); // sent + received
@@ -1537,7 +1579,7 @@ mod tests {
 
         // The relay is back: a poll self-heals — retry_failed re-sends it and
         // flips the status to sent.
-        alice.poll().unwrap();
+        alice.poll().unwrap().messages;
         assert_eq!(
             alice.history(bob.my_aegis_id())[0].status,
             STATUS_SENT,
@@ -1546,7 +1588,7 @@ mod tests {
 
         // …and it really went out: Bob receives it.
         transfer(&mut alice.store, &mut bob.store);
-        let got = bob.poll().unwrap();
+        let got = bob.poll().unwrap().messages;
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].text, "queued while offline");
     }
@@ -1666,6 +1708,40 @@ mod tests {
     }
 
     #[test]
+    fn poll_reports_no_change_when_idle_and_contacts_carry_a_preview() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // An idle poll changes nothing → the UI can skip a rebuild.
+        assert!(!alice.poll().unwrap().changed);
+
+        // A new message flips `changed` and fills the contact preview.
+        bob.send(alice.my_aegis_id(), "yo".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let res = alice.poll().unwrap();
+        assert!(res.changed);
+        assert_eq!(res.messages.len(), 1);
+        let c = &alice.contacts()[0];
+        assert_eq!(c.last_text.as_deref(), Some("yo"));
+        assert!(!c.last_from_me);
+        assert!(c.last_ts > 0);
+
+        // Alice's own reply shows in her preview as from_me.
+        alice.send(bob.my_aegis_id(), "hey".into()).unwrap();
+        let c = &alice.contacts()[0];
+        assert_eq!(c.last_text.as_deref(), Some("hey"));
+        assert!(c.last_from_me);
+
+        // Still idle afterwards → no change.
+        assert!(!alice.poll().unwrap().changed);
+    }
+
+    #[test]
     fn blocking_drops_incoming_messages() {
         let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
         let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
@@ -1680,14 +1756,14 @@ mod tests {
         assert!(alice.contacts()[0].blocked);
         bob.send(alice.my_aegis_id(), "let me in".into()).unwrap();
         transfer(&mut bob.store, &mut alice.store);
-        assert!(alice.poll().unwrap().is_empty(), "blocked message delivered");
+        assert!(alice.poll().unwrap().messages.is_empty(), "blocked message delivered");
         assert!(alice.history(bob.my_aegis_id()).is_empty());
 
         // Unblock; a new message now arrives (the blocked one stays dropped).
         alice.set_blocked(bob.my_aegis_id(), false).unwrap();
         bob.send(alice.my_aegis_id(), "hi again".into()).unwrap();
         transfer(&mut bob.store, &mut alice.store);
-        let got = alice.poll().unwrap();
+        let got = alice.poll().unwrap().messages;
         assert_eq!(got.last().map(|m| m.text.as_str()), Some("hi again"));
     }
 
@@ -1760,7 +1836,7 @@ mod tests {
         assert!(alice.contacts().is_empty(), "deleted on Alice's side");
 
         transfer(&mut alice.store, &mut bob.store);
-        bob.poll().unwrap();
+        bob.poll().unwrap().messages;
         // Bob processed the text then the delete: the conversation is gone.
         assert!(bob.contacts().is_empty(), "Bob's chat was removed too");
         assert!(bob.history(alice.my_aegis_id()).is_empty());
@@ -1805,7 +1881,7 @@ mod tests {
 
         alice.send(bob.my_aegis_id(), "hi bob".into()).unwrap();
         transfer(&mut alice.store, &mut bob.store);
-        assert_eq!(bob.poll().unwrap().len(), 1);
+        assert_eq!(bob.poll().unwrap().messages.len(), 1);
 
         // Save Alice, drop her, rebuild from the seed, and restore.
         let blob = alice.export_state();
@@ -1821,7 +1897,7 @@ mod tests {
         bob.send(alice.my_aegis_id(), "still connected".into())
             .unwrap();
         transfer(&mut bob.store, &mut alice.store);
-        let got = alice.poll().unwrap();
+        let got = alice.poll().unwrap().messages;
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].text, "still connected");
     }
@@ -1856,7 +1932,7 @@ mod tests {
 
         // Both the timer control and the message reach Bob.
         transfer(&mut alice.store, &mut bob.store);
-        let got = bob.poll().unwrap();
+        let got = bob.poll().unwrap().messages;
         assert!(got.iter().any(|m| m.text == "vanishing"));
         assert_eq!(
             bob.disappearing_secs(alice.my_aegis_id()),
