@@ -484,6 +484,21 @@ impl AegisEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Snapshot state **encrypted at rest** under a seed-derived key — persist
+    /// this so contacts/history are never stored in the clear.
+    #[frb(sync)]
+    pub fn export_state_encrypted(&self) -> Vec<u8> {
+        self.with(|app| app.export_state_encrypted())
+    }
+
+    /// Restore from an [`AegisEngine::export_state_encrypted`] blob; also accepts
+    /// a legacy plaintext blob (older builds) so upgrades migrate seamlessly.
+    #[frb(sync)]
+    pub fn restore_state_encrypted(&self, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.restore_state_encrypted(blob))
+            .map_err(|e| e.to_string())
+    }
+
     /// Emit one cover-traffic packet into the mixnet (a decoy), so an observer
     /// can't tell when this device is actually sending. Call on a Poisson
     /// schedule; no-op unless on the mixnet.
