@@ -33,9 +33,9 @@ Status legend: 🔜 next · 📋 planned · 🔬 research / hard · ⏳ future
 | 2.1 | 📋 **2–3 independent relay/mix nodes** (not one seed IP) | Today a single node is a SPOF; mixing needs ≥2 nodes to give any anonymity |
 | 2.2 | 📋 **Fix CI** (GitHub Actions billing) | ~160 tests do not run automatically; every change merges unverified |
 | 2.3 | 📋 **Release-signed APK** with a fixed, held signing key | Debug-signed builds can't be upgraded over and can be trivially forged |
-| 2.4 | 📋 **Constant-time ML-KEM decapsulation** (see audit F-1) | Self-rolled KEM has a timing side channel on the FO reject path |
-| 2.5 | 📋 **Stronger password KDF** — Argon2id (see audit F-2) | PBKDF2-120k is below current guidance and GPU-cheap for a seized device |
-| 2.6 | 📋 `getrandom(2)`-based RNG (see audit F-3) | Direct `/dev/urandom` file open can fail/panic and doesn't guarantee seeding |
+| 2.4 | ✅ **Constant-time ML-KEM decapsulation** (audit F-1) | Done — masked compare + byte-wise select on the FO reject path |
+| 2.5 | ⚠️ **Stronger password KDF** (audit F-2) | PBKDF2 raised to 600k (done); memory-hard **Argon2id** still to do |
+| 2.6 | ✅ `getrandom(2)`-based RNG (audit F-3) | Done — getrandom(2) with a cached `/dev/urandom` fallback |
 | 2.7 | 📋 SPQR KEM-chunking | Shrinks the ~2.3 KB per-message ratchet header (Signal's optimization) |
 | 2.8 | 📋 Real BIP-39 wordlist | Replace the generated syllable list before it locks in old phrases |
 | 2.9 | ⏳ **External security audit** | Listed in the protocol as a release blocker. Until then: honestly "alpha" |
