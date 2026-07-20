@@ -51,6 +51,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ('calculator', 'Calculator', Icons.calculate_rounded),
     ('notes', 'Notes', Icons.sticky_note_2_rounded),
     ('weather', 'Weather', Icons.wb_cloudy_rounded),
+    ('clock', 'Clock', Icons.access_time_rounded),
+    ('calendar', 'Calendar', Icons.calendar_month_rounded),
+    ('files', 'Files', Icons.folder_rounded),
+    ('flashlight', 'Flashlight', Icons.flashlight_on_rounded),
   ];
 
   static String _disguiseLabel(String id) =>

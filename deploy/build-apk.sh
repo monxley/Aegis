@@ -246,7 +246,11 @@ class MainActivity : FlutterFragmentActivity() {
         "default" to ".LauncherDefault",
         "calculator" to ".DisguiseCalculator",
         "notes" to ".DisguiseNotes",
-        "weather" to ".DisguiseWeather"
+        "weather" to ".DisguiseWeather",
+        "clock" to ".DisguiseClock",
+        "calendar" to ".DisguiseCalendar",
+        "files" to ".DisguiseFiles",
+        "flashlight" to ".DisguiseFlashlight"
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -411,6 +415,21 @@ icons = {
         '  <path android:fillColor="#4FC3F7" android:pathData="M0,0h108v108h-108z"/>\n'
         '  <path android:fillColor="#FFEE58" android:pathData="M42,42m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0"/>\n'
         '  <path android:fillColor="#FFFFFF" android:pathData="M40,74h36a13,13 0,0 0,-2 -25a18,18 0,0 0,-33 5a11,11 0,0 0,-1 20z"/>\n'),
+    "disg_clock.xml": vec(
+        '  <path android:fillColor="#263238" android:pathData="M0,0h108v108h-108z"/>\n'
+        '  <path android:fillColor="#ECEFF1" android:pathData="M54,54m-34,0a34,34 0,1 1,68 0a34,34 0,1 1,-68 0"/>\n'
+        '  <path android:fillColor="#263238" android:pathData="M51,28h6v28h-6z M54,54h22v6h-22z"/>\n'),
+    "disg_calendar.xml": vec(
+        '  <path android:fillColor="#FFFFFF" android:pathData="M14,20h80v74h-80z"/>\n'
+        '  <path android:fillColor="#EF5350" android:pathData="M14,20h80v20h-80z"/>\n'
+        '  <path android:fillColor="#B0BEC5" android:pathData="M26,52h12v12h-12z M48,52h12v12h-12z M70,52h12v12h-12z M26,72h12v12h-12z M48,72h12v12h-12z"/>\n'),
+    "disg_files.xml": vec(
+        '  <path android:fillColor="#1E1E24" android:pathData="M0,0h108v108h-108z"/>\n'
+        '  <path android:fillColor="#FFCA28" android:pathData="M20,34h28l8,8h32v40h-68z"/>\n'),
+    "disg_flashlight.xml": vec(
+        '  <path android:fillColor="#212121" android:pathData="M0,0h108v108h-108z"/>\n'
+        '  <path android:fillColor="#FFEE58" android:pathData="M40,20h28l-4,16h-20z"/>\n'
+        '  <path android:fillColor="#CFD8DC" android:pathData="M44,40h20v40h-20z"/>\n'),
 }
 for name, xml in icons.items():
     open(os.path.join(d, name), "w").write(xml)
@@ -450,6 +469,30 @@ aliases = """
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".DisguiseWeather" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_weather" android:label="Weather">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseClock" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_clock" android:label="Clock">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseCalendar" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_calendar" android:label="Calendar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseFiles" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_files" android:label="Files">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".DisguiseFlashlight" android:enabled="false" android:exported="true" android:targetActivity=".MainActivity" android:icon="@drawable/disg_flashlight" android:label="Flashlight">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
