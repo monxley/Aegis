@@ -314,6 +314,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             _DaySeparator(ms: msg.timestampMs.toInt()),
                           _Bubble(
                             message: msg,
+                            engine: widget.engine,
+                            aegisId: widget.contact.aegisId,
                             onRetry: () => widget.engine.resend(
                                 aegisId: widget.contact.aegisId, id: msg.id),
                           ),
@@ -331,8 +333,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
 class _Bubble extends StatelessWidget {
   final ChatMessage message;
+  final AegisEngineController engine;
+  final String aegisId;
   final VoidCallback? onRetry;
-  const _Bubble({required this.message, this.onRetry});
+  const _Bubble({
+    required this.message,
+    required this.engine,
+    required this.aegisId,
+    this.onRetry,
+  });
 
   void _copy(BuildContext context) {
     HapticFeedback.mediumImpact();
@@ -340,6 +349,101 @@ class _Bubble extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Message copied')),
     );
+  }
+
+  /// Long-press action sheet: copy, and — for our own messages — edit and
+  /// delete-for-everyone; delete-for-me is always available.
+  Future<void> _showActions(BuildContext context) async {
+    HapticFeedback.mediumImpact();
+    final mine = message.fromMe;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy_rounded, color: AegisTheme.textHi),
+              title: const Text('Copy',
+                  style: TextStyle(color: AegisTheme.textHi)),
+              onTap: () {
+                Navigator.pop(sheet);
+                _copy(context);
+              },
+            ),
+            if (mine)
+              ListTile(
+                leading:
+                    const Icon(Icons.edit_rounded, color: AegisTheme.textHi),
+                title: const Text('Edit',
+                    style: TextStyle(color: AegisTheme.textHi)),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  _edit(context);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded,
+                  color: AegisTheme.textHi),
+              title: const Text('Delete for me',
+                  style: TextStyle(color: AegisTheme.textHi)),
+              onTap: () {
+                Navigator.pop(sheet);
+                engine.deleteMessage(aegisId, message.id, forBoth: false);
+              },
+            ),
+            if (mine)
+              ListTile(
+                leading: const Icon(Icons.delete_forever_rounded,
+                    color: AegisTheme.danger),
+                title: const Text('Delete for everyone',
+                    style: TextStyle(color: AegisTheme.danger)),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  engine.deleteMessage(aegisId, message.id, forBoth: true);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _edit(BuildContext context) async {
+    final controller = TextEditingController(text: message.text);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Edit message',
+            style: TextStyle(color: AegisTheme.textHi)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          style: const TextStyle(color: AegisTheme.textHi),
+          decoration: const InputDecoration(hintText: 'Message'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog),
+            child: const Text('Cancel',
+                style: TextStyle(color: AegisTheme.textLo)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, controller.text),
+            child: const Text('Save',
+                style: TextStyle(color: AegisTheme.accent)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = newText?.trim();
+    if (trimmed != null && trimmed.isNotEmpty && trimmed != message.text) {
+      await engine.editMessage(aegisId, message.id, trimmed);
+    }
   }
 
   @override
@@ -350,7 +454,7 @@ class _Bubble extends StatelessWidget {
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-        onLongPress: () => _copy(context),
+        onLongPress: () => _showActions(context),
         onTap: failed ? onRetry : null,
         child: Container(
           constraints: BoxConstraints(
@@ -394,6 +498,18 @@ class _Bubble extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 4),
+                  ],
+                  if (message.edited) ...[
+                    Text(
+                      'edited · ',
+                      style: TextStyle(
+                        color:
+                            mine ? const Color(0x9906110F) : AegisTheme.textLo,
+                        fontSize: 10,
+                        height: 1.0,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
                   ],
                   Text(
                     formatClock(message.timestampMs.toInt()),

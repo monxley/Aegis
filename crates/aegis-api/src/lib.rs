@@ -47,7 +47,7 @@ fn now_ms() -> u64 {
 
 /// Version tag on exported app state; bump on a format change. v2 adds the
 /// per-message id and delivery status; v1 blobs still load (id 0, status sent).
-const APP_STATE_VERSION: u8 = 5;
+const APP_STATE_VERSION: u8 = 6;
 
 // --- app-level message framing (inside the E2E plaintext) ----------------
 //
@@ -60,6 +60,8 @@ const MSG_DELIVERED: u8 = 1;
 const MSG_READ: u8 = 2;
 const MSG_TIMER: u8 = 3; // sets the conversation's disappearing timer
 const MSG_DELETE: u8 = 4; // asks the peer to delete this conversation too
+const MSG_EDIT: u8 = 5; // new text for a previously-sent message (id matches)
+const MSG_DELETE_ONE: u8 = 6; // asks the peer to delete a single message (by id)
 
 /// Delivery status of one of *our* sent messages (mirrored to the UI as ticks).
 const STATUS_SENT: u8 = 0;
@@ -205,6 +207,7 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
                 (0, STATUS_SENT)
             };
             let expires_at_ms = if version >= 3 { r.u64()? } else { 0 };
+            let edited = if version >= 6 { r.u8()? != 0 } else { false };
             msgs.push(ChatMessage {
                 from_me,
                 text,
@@ -212,6 +215,7 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
                 id,
                 status,
                 expires_at_ms,
+                edited,
             });
         }
         history.insert(aegis_id, msgs);
@@ -281,6 +285,9 @@ pub struct ChatMessage {
     /// Unix-ms after which this message is deleted locally (0 = never), for
     /// disappearing messages.
     pub expires_at_ms: u64,
+    /// Whether this message was edited after it was first sent (shown as an
+    /// "edited" marker in the UI).
+    pub edited: bool,
 }
 
 /// A private note in the local-only "Notes" chat. These never touch the network
@@ -505,7 +512,11 @@ impl AegisApp {
         let client = AegisClient::from_master_seed(seed);
         let store = CiphraStore::connect(relay_addr.as_str(), None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
-        Ok(Self::from_parts(client, Store::Ciphra(Box::new(store)), &seed))
+        Ok(Self::from_parts(
+            client,
+            Store::Ciphra(Box::new(store)),
+            &seed,
+        ))
     }
 
     /// Create an app that **auto-discovers the mixnet** and routes over it — the
@@ -544,7 +555,11 @@ impl AegisApp {
         let reader = CiphraStore::connect(provider_addr, None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
         let store = MixnetStore::new(reader, providers, pool, own_provider, 2);
-        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store)), &seed))
+        Ok(Self::from_parts(
+            client,
+            Store::Mixnet(Box::new(store)),
+            &seed,
+        ))
     }
 
     /// Like [`create_on_network`](Self::create_on_network) but with **anonymous
@@ -596,7 +611,11 @@ impl AegisApp {
 
         let store = MixnetStore::new(reader, providers, pool, own_provider, 2)
             .with_anon_receive(inbox, own_node);
-        Ok(Self::from_parts(client, Store::Mixnet(Box::new(store)), &seed))
+        Ok(Self::from_parts(
+            client,
+            Store::Mixnet(Box::new(store)),
+            &seed,
+        ))
     }
 
     fn from_parts(client: AegisClient, store: Store, seed: &[u8; 32]) -> Self {
@@ -782,6 +801,53 @@ impl AegisApp {
         Ok(())
     }
 
+    /// Edit one of **our own** already-sent messages: change its text locally
+    /// (marked "edited") and, best-effort, tell the peer to update its copy.
+    /// Errors if no own message with `id` exists in this conversation.
+    pub fn edit_message(
+        &mut self,
+        aegis_id: String,
+        id: u64,
+        new_text: String,
+    ) -> Result<(), AppError> {
+        let msgs = self
+            .history
+            .get_mut(&aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let m = msgs
+            .iter_mut()
+            .find(|m| m.from_me && m.id == id)
+            .ok_or(AppError::UnknownContact)?;
+        m.text = new_text.clone();
+        m.edited = true;
+        if let Ok(peer) = AegisId::decode(&aegis_id) {
+            let payload = frame(MSG_EDIT, id, 0, new_text.as_bytes());
+            let _ = self.client.send(&mut self.store, &peer, &payload);
+        }
+        Ok(())
+    }
+
+    /// Delete a single message by `id`. `for_both` additionally asks the peer to
+    /// delete it (only meaningful for our own messages). Deleting only for me
+    /// works on any message. A no-op if the id isn't present.
+    pub fn delete_message(
+        &mut self,
+        aegis_id: String,
+        id: u64,
+        for_both: bool,
+    ) -> Result<(), AppError> {
+        if for_both {
+            if let Ok(peer) = AegisId::decode(&aegis_id) {
+                let payload = frame(MSG_DELETE_ONE, id, 0, &[]);
+                let _ = self.client.send(&mut self.store, &peer, &payload);
+            }
+        }
+        if let Some(msgs) = self.history.get_mut(&aegis_id) {
+            msgs.retain(|m| m.id != id);
+        }
+        Ok(())
+    }
+
     /// Drop every local trace of a conversation with `aegis_id`.
     fn remove_conversation(&mut self, aegis_id: &str) {
         self.contacts.retain(|c| c.aegis_id != aegis_id);
@@ -850,7 +916,9 @@ impl AegisApp {
     /// the same password. Errors on a wrong password.
     pub fn unlock_notes(&mut self, password: String, blob: Vec<u8>) -> Result<(), AppError> {
         if blob.len() < 34 || blob[0] != 2 || blob[1] != 1 {
-            return Err(AppError::Protocol("not a password-protected notes blob".into()));
+            return Err(AppError::Protocol(
+                "not a password-protected notes blob".into(),
+            ));
         }
         let salt: [u8; 16] = blob[2..18].try_into().unwrap();
         let iters = u32::from_le_bytes(blob[18..22].try_into().unwrap());
@@ -958,7 +1026,9 @@ impl AegisApp {
             .ok_or_else(|| AppError::Protocol("truncated notes".into()))? as usize;
         let mut notes = Vec::with_capacity(n);
         for _ in 0..n {
-            let id = r.u64().ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            let id = r
+                .u64()
+                .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
             let text = r
                 .string()
                 .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
@@ -1045,6 +1115,7 @@ impl AegisApp {
             text,
             timestamp_ms: now,
             id,
+            edited: false,
             status: if ok { STATUS_SENT } else { STATUS_FAILED },
             expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
         });
@@ -1203,6 +1274,7 @@ impl AegisApp {
                 w.push_u64(m.id);
                 w.push_u8(m.status);
                 w.push_u64(m.expires_at_ms);
+                w.push_u8(m.edited as u8); // v6
             }
         }
 
@@ -1279,7 +1351,11 @@ impl AegisApp {
             let aegis_id = r.from.encode();
             // Drop everything from a blocked contact — no history, no receipt,
             // no notification.
-            if self.contacts.iter().any(|c| c.aegis_id == aegis_id && c.blocked) {
+            if self
+                .contacts
+                .iter()
+                .any(|c| c.aegis_id == aegis_id && c.blocked)
+            {
                 continue;
             }
             let Some((kind, id, ttl, content)) = parse_frame(&r.message) else {
@@ -1311,6 +1387,7 @@ impl AegisApp {
                             id,
                             status: STATUS_SENT,
                             expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
+                            edited: false,
                         });
                     // Confirm receipt to the sender (their copy turns "delivered").
                     self.send_receipt(&r.from, id, MSG_DELIVERED);
@@ -1339,6 +1416,31 @@ impl AegisApp {
                     self.remove_conversation(&aegis_id);
                     changed = true;
                 }
+                MSG_EDIT => {
+                    // The peer edited one of *their* messages — update our copy
+                    // of it (never our own, so a peer can't rewrite our text).
+                    let new_text = String::from_utf8_lossy(content).into_owned();
+                    if let Some(msgs) = self.history.get_mut(&aegis_id) {
+                        if let Some(m) = msgs.iter_mut().find(|m| !m.from_me && m.id == id) {
+                            m.text = new_text;
+                            m.edited = true;
+                            changed = true;
+                        }
+                    }
+                }
+                MSG_DELETE_ONE => {
+                    // The peer deleted a single one of *their* messages for both
+                    // of us — drop our copy (never our own messages).
+                    if let Some(msgs) = self.history.get_mut(&aegis_id) {
+                        let before = msgs.len();
+                        // Keep everything except the peer's message with this id
+                        // (never our own — a peer can't delete our messages).
+                        msgs.retain(|m| m.from_me || m.id != id);
+                        if msgs.len() != before {
+                            changed = true;
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1346,7 +1448,10 @@ impl AegisApp {
         // just talked to the relay.
         changed |= self.retry_failed();
         changed |= self.prune_expired();
-        Ok(PollResult { messages: out, changed })
+        Ok(PollResult {
+            messages: out,
+            changed,
+        })
     }
 }
 
@@ -1574,6 +1679,7 @@ mod tests {
                 id,
                 status: STATUS_FAILED,
                 expires_at_ms: 0,
+                edited: false,
             });
         assert_eq!(alice.history(bob.my_aegis_id()).len(), 1);
 
@@ -1603,7 +1709,7 @@ mod tests {
         assert!(!is_newer_version("1.2.0", "1.2"));
         assert!(!is_newer_version("2.0.0", "1.9.9"));
         assert!(!is_newer_version("1.0.0", "1.0.0-beta")); // suffix ignored ⇒ equal
-        // Unparseable ⇒ never nags.
+                                                           // Unparseable ⇒ never nags.
         assert!(!is_newer_version("1.0.0", "not-a-version"));
         assert!(!is_newer_version("dev", "1.0.0"));
     }
@@ -1685,12 +1791,21 @@ mod tests {
         assert!(a.notes_password_set());
 
         let blob = a.export_notes();
-        assert!(notes_blob_encrypted(&blob), "blob must be password-protected");
-        assert!(!blob.windows(4).any(|w| w == b"1234"), "no plaintext in blob");
+        assert!(
+            notes_blob_encrypted(&blob),
+            "blob must be password-protected"
+        );
+        assert!(
+            !blob.windows(4).any(|w| w == b"1234"),
+            "no plaintext in blob"
+        );
 
         // Right seed alone is not enough — a password-protected blob is locked.
         let mut b = AegisApp::create_in_memory(vec![7u8; 32]).unwrap();
-        assert!(matches!(b.restore_notes(blob.clone()), Err(AppError::NotesLocked)));
+        assert!(matches!(
+            b.restore_notes(blob.clone()),
+            Err(AppError::NotesLocked)
+        ));
         assert!(b.notes().is_empty(), "locked notes stay hidden");
         // Wrong password fails; the right one unlocks.
         assert!(b.unlock_notes("nope".into(), blob.clone()).is_err());
@@ -1756,7 +1871,10 @@ mod tests {
         assert!(alice.contacts()[0].blocked);
         bob.send(alice.my_aegis_id(), "let me in".into()).unwrap();
         transfer(&mut bob.store, &mut alice.store);
-        assert!(alice.poll().unwrap().messages.is_empty(), "blocked message delivered");
+        assert!(
+            alice.poll().unwrap().messages.is_empty(),
+            "blocked message delivered"
+        );
         assert!(alice.history(bob.my_aegis_id()).is_empty());
 
         // Unblock; a new message now arrives (the blocked one stays dropped).
@@ -1779,7 +1897,12 @@ mod tests {
                 id
             })
             .collect();
-        let order = |a: &AegisApp| a.contacts().iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+        let order = |a: &AegisApp| {
+            a.contacts()
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(order(&me), ["C2", "C3", "C4"]);
 
         // Move C2 down one place.
@@ -1843,6 +1966,53 @@ mod tests {
     }
 
     #[test]
+    fn edit_and_delete_single_message_sync_to_the_peer() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_aegis_id(), "frist".into()).unwrap();
+        alice
+            .send(bob.my_aegis_id(), "to be removed".into())
+            .unwrap();
+        let mine = alice.history(bob.my_aegis_id());
+        let id_typo = mine[0].id;
+        let id_del = mine[1].id;
+
+        // Fix the typo and delete the second message, both for both sides.
+        alice
+            .edit_message(bob.my_aegis_id(), id_typo, "first".into())
+            .unwrap();
+        assert_eq!(alice.history(bob.my_aegis_id())[0].text, "first");
+        assert!(alice.history(bob.my_aegis_id())[0].edited);
+        alice
+            .delete_message(bob.my_aegis_id(), id_del, true)
+            .unwrap();
+        assert_eq!(
+            alice.history(bob.my_aegis_id()).len(),
+            1,
+            "deleted on Alice's side"
+        );
+
+        // One transfer carries the two texts + the edit + the delete, in order.
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        let got = bob.history(alice.my_aegis_id());
+        assert_eq!(
+            got.len(),
+            1,
+            "the deleted message is gone on Bob's side too"
+        );
+        assert_eq!(got[0].text, "first", "Bob sees the edited text");
+        assert!(got[0].edited, "and it is marked edited");
+    }
+
+    #[test]
     fn pinned_flag_and_order_survive_a_restart() {
         let mut me = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
         let a = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
@@ -1853,7 +2023,10 @@ mod tests {
             .unwrap();
         me.set_pinned(b.my_aegis_id(), true).unwrap();
         assert_eq!(
-            me.contacts().iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            me.contacts()
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>(),
             ["B", "A"]
         );
 
@@ -1861,7 +2034,10 @@ mod tests {
         let mut me = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
         me.restore_state(blob).unwrap();
         let cs = me.contacts();
-        assert_eq!(cs.iter().map(|c| c.name.clone()).collect::<Vec<_>>(), ["B", "A"]);
+        assert_eq!(
+            cs.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            ["B", "A"]
+        );
         assert!(cs[0].pinned);
         assert!(!cs[1].pinned);
     }
