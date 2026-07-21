@@ -242,6 +242,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
+          _sectionHeader('Account'),
           _card(
             icon: Icons.badge_rounded,
             title: 'Your profile',
@@ -250,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // The real account's lock/duress settings are hidden in the decoy so
           // an attacker there can't change or discard the real vault.
           if (!e.isDecoy) ...[
+          _sectionHeader('Security & locks'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.lock_rounded,
@@ -459,6 +461,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
           ],
+          _sectionHeader('Privacy & backup'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.key_rounded,
@@ -572,6 +575,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          _sectionHeader('Network & device'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.vpn_lock_rounded,
@@ -723,6 +727,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          _sectionHeader('Danger zone'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.local_fire_department_rounded,
@@ -819,6 +824,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          _sectionHeader('About'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.system_update_rounded,
@@ -1169,31 +1175,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required Widget child,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AegisTheme.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AegisTheme.surfaceHi),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              ShaderMask(
-                shaderCallback: (r) => AegisTheme.shield.createShader(r),
-                child: Icon(icon, size: 20, color: Colors.white),
-              ),
-              const SizedBox(width: 10),
-              GradientText(title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  )),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AegisTheme.surfaceHi,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  alignment: Alignment.center,
+                  child: ShaderMask(
+                    shaderCallback: (r) => AegisTheme.shield.createShader(r),
+                    child: Icon(icon, size: 18, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                GradientText(title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    )),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          child,
+          const Divider(height: 1, color: AegisTheme.surfaceHi),
+          Padding(padding: const EdgeInsets.all(16), child: child),
         ],
+      ),
+    );
+  }
+
+  /// A gradient, letter-spaced section label to break the settings list into
+  /// groups. Carries its own top spacing so it can be dropped between cards.
+  Widget _sectionHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
+      child: GradientText(
+        label.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 2,
+        ),
       ),
     );
   }
