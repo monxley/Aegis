@@ -1,16 +1,21 @@
-# Aegis
+<div align="center">
+
+<img src="docs/brand/lockup.png" alt="AEGIS — post-quantum private messenger" width="560">
 
 **An anonymous, end-to-end-encrypted, post-quantum messenger built on the
 [Ciphra](https://github.com/monxley/Ciphra) cryptographic core.**
 
+*A message you cannot intercept, and if you do, cannot read —<br>and cannot tell who it was between.*
+
+<sub>No phone numbers · no central account · Monero-style stealth addressing · a blind, replicated relay</sub>
+
+</div>
+
+![Aegis — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
+
 Aegis is a Session-class messenger — no phone numbers, no central account — that
 borrows Monero / CryptoNote *stealth addressing* for recipient unlinkability and
 reuses Ciphra's blind, replicated server as a store-and-forward relay.
-
-The design goal, in one line: **a message you cannot intercept, and if you do,
-cannot read — and cannot tell who it was between.**
-
-![Aegis — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
 
 ## Status
 
