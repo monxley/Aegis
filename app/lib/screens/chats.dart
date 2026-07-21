@@ -12,6 +12,7 @@ import 'chat.dart';
 import 'identity.dart';
 import 'nodes.dart';
 import 'notes.dart';
+import 'search.dart';
 import 'settings.dart';
 
 /// The home screen: the list of conversations. Rebuilds whenever the engine
@@ -73,6 +74,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Search',
+            icon: const Icon(Icons.search_rounded, color: AegisTheme.textHi),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SearchScreen(engine: engine),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'My identity',
             icon: const Icon(Icons.badge_rounded, color: AegisTheme.textHi),
