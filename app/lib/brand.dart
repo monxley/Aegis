@@ -278,3 +278,72 @@ class _RingPainter extends CustomPainter {
   bool shouldRepaint(_RingPainter old) =>
       old.progress != progress || old.error != error;
 }
+
+/// Text painted with a gradient (defaults to the brand cyan→violet). Handy for
+/// section titles and headers.
+class GradientText extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  final Gradient gradient;
+  const GradientText(
+    this.text, {
+    super.key,
+    required this.style,
+    this.gradient = AegisTheme.shield,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      shaderCallback: (bounds) => gradient.createShader(bounds),
+      blendMode: BlendMode.srcIn,
+      child: Text(text, style: style.copyWith(color: Colors.white)),
+    );
+  }
+}
+
+/// A centred, on-brand empty state: a brand glyph over a title and subtitle.
+class BrandEmptyState extends StatelessWidget {
+  final String asset;
+  final String title;
+  final String subtitle;
+  final double glyphSize;
+  const BrandEmptyState({
+    super.key,
+    required this.asset,
+    required this.title,
+    required this.subtitle,
+    this.glyphSize = 104,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            BrandGlyph(asset, size: glyphSize),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AegisTheme.textHi,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AegisTheme.textLo, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
