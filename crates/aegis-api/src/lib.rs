@@ -47,7 +47,13 @@ fn now_ms() -> u64 {
 
 /// Version tag on exported app state; bump on a format change. v2 adds the
 /// per-message id and delivery status; v1 blobs still load (id 0, status sent).
-const APP_STATE_VERSION: u8 = 6;
+const APP_STATE_VERSION: u8 = 7;
+
+/// PBKDF2 iterations for a per-chat password (heavy, like the notes password —
+/// a rarely-typed human secret deserves real stretching).
+const CHAT_ITERATIONS: u32 = 314_159;
+/// AAD binding a per-chat history blob to its purpose.
+const CHAT_HISTORY_AAD: &[u8] = b"aegis-chat-history-v1";
 
 // --- app-level message framing (inside the E2E plaintext) ----------------
 //
@@ -127,6 +133,9 @@ struct AppState {
     contacts: Vec<StoredContact>,
     history: HashMap<String, Vec<ChatMessage>>,
     disappearing: HashMap<String, u32>,
+    /// Password-protected chats, all starting **locked** (their history stays
+    /// sealed until unlocked with the per-chat password).
+    locked_chats: HashMap<String, LockedChat>,
 }
 
 /// A bounds-checked reader for [`AegisApp::restore_state`].
@@ -232,11 +241,35 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
         }
     }
 
+    // v7: password-protected chats. Each restores **locked**: its history stays
+    // sealed under the per-chat password until unlocked.
+    let mut locked_chats = HashMap::new();
+    if version >= 7 {
+        let n = r.u32()? as usize;
+        for _ in 0..n {
+            let aegis_id = r.string()?;
+            let salt: [u8; 16] = r.bytes()?.try_into().ok()?;
+            let iters = r.u32()?;
+            let history_ct = r.bytes()?.to_vec();
+            let pending = deserialize_msgs(r.bytes()?)?;
+            locked_chats.insert(
+                aegis_id,
+                LockedChat {
+                    salt,
+                    iters,
+                    history_ct,
+                    pending,
+                },
+            );
+        }
+    }
+
     Some(AppState {
         client,
         contacts,
         history,
         disappearing,
+        locked_chats,
     })
 }
 
@@ -315,6 +348,84 @@ struct NotesPw {
     salt: [u8; 16],
     iters: u32,
     key: [u8; 32],
+}
+
+/// A password-protected chat that is currently **unlocked** this session: we
+/// hold its derived key, so its history lives in `history` (plaintext in memory)
+/// and is re-sealed under this key when persisted.
+#[derive(Clone)]
+struct ChatPw {
+    salt: [u8; 16],
+    iters: u32,
+    key: [u8; 32],
+}
+
+/// A password-protected chat that is currently **locked** (the password hasn't
+/// been entered this session): its history stays sealed, and any messages that
+/// arrive meanwhile are buffered in `pending` (protected only by the outer
+/// seed-key state seal until the chat is unlocked and they merge in).
+#[derive(Clone)]
+struct LockedChat {
+    salt: [u8; 16],
+    iters: u32,
+    /// The password-sealed serialized history (`nonce ‖ ciphertext`).
+    history_ct: Vec<u8>,
+    /// Messages received while locked, to be merged in on unlock.
+    pending: Vec<ChatMessage>,
+}
+
+/// Serialize a message list (count-prefixed) — used for the per-chat history
+/// blob and its pending buffer. Always the current on-disk field layout.
+fn serialize_msgs(msgs: &[ChatMessage]) -> Vec<u8> {
+    let mut w = StateWriter::new();
+    w.push_u32(msgs.len() as u32);
+    for m in msgs {
+        w.push_u8(m.from_me as u8);
+        w.push_bytes(m.text.as_bytes());
+        w.push_u64(m.timestamp_ms);
+        w.push_u64(m.id);
+        w.push_u8(m.status);
+        w.push_u64(m.expires_at_ms);
+        w.push_u8(m.edited as u8);
+    }
+    w.into_bytes()
+}
+
+/// Inverse of [`serialize_msgs`].
+fn deserialize_msgs(bytes: &[u8]) -> Option<Vec<ChatMessage>> {
+    let mut r = StateReader::new(bytes);
+    let n = r.u32()? as usize;
+    let mut v = Vec::with_capacity(n);
+    for _ in 0..n {
+        v.push(ChatMessage {
+            from_me: r.u8()? != 0,
+            text: r.string()?,
+            timestamp_ms: r.u64()?,
+            id: r.u64()?,
+            status: r.u8()?,
+            expires_at_ms: r.u64()?,
+            edited: r.u8()? != 0,
+        });
+    }
+    Some(v)
+}
+
+/// Seal `plain` under `key` as `nonce(12) ‖ ciphertext`.
+fn seal_blob(plain: &[u8], key: &[u8; 32], aad: &[u8]) -> Vec<u8> {
+    let mut nonce = [0u8; 12];
+    aegis_crypto::fill_random(&mut nonce);
+    let mut out = nonce.to_vec();
+    out.extend_from_slice(&aegis_crypto::aead::seal(key, &nonce, plain, aad));
+    out
+}
+
+/// Open a blob produced by [`seal_blob`]. `None` on a wrong key / tamper.
+fn open_blob(blob: &[u8], key: &[u8; 32], aad: &[u8]) -> Option<Vec<u8>> {
+    if blob.len() < 12 {
+        return None;
+    }
+    let nonce: [u8; 12] = blob[..12].try_into().ok()?;
+    aegis_crypto::aead::open(key, &nonce, &blob[12..], aad)
 }
 
 /// Derive the notes-encryption key from the master seed (HKDF-SHA256). Distinct
@@ -485,6 +596,13 @@ pub struct AegisApp {
     /// key (device seed **and** the notes password are both required to read
     /// them). `None` = seed-only.
     notes_pw: Option<NotesPw>,
+    /// Per-chat passwords that have been **unlocked** this session (aegis_id →
+    /// derived key). Their history is in `history` and re-sealed under this key
+    /// when persisted.
+    chat_pw: HashMap<String, ChatPw>,
+    /// Per-chat passwords still **locked** this session — history sealed, new
+    /// messages buffered until unlocked.
+    locked_chats: HashMap<String, LockedChat>,
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -630,6 +748,8 @@ impl AegisApp {
             notes_key: derive_notes_key(seed),
             state_key: derive_state_key(seed),
             notes_pw: None,
+            chat_pw: HashMap::new(),
+            locked_chats: HashMap::new(),
         }
     }
 
@@ -848,11 +968,100 @@ impl AegisApp {
         Ok(())
     }
 
+    // --- per-chat password (lock an individual conversation) ------------------
+
+    /// Whether a chat has a password (locked or unlocked this session).
+    fn is_chat_protected(&self, aegis_id: &str) -> bool {
+        self.chat_pw.contains_key(aegis_id) || self.locked_chats.contains_key(aegis_id)
+    }
+
+    /// Whether this chat has a per-chat password set.
+    pub fn chat_has_password(&self, aegis_id: String) -> bool {
+        self.is_chat_protected(&aegis_id)
+    }
+
+    /// Whether this chat is currently locked (password not yet entered this
+    /// session). A locked chat's history is hidden until [`unlock_chat`].
+    pub fn chat_locked(&self, aegis_id: String) -> bool {
+        self.locked_chats.contains_key(&aegis_id)
+    }
+
+    /// Put a password on a conversation. The chat must be accessible now (not
+    /// locked). Its history is sealed under a key stretched from the password
+    /// (PBKDF2, [`CHAT_ITERATIONS`]) whenever it is persisted, so reading it
+    /// needs the device seed **and** this password.
+    pub fn set_chat_password(
+        &mut self,
+        aegis_id: String,
+        password: String,
+    ) -> Result<(), AppError> {
+        if self.locked_chats.contains_key(&aegis_id) {
+            return Err(AppError::NotesLocked);
+        }
+        let mut salt = [0u8; 16];
+        aegis_crypto::fill_random(&mut salt);
+        let key = derive_pw_key(&password, &salt, CHAT_ITERATIONS);
+        self.chat_pw.insert(
+            aegis_id,
+            ChatPw {
+                salt,
+                iters: CHAT_ITERATIONS,
+                key,
+            },
+        );
+        Ok(())
+    }
+
+    /// Remove a chat's password (the chat must be unlocked). Its history reverts
+    /// to seed-only encryption like every other chat.
+    pub fn remove_chat_password(&mut self, aegis_id: String) -> Result<(), AppError> {
+        if self.locked_chats.contains_key(&aegis_id) {
+            return Err(AppError::NotesLocked);
+        }
+        self.chat_pw.remove(&aegis_id);
+        Ok(())
+    }
+
+    /// Unlock a locked chat with its password: decrypt its history, merge any
+    /// messages that arrived while it was locked, and reveal it for this session.
+    /// Wrong password ⇒ [`AppError::NotesLocked`] and the chat stays locked.
+    pub fn unlock_chat(&mut self, aegis_id: String, password: String) -> Result<(), AppError> {
+        let locked = self
+            .locked_chats
+            .remove(&aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let key = derive_pw_key(&password, &locked.salt, locked.iters);
+        match open_blob(&locked.history_ct, &key, CHAT_HISTORY_AAD)
+            .and_then(|plain| deserialize_msgs(&plain))
+        {
+            Some(mut msgs) => {
+                msgs.extend(locked.pending.iter().cloned());
+                self.history.insert(aegis_id.clone(), msgs);
+                self.chat_pw.insert(
+                    aegis_id,
+                    ChatPw {
+                        salt: locked.salt,
+                        iters: locked.iters,
+                        key,
+                    },
+                );
+                Ok(())
+            }
+            None => {
+                // Wrong password (or tampered blob) — leave it locked.
+                self.locked_chats.insert(aegis_id, locked);
+                Err(AppError::NotesLocked)
+            }
+        }
+    }
+
     /// Drop every local trace of a conversation with `aegis_id`.
     fn remove_conversation(&mut self, aegis_id: &str) {
         self.contacts.retain(|c| c.aegis_id != aegis_id);
         self.history.remove(aegis_id);
         self.disappearing.remove(aegis_id);
+        self.chat_pw.remove(aegis_id);
+        self.locked_chats.remove(aegis_id);
     }
 
     // --- Notes (local-only, encrypted self-chat) ------------------------------
@@ -1263,8 +1472,15 @@ impl AegisApp {
             w.push_u8(c.blocked as u8); // v5
         }
 
-        w.push_u32(self.history.len() as u32);
-        for (aegis_id, msgs) in &self.history {
+        // Password-protected chats are NOT written here in the clear — their
+        // history goes to the sealed v7 section below.
+        let plain: Vec<(&String, &Vec<ChatMessage>)> = self
+            .history
+            .iter()
+            .filter(|(id, _)| !self.is_chat_protected(id))
+            .collect();
+        w.push_u32(plain.len() as u32);
+        for (aegis_id, msgs) in plain {
             w.push_bytes(aegis_id.as_bytes());
             w.push_u32(msgs.len() as u32);
             for m in msgs {
@@ -1284,6 +1500,26 @@ impl AegisApp {
             w.push_bytes(aegis_id.as_bytes());
             w.push_u32(*secs);
         }
+
+        // v7: password-protected chats. Unlocked ones seal their live history
+        // under the chat key now; locked ones carry their still-sealed blob and
+        // the buffered pending list.
+        w.push_u32((self.chat_pw.len() + self.locked_chats.len()) as u32);
+        for (id, pw) in &self.chat_pw {
+            let msgs: &[ChatMessage] = self.history.get(id).map(|m| m.as_slice()).unwrap_or(&[]);
+            w.push_bytes(id.as_bytes());
+            w.push_bytes(&pw.salt);
+            w.push_u32(pw.iters);
+            w.push_bytes(&seal_blob(&serialize_msgs(msgs), &pw.key, CHAT_HISTORY_AAD));
+            w.push_bytes(&serialize_msgs(&[]));
+        }
+        for (id, lc) in &self.locked_chats {
+            w.push_bytes(id.as_bytes());
+            w.push_bytes(&lc.salt);
+            w.push_u32(lc.iters);
+            w.push_bytes(&lc.history_ct);
+            w.push_bytes(&serialize_msgs(&lc.pending));
+        }
         w.into_bytes()
     }
 
@@ -1299,6 +1535,10 @@ impl AegisApp {
         self.contacts = parsed.contacts;
         self.history = parsed.history;
         self.disappearing = parsed.disappearing;
+        // Protected chats come back locked; nothing is unlocked until the user
+        // enters the per-chat password this session.
+        self.locked_chats = parsed.locked_chats;
+        self.chat_pw.clear();
         Ok(())
     }
 
@@ -1377,26 +1617,34 @@ impl AegisApp {
                         self.disappearing.insert(aegis_id.clone(), ttl);
                     }
                     let now = now_ms();
-                    self.history
-                        .entry(aegis_id.clone())
-                        .or_default()
-                        .push(ChatMessage {
-                            from_me: false,
-                            text: text.clone(),
-                            timestamp_ms: now,
-                            id,
-                            status: STATUS_SENT,
-                            expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
-                            edited: false,
-                        });
+                    let msg = ChatMessage {
+                        from_me: false,
+                        text: text.clone(),
+                        timestamp_ms: now,
+                        id,
+                        status: STATUS_SENT,
+                        expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
+                        edited: false,
+                    };
+                    // If the chat is locked, buffer the message (its plaintext
+                    // history isn't in memory); it merges in on unlock.
+                    if let Some(locked) = self.locked_chats.get_mut(&aegis_id) {
+                        locked.pending.push(msg);
+                    } else {
+                        self.history.entry(aegis_id.clone()).or_default().push(msg);
+                    }
                     // Confirm receipt to the sender (their copy turns "delivered").
                     self.send_receipt(&r.from, id, MSG_DELIVERED);
                     changed = true;
-                    out.push(IncomingMessage {
-                        from_aegis_id: aegis_id,
-                        from_name,
-                        text,
-                    });
+                    // Don't surface a locked chat's text to the UI/notification —
+                    // it stays hidden until the chat is unlocked.
+                    if !self.locked_chats.contains_key(&aegis_id) {
+                        out.push(IncomingMessage {
+                            from_aegis_id: aegis_id,
+                            from_name,
+                            text,
+                        });
+                    }
                 }
                 MSG_DELIVERED => changed |= self.advance_status(&aegis_id, id, STATUS_DELIVERED),
                 MSG_READ => changed |= self.advance_status(&aegis_id, id, STATUS_READ),
@@ -2076,6 +2324,63 @@ mod tests {
         let got = alice.poll().unwrap().messages;
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].text, "still connected");
+    }
+
+    #[test]
+    fn per_chat_password_seals_history_and_buffers_while_locked() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // Exchange one message so Alice has history and a live session.
+        alice.send(bob.my_aegis_id(), "before lock".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        // Lock the Bob chat with a password, then "restart".
+        alice
+            .set_chat_password(bob.my_aegis_id(), "hunter2".into())
+            .unwrap();
+        let blob = alice.export_state();
+        assert!(
+            !blob.windows(11).any(|w| w == b"before lock"),
+            "a protected chat's history is sealed, never in the clear"
+        );
+
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        alice.restore_state(blob).unwrap();
+
+        // After restart the chat is locked: history hidden.
+        assert!(alice.chat_locked(bob.my_aegis_id()));
+        assert!(alice.chat_has_password(bob.my_aegis_id()));
+        assert!(alice.history(bob.my_aegis_id()).is_empty());
+
+        // A message that arrives while locked is buffered, not surfaced.
+        bob.send(alice.my_aegis_id(), "while locked".into())
+            .unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        assert!(alice.poll().unwrap().messages.is_empty());
+        assert!(alice.history(bob.my_aegis_id()).is_empty());
+
+        // Wrong password fails and keeps it locked.
+        assert!(alice
+            .unlock_chat(bob.my_aegis_id(), "wrong".into())
+            .is_err());
+        assert!(alice.chat_locked(bob.my_aegis_id()));
+
+        // Right password reveals the original + buffered messages.
+        alice
+            .unlock_chat(bob.my_aegis_id(), "hunter2".into())
+            .unwrap();
+        assert!(!alice.chat_locked(bob.my_aegis_id()));
+        let h = alice.history(bob.my_aegis_id());
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].text, "before lock");
+        assert_eq!(h[1].text, "while locked");
     }
 
     #[test]
