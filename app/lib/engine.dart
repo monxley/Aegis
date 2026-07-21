@@ -1214,6 +1214,25 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Edit one of our own sent messages, syncing the new text to the peer.
+  Future<void> editMessage(String aegisId, BigInt id, String newText) async {
+    await _engine?.editMessage(aegisId: aegisId, id: id, newText: newText);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Delete a single message. [forBoth] also asks the peer to delete it (only
+  /// meaningful for our own messages).
+  Future<void> deleteMessage(
+    String aegisId,
+    BigInt id, {
+    required bool forBoth,
+  }) async {
+    await _engine?.deleteMessage(aegisId: aegisId, id: id, forBoth: forBoth);
+    _persist();
+    notifyListeners();
+  }
+
   /// Pin or unpin a chat (pinned chats sort to the top of the list).
   Future<void> setPinned(String aegisId, bool pinned) async {
     await _engine?.setPinned(aegisId: aegisId, pinned: pinned);
