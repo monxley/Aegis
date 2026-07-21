@@ -33,7 +33,9 @@ class AegisTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: bg,
+      // Transparent so the app-wide AuroraBackground (painted once at the root
+      // in main.dart) shows through every screen; opaque bars/cards sit on top.
+      scaffoldBackgroundColor: Colors.transparent,
       // A soft fade + rise on every route push/pop, on every platform.
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {

@@ -138,14 +138,12 @@ class _LockScreenState extends State<LockScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AuroraBackground(
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                 const Spacer(),
                 Center(
                   child: AnimatedBuilder(
@@ -250,7 +248,6 @@ class _LockScreenState extends State<LockScreen>
             ),
           ),
         ),
-      ),
     );
   }
 }
