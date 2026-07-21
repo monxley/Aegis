@@ -1247,6 +1247,37 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- per-chat password (lock an individual conversation) ------------------
+
+  /// Whether this conversation has its own password.
+  bool chatHasPassword(String aegisId) =>
+      _engine?.chatHasPassword(aegisId: aegisId) ?? false;
+
+  /// Whether this conversation is currently locked (needs its password).
+  bool chatLocked(String aegisId) =>
+      _engine?.chatLocked(aegisId: aegisId) ?? false;
+
+  /// Set a password on this conversation (its history is sealed under it).
+  Future<void> setChatPassword(String aegisId, String password) async {
+    await _engine?.setChatPassword(aegisId: aegisId, password: password);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Remove this conversation's password (it must be unlocked).
+  Future<void> removeChatPassword(String aegisId) async {
+    await _engine?.removeChatPassword(aegisId: aegisId);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Unlock a locked conversation with its password (throws on a wrong one).
+  Future<void> unlockChat(String aegisId, String password) async {
+    await _engine?.unlockChat(aegisId: aegisId, password: password);
+    _persist();
+    notifyListeners();
+  }
+
   /// Pin or unpin a chat (pinned chats sort to the top of the list).
   Future<void> setPinned(String aegisId, bool pinned) async {
     await _engine?.setPinned(aegisId: aegisId, pinned: pinned);

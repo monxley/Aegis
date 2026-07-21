@@ -186,6 +186,83 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _chatPasswordAction() async {
+    final id = widget.contact.aegisId;
+    if (widget.engine.chatHasPassword(id)) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          backgroundColor: AegisTheme.surface,
+          title: const Text('Remove chat password?',
+              style: TextStyle(color: AegisTheme.textHi)),
+          content: const Text(
+            'This conversation will no longer ask for its own password.',
+            style: TextStyle(color: AegisTheme.textLo),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(d, false),
+                child: const Text('Cancel',
+                    style: TextStyle(color: AegisTheme.textLo))),
+            TextButton(
+                onPressed: () => Navigator.pop(d, true),
+                child: const Text('Remove',
+                    style: TextStyle(color: AegisTheme.danger))),
+          ],
+        ),
+      );
+      if (ok == true) await widget.engine.removeChatPassword(id);
+      return;
+    }
+    final controller = TextEditingController();
+    final pw = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        backgroundColor: AegisTheme.surface,
+        title: const Text('Set chat password',
+            style: TextStyle(color: AegisTheme.textHi)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              style: const TextStyle(color: AegisTheme.textHi),
+              decoration: const InputDecoration(hintText: 'Password'),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'This chat’s history is sealed under this password. It will ask '
+              'for it after the app restarts. There is no recovery if you '
+              'forget it.',
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d),
+              child: const Text('Cancel',
+                  style: TextStyle(color: AegisTheme.textLo))),
+          TextButton(
+              onPressed: () => Navigator.pop(d, controller.text),
+              child: const Text('Set',
+                  style: TextStyle(color: AegisTheme.accent))),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (pw != null && pw.trim().isNotEmpty) {
+      await widget.engine.setChatPassword(id, pw.trim());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Chat locked — it will ask for this password on restart'),
+        ));
+      }
+    }
+  }
+
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty) return;
@@ -213,7 +290,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final history = widget.engine.history(widget.contact.aegisId);
+    final locked = widget.engine.chatLocked(widget.contact.aegisId);
+    final history = locked
+        ? const <ChatMessage>[]
+        : widget.engine.history(widget.contact.aegisId);
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -258,9 +338,24 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.verified_user_rounded, color: AegisTheme.textHi),
             onPressed: _showSafetyNumber,
           ),
+          if (!locked)
+            IconButton(
+              tooltip: 'Chat password',
+              icon: Icon(
+                widget.engine.chatHasPassword(widget.contact.aegisId)
+                    ? Icons.lock_rounded
+                    : Icons.lock_open_rounded,
+                color: widget.engine.chatHasPassword(widget.contact.aegisId)
+                    ? AegisTheme.accent
+                    : AegisTheme.textHi,
+              ),
+              onPressed: _chatPasswordAction,
+            ),
         ],
       ),
-      body: Column(
+      body: locked
+          ? _ChatLock(engine: widget.engine, contact: widget.contact)
+          : Column(
         children: [
           if (_isBlocked)
             Container(
@@ -652,6 +747,104 @@ class _ChatEmpty extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The unlock view shown in place of a locked conversation: enter the per-chat
+/// password to reveal it. On success the engine notifies and the parent chat
+/// screen rebuilds unlocked.
+class _ChatLock extends StatefulWidget {
+  final AegisEngineController engine;
+  final Contact contact;
+  const _ChatLock({required this.engine, required this.contact});
+
+  @override
+  State<_ChatLock> createState() => _ChatLockState();
+}
+
+class _ChatLockState extends State<_ChatLock> {
+  final _pw = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _pw.dispose();
+    super.dispose();
+  }
+
+  Future<void> _unlock() async {
+    if (_pw.text.isEmpty || _busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.engine.unlockChat(widget.contact.aegisId, _pw.text);
+      // Success: the engine notifies and the parent rebuilds unlocked.
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = 'Wrong password.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.lock_rounded, size: 56, color: AegisTheme.accent),
+            const SizedBox(height: 16),
+            const Text(
+              'This chat is locked',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AegisTheme.textHi,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Enter this conversation’s password to open it. Its history stays '
+              'sealed until you do.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _pw,
+              autofocus: true,
+              obscureText: true,
+              enabled: !_busy,
+              style: const TextStyle(color: AegisTheme.textHi),
+              textInputAction: TextInputAction.go,
+              onSubmitted: (_) => _unlock(),
+              decoration: InputDecoration(
+                hintText: 'Password',
+                prefixIcon:
+                    const Icon(Icons.lock_rounded, color: AegisTheme.textLo),
+                errorText: _error,
+              ),
+            ),
+            const SizedBox(height: 14),
+            GradientButton(
+              label: _busy ? 'Unlocking…' : 'Unlock',
+              icon: Icons.lock_open_rounded,
+              onPressed: _busy ? null : _unlock,
+            ),
+          ],
+        ),
       ),
     );
   }
