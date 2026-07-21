@@ -15,6 +15,7 @@ import 'src/rust/frb_generated.dart';
 import 'background.dart';
 import 'biometrics.dart';
 import 'config.dart';
+import 'device_integrity.dart';
 import 'disguise.dart';
 import 'notifications.dart';
 import 'screen_security.dart';
@@ -487,6 +488,19 @@ class AegisEngineController extends ChangeNotifier {
     _failedUnlocks = prefs.getInt(_failedUnlocksKey) ?? 0;
     // Check for a newer release in the background (never blocks startup).
     unawaited(checkForUpdate());
+    // Best-effort root/emulator check (device hardening §1.4).
+    unawaited(_checkIntegrity());
+  }
+
+  DeviceIntegrity? _integrity;
+
+  /// The result of the root/emulator check (null until it has run). `flagged`
+  /// is true if anything worth warning about was detected.
+  DeviceIntegrity? get deviceIntegrity => _integrity;
+
+  Future<void> _checkIntegrity() async {
+    _integrity = await DeviceIntegrity.check();
+    if (_integrity!.flagged) notifyListeners();
   }
 
   // --- auto-lock & wipe-after-failed-attempts -------------------------------
