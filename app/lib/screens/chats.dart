@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../brand.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -454,8 +455,8 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            Icon(Icons.forum_rounded, size: 56, color: AegisTheme.surfaceHi),
-            SizedBox(height: 16),
+            BrandGlyph(Brand.shieldLayered, size: 104),
+            SizedBox(height: 18),
             Text(
               'No conversations yet',
               style: TextStyle(

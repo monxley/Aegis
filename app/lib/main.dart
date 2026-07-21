@@ -29,6 +29,11 @@ class AegisApp extends StatelessWidget {
       title: 'Aegis',
       debugShowCheckedModeBanner: false,
       theme: AegisTheme.dark,
+      // Paint the living aurora once, behind every route. Scaffolds are
+      // transparent (see theme) so it shows through the whole app; opaque app
+      // bars, cards and sheets sit on top.
+      builder: (context, child) =>
+          AuroraBackground(child: child ?? const SizedBox.shrink()),
       home: _Bootstrap(engine: engine),
     );
   }
@@ -206,25 +211,22 @@ class _SplashState extends State<_Splash>
   Widget build(BuildContext context) {
     final fade = CurvedAnimation(parent: _intro, curve: Curves.easeOut);
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AuroraBackground(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FadeTransition(
-                opacity: fade,
-                child: ScaleTransition(
-                  scale: Tween(begin: 0.86, end: 1.0).animate(
-                    CurvedAnimation(parent: _intro, curve: Curves.easeOutBack),
-                  ),
-                  child: const AegisLockupVertical(width: 240),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FadeTransition(
+              opacity: fade,
+              child: ScaleTransition(
+                scale: Tween(begin: 0.86, end: 1.0).animate(
+                  CurvedAnimation(parent: _intro, curve: Curves.easeOutBack),
                 ),
+                child: const AegisLockupVertical(width: 240),
               ),
-              const SizedBox(height: 44),
-              FadeTransition(opacity: fade, child: const ShimmerBar()),
-            ],
-          ),
+            ),
+            const SizedBox(height: 44),
+            FadeTransition(opacity: fade, child: const ShimmerBar()),
+          ],
         ),
       ),
     );
