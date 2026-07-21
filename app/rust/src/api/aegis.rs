@@ -409,6 +409,36 @@ impl AegisEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Whether this chat has a per-chat password set.
+    #[frb(sync)]
+    pub fn chat_has_password(&self, aegis_id: String) -> bool {
+        self.with(|app| app.chat_has_password(aegis_id))
+    }
+
+    /// Whether this chat is currently locked (needs the per-chat password).
+    #[frb(sync)]
+    pub fn chat_locked(&self, aegis_id: String) -> bool {
+        self.with(|app| app.chat_locked(aegis_id))
+    }
+
+    /// Put a password on a conversation (its history is sealed under it at rest).
+    pub fn set_chat_password(&self, aegis_id: String, password: String) -> Result<(), String> {
+        self.with(|app| app.set_chat_password(aegis_id, password))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Remove a chat's password (the chat must be unlocked).
+    pub fn remove_chat_password(&self, aegis_id: String) -> Result<(), String> {
+        self.with(|app| app.remove_chat_password(aegis_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Unlock a locked chat with its password (wrong password errors).
+    pub fn unlock_chat(&self, aegis_id: String, password: String) -> Result<(), String> {
+        self.with(|app| app.unlock_chat(aegis_id, password))
+            .map_err(|e| e.to_string())
+    }
+
     /// The private notes (local-only self-chat), oldest first.
     #[frb(sync)]
     pub fn notes(&self) -> Vec<Note> {
