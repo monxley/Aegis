@@ -28,6 +28,7 @@ class ChatsScreen extends StatefulWidget {
 class _ChatsScreenState extends State<ChatsScreen> {
   AegisEngineController get engine => widget.engine;
   bool _updateDialogShown = false;
+  bool _securityDismissed = false;
 
   @override
   void initState() {
@@ -116,9 +117,17 @@ class _ChatsScreenState extends State<ChatsScreen> {
         animation: engine,
         builder: (context, _) {
           final update = engine.availableUpdate;
+          final integrity = engine.deviceIntegrity;
           final contacts = engine.contacts();
           return Column(
             children: [
+              if (integrity != null &&
+                  integrity.flagged &&
+                  !_securityDismissed)
+                _SecurityBanner(
+                  reason: integrity.reason,
+                  onDismiss: () => setState(() => _securityDismissed = true),
+                ),
               if (update != null) _UpdateBanner(engine: engine, update: update),
               _NotesTile(engine: engine),
               const Divider(height: 1, indent: 82, color: Color(0xFF1B1E29)),
@@ -491,6 +500,45 @@ class _EmptyState extends StatelessWidget {
 
 /// A persistent strip at the top of the chat list when a newer release exists.
 /// Tapping it opens the update dialog. Amber, because ignoring it can break
+/// A dismissible warning shown when the app looks like it's running on a rooted
+/// device or an emulator — a device-hardening hint (§1.4), not a guarantee.
+class _SecurityBanner extends StatelessWidget {
+  final String reason;
+  final VoidCallback onDismiss;
+  const _SecurityBanner({required this.reason, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AegisTheme.danger.withOpacity(0.12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.gpp_maybe_rounded,
+                color: AegisTheme.danger, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$reason On a compromised device your keys and messages can be '
+                'read while unlocked — treat this device as untrusted.',
+                style: const TextStyle(
+                    color: AegisTheme.danger, fontSize: 12.5, height: 1.3),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Dismiss',
+              icon: const Icon(Icons.close_rounded,
+                  color: AegisTheme.danger, size: 18),
+              onPressed: onDismiss,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// messaging.
 class _UpdateBanner extends StatelessWidget {
   final AegisEngineController engine;
