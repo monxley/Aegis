@@ -48,7 +48,9 @@ pub fn open_seed(password: String, blob: Vec<u8>) -> Result<Vec<u8>, String> {
 /// back up your identity. Anyone with the phrase IS you, so keep it offline.
 #[frb(sync)]
 pub fn seed_to_phrase(seed: Vec<u8>) -> Result<String, String> {
-    let seed: [u8; 32] = seed.try_into().map_err(|_| "seed must be 32 bytes".to_string())?;
+    let seed: [u8; 32] = seed
+        .try_into()
+        .map_err(|_| "seed must be 32 bytes".to_string())?;
     Ok(aegis_api::mnemonic::seed_to_phrase(&seed))
 }
 
@@ -124,8 +126,8 @@ pub fn start_forwarder_node(
     listen: String,
     delay_rate: Option<f64>,
 ) -> Result<NodeInfo, String> {
-    let handle = aegis_api::run_forwarder_node(bootstrap, listen, delay_rate)
-        .map_err(|e| e.to_string())?;
+    let handle =
+        aegis_api::run_forwarder_node(bootstrap, listen, delay_rate).map_err(|e| e.to_string())?;
     Ok(NodeInfo {
         address: handle.address,
         node_id: handle.node_id,
@@ -158,6 +160,8 @@ pub struct ChatMessage {
     pub status: u8,
     /// Unix-ms after which this disappearing message is gone (0 = never).
     pub expires_at_ms: u64,
+    /// Whether the message was edited after it was first sent.
+    pub edited: bool,
 }
 
 /// A message just delivered by [`AegisEngine::poll`].
@@ -214,6 +218,7 @@ impl From<ApiChatMessage> for ChatMessage {
             id: m.id,
             status: m.status,
             expires_at_ms: m.expires_at_ms,
+            edited: m.edited,
         }
     }
 }
@@ -240,7 +245,8 @@ impl AegisEngine {
     /// `relay_addr` (e.g. `"relay.example:5077"`). `master_seed` must be 32
     /// bytes. Trust-on-first-use for now.
     pub fn new_with_relay(master_seed: Vec<u8>, relay_addr: String) -> Result<AegisEngine, String> {
-        let app = AegisApp::create_with_relay(master_seed, relay_addr).map_err(|e| e.to_string())?;
+        let app =
+            AegisApp::create_with_relay(master_seed, relay_addr).map_err(|e| e.to_string())?;
         Ok(AegisEngine {
             inner: Mutex::new(app),
         })
@@ -386,6 +392,20 @@ impl AegisEngine {
     /// it too, then delete it here.
     pub fn delete_chat_for_both(&self, aegis_id: String) -> Result<(), String> {
         self.with(|app| app.delete_chat_for_both(aegis_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Edit one of our own sent messages: change its text and, best-effort, tell
+    /// the peer to update its copy.
+    pub fn edit_message(&self, aegis_id: String, id: u64, new_text: String) -> Result<(), String> {
+        self.with(|app| app.edit_message(aegis_id, id, new_text))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Delete a single message by id. `for_both` also asks the peer to delete it
+    /// (only meaningful for our own messages).
+    pub fn delete_message(&self, aegis_id: String, id: u64, for_both: bool) -> Result<(), String> {
+        self.with(|app| app.delete_message(aegis_id, id, for_both))
             .map_err(|e| e.to_string())
     }
 
