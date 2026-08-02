@@ -55,7 +55,7 @@ Status legend: 🔜 next · 📋 planned · 🔬 research / hard · ⏳ future
 |---|---|---|
 | 4.1 | 📋 **F-Droid** | Needs a reproducible build, no proprietary blobs; depends on 2.3 |
 | 4.2 | 📋 **Linux desktop** | Flutter + FRB are ready; needs a build target. Desktops make the best 24/7 nodes |
-| 4.3 | ⏳ **iOS** (future) | See the dedicated section below — larger effort than a build target |
+| 4.3 | 🧪 **iOS** (alpha) | Buildable now via `deploy/build-ios.sh` (macOS + Xcode). Core + UI + Face ID work; background receive is degraded and screenshots can't be blocked — see the section below |
 | 4.4 | 📋 In-app APK update (no browser hop) | `REQUEST_INSTALL_PACKAGES` + FileProvider + downloader (noted in the updater) |
 
 ## Horizon 5 — network & anonymity (deepening)
@@ -70,11 +70,13 @@ Status legend: 🔜 next · 📋 planned · 🔬 research / hard · ⏳ future
 
 ---
 
-## iOS support (future)
+## iOS support (alpha)
 
-iOS is a first-class goal, but it is **more than a new build target** — a few
-things that are trivial on Android need a different design on iOS, so it sits in
-Horizon 4 rather than earlier. The plan:
+iOS is now **buildable** — `deploy/build-ios.sh` (on a Mac with Xcode) cross-
+compiles the Rust engine into a static library, scaffolds the `ios/` folder,
+wires in the native glue, and produces a runnable app. It remains **alpha**
+because a few things that are trivial on Android need a different design on iOS
+and are still partial. What the build gives you today vs. what is still open:
 
 **What ports for free**
 - The **entire Rust core** (all 10 crates) compiles for `aarch64-apple-ios` and
@@ -83,35 +85,37 @@ Horizon 4 rather than earlier. The plan:
 - The **Flutter UI** runs on iOS as-is; `flutter_rust_bridge` supports iOS, so
   the `AegisEngine` handle works the same way.
 
-**What needs iOS-specific work**
+**Done in the alpha build**
+- ✅ **RNG.** The `/dev/urandom` file read (see audit F-3 / M-001) is replaced on
+  Apple platforms by a dependency-free `getentropy(3)` path in
+  `aegis-crypto::rand` — no fd, kernel CSPRNG, the recommended source on iOS.
+- ✅ **Face ID / Touch ID.** `local_auth` + `flutter_secure_storage` map to the
+  iOS Keychain (Secure Enclave where available); the build adds the required
+  `NSFaceIDUsageDescription` so the unlock flow works.
+- ✅ **App-switcher privacy.** `AppDelegate` blurs the app snapshot when it
+  resigns active, so the multitasking preview doesn't leak a conversation.
+
+**Still open on iOS**
 - **Background delivery.** Android's foreground `dataSync` service (24/7 receive)
   has no iOS equivalent. iOS forbids long-running background sockets; the design
   there is **push-triggered wake** — either silent push (needs a push service the
   user's provider can reach without deanonymizing them, which is a research
-  problem) or `BGProcessingTask` best-effort background fetch. Expect degraded,
-  not continuous, background receive on iOS. This is the single biggest gap.
-- **RNG.** Swap the `/dev/urandom` file read (see audit F-3) for
-  `SecRandomCopyBytes` / `getentropy` — this should already be behind the
-  `getrandom(2)` change in 2.6, which covers iOS too.
-- **Keystore → Keychain.** The at-rest seed protection (`flutter_secure_storage`
-  Android Keystore path) maps to the **iOS Keychain + Secure Enclave**; the
-  plugin already abstracts this, but the security properties and the biometric
-  (Face ID / Touch ID via `local_auth`) flow must be re-validated per platform.
-- **Screenshot blocking.** Android `FLAG_SECURE` has **no direct iOS equivalent**
-  — iOS can only *detect* a screenshot after the fact (`userDidTakeScreenshot`)
-  and blur on app-switch, not prevent capture. The disguise feature (launcher
-  `activity-alias`) also has no iOS analogue (no icon/alias swapping). These
-  device-hardening features (§1.4) will be **partial or absent on iOS** and must
-  be documented as such, not silently dropped.
+  problem) or `BGProcessingTask` best-effort background fetch. The build declares
+  the `fetch` background mode, but expect **degraded, not continuous**, background
+  receive on iOS. This is the single biggest gap.
+- **Screenshot blocking.** Android `FLAG_SECURE` has **no iOS equivalent** — iOS
+  can only *detect* a screenshot after the fact (`userDidTakeScreenshot`), which
+  the app wires up, and blur on app-switch (done), but it **cannot prevent**
+  capture while the app is open. The disguise feature (launcher `activity-alias`)
+  also has no iOS analogue (no icon/alias swapping) and stays Android-only. These
+  device-hardening features (§1.4) are **partial on iOS**, and the UI says so
+  rather than silently dropping them.
 - **Distribution.** No sideloading: iOS ships only via the **App Store** (or
-  TestFlight / enterprise / AltStore-style sideload). App Store review of an
+  TestFlight / enterprise / AltStore-style sideload). `build-ios.sh` stops at an
+  unsigned build; signing is a Xcode/Apple-ID step. App Store review of an
   anonymous E2EE messenger with disguise/duress features is a real risk and needs
   its own plan (the auto-update flow in Horizon 4.4 is Android-only and won't
-  apply).
-
-**Sequencing.** iOS follows the Linux desktop target (4.2) and the release-signing
-work (2.3), since it reuses the same cross-compiled core and forces the RNG (2.6)
-and background-delivery questions to be answered first.
+  apply), as does the encryption export self-classification.
 
 ---
 

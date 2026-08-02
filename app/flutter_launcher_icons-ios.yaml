@@ -1,0 +1,15 @@
+# iOS-only launcher-icon config, used by deploy/build-ios.sh:
+#   dart run flutter_launcher_icons -f flutter_launcher_icons-ios.yaml
+#
+# Kept separate from the `flutter_launcher_icons:` block in pubspec.yaml (which
+# the Android build uses) so each platform is generated on its own — the Android
+# build has no ios/ folder and the iOS build has no android/ folder.
+#
+# iOS icons must be fully opaque (the App Store rejects alpha), so the shield is
+# flattened onto a white background.
+flutter_launcher_icons:
+  ios: true
+  android: false
+  image_path: "assets/logo/icon.png"
+  remove_alpha_ios: true
+  background_color_ios: "#FFFFFF"

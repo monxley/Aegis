@@ -4,7 +4,10 @@
 //! 1. the **`getrandom(2)` syscall** on Linux/Android (x86_64 / aarch64) — it
 //!    needs no file descriptor and blocks until the kernel CSPRNG is seeded, so
 //!    it can't be starved by fd exhaustion or return unseeded output;
-//! 2. otherwise a single, lazily-opened `/dev/urandom` handle, reused across
+//! 2. the **`getentropy(3)` call** on Apple platforms (iOS / macOS) — same
+//!    property (no fd, backed by the kernel CSPRNG), the recommended entropy
+//!    source there and what `SecRandomCopyBytes`/`arc4random` sit on top of;
+//! 3. otherwise a single, lazily-opened `/dev/urandom` handle, reused across
 //!    calls so we never churn descriptors.
 //!
 //! Either way, failure to obtain randomness **panics** — proceeding with
@@ -50,9 +53,34 @@ fn getrandom_fill(buf: &mut [u8]) -> bool {
     true
 }
 
-#[cfg(not(all(
-    any(target_os = "linux", target_os = "android"),
-    any(target_arch = "x86_64", target_arch = "aarch64")
+/// Try to fill `buf` via `getentropy(3)` on Apple platforms. Returns `false`
+/// (so the caller falls back to `/dev/urandom`) only if the libc call reports an
+/// error, which should not happen for the small requests this crate makes.
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn getrandom_fill(buf: &mut [u8]) -> bool {
+    extern "C" {
+        // libSystem: fills up to 256 bytes per call, blocking until the CSPRNG
+        // is ready. Returns 0 on success, -1 on error.
+        fn getentropy(buf: *mut u8, len: usize) -> i32;
+    }
+    for chunk in buf.chunks_mut(256) {
+        // SAFETY: valid writable pointer/len; each chunk is at most 256 bytes,
+        // the documented per-call maximum.
+        let ret = unsafe { getentropy(chunk.as_mut_ptr(), chunk.len()) };
+        if ret != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(not(any(
+    all(
+        any(target_os = "linux", target_os = "android"),
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ),
+    target_os = "ios",
+    target_os = "macos"
 )))]
 fn getrandom_fill(_buf: &mut [u8]) -> bool {
     false
