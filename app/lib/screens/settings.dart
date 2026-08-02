@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -521,15 +523,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 14),
           _card(
             icon: Icons.screenshot_monitor_rounded,
-            title: 'Block screenshots',
+            // iOS has no API to block screenshots — be honest about what the
+            // toggle actually does on each platform.
+            title: Platform.isIOS ? 'Hide in app switcher' : 'Block screenshots',
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Stop screenshots and screen recording, and hide the app in '
-                    'the recent-apps switcher. On by default.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    Platform.isIOS
+                        ? 'Blur the app preview in the multitasking switcher. '
+                            'iOS cannot block screenshots, so a capture is still '
+                            'possible while the app is open. On by default.'
+                        : 'Stop screenshots and screen recording, and hide the '
+                            'app in the recent-apps switcher. On by default.',
+                    style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
                   ),
                 ),
                 Switch(

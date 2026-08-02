@@ -2,7 +2,7 @@
 
 The Aegis messenger UI — **Flutter** on top of the Rust `aegis-api` engine via
 [`flutter_rust_bridge`](https://cjycode.com/flutter_rust_bridge/). Android-first,
-Linux next; one UI codebase for both.
+with an **iOS** build (alpha) and Linux next; one UI codebase for all.
 
 ```
 ┌───────────────────────────────┐
@@ -38,6 +38,25 @@ flutter run                                                 # device/emulator
 # Linux desktop:
 flutter run -d linux
 ```
+
+### iOS (alpha)
+
+iOS must be built **on a Mac with Xcode** — Apple's toolchain has no Linux
+equivalent, so there is no headless-VPS path like the Android APK. One command
+does the whole thing (installs Rust + Apple targets + Flutter if missing,
+cross-compiles the engine to a static lib, wires it and the native glue into the
+Xcode project, and builds):
+
+```sh
+bash deploy/build-ios.sh                    # unsigned build for a physical device
+TARGET=simulator bash deploy/build-ios.sh   # for the iOS Simulator (no signing)
+```
+
+It stops at an **unsigned** app; installing on a real iPhone or shipping needs
+your Apple ID / Developer account (open `ios/Runner.xcworkspace` in Xcode, pick a
+signing Team, Run or Archive). What works, and what is still partial on iOS
+(background delivery, screenshot blocking), is tracked in `ROADMAP.md` →
+"iOS support (alpha)".
 
 `app/rust` is the flutter_rust_bridge crate: it depends on `aegis-api` (this
 workspace) and re-exports `AegisApp` for the bridge to bind. See
