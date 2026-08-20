@@ -162,6 +162,20 @@ fn parse_attach_meta(content: &[u8]) -> Option<(u8, usize, u32, u32, String, Str
     Some((kind, total_len, chunks, duration_ms, name, mime))
 }
 
+/// One-line description of a message for the chat list. An attachment has no
+/// text of its own, so it is described by what it is rather than shown blank.
+fn preview_text(m: &ChatMessage) -> String {
+    if m.kind == KIND_TEXT || !m.text.is_empty() {
+        return m.text.clone();
+    }
+    match m.kind {
+        KIND_VOICE => "🎤 Voice message".to_string(),
+        KIND_IMAGE => "📷 Photo".to_string(),
+        _ if m.file_name.is_empty() => "📎 File".to_string(),
+        _ => format!("📎 {}", m.file_name),
+    }
+}
+
 /// Set (or, for an empty `emoji`, clear) one side's reaction on a message.
 /// Each side has at most one reaction, so reacting again replaces it.
 fn set_reaction(reactions: &mut Vec<Reaction>, from_me: bool, emoji: &str) {
@@ -1043,7 +1057,7 @@ impl AegisApp {
                     aegis_id: c.aegis_id.clone(),
                     pinned: c.pinned,
                     blocked: c.blocked,
-                    last_text: last.map(|m| m.text.clone()),
+                    last_text: last.map(preview_text),
                     last_from_me: last.map(|m| m.from_me).unwrap_or(false),
                     last_ts: last.map(|m| m.timestamp_ms).unwrap_or(0),
                 }

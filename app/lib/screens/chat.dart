@@ -1,9 +1,17 @@
+import 'dart:typed_data';
+import 'dart:ui' show FontFeature;
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../attachments.dart';
+import '../bubbles.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
+import '../voice.dart';
 import '../widgets.dart';
 
 /// One conversation. Shows the history and a composer; sending goes straight
@@ -282,6 +290,150 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Send an attachment, reporting failures rather than dropping them quietly.
+  /// Large files are chunked by the engine, so this can take a moment.
+  Future<void> _sendAttachment({
+    required int kind,
+    required String name,
+    required String mime,
+    required Uint8List bytes,
+    int durationMs = 0,
+  }) async {
+    try {
+      await widget.engine.sendAttachment(
+        aegisId: widget.contact.aegisId,
+        kind: kind,
+        fileName: name,
+        mime: mime,
+        bytes: bytes,
+        durationMs: durationMs,
+      );
+      _scrollToEnd(force: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not send: $e')),
+        );
+      }
+    }
+  }
+
+  /// The "+" sheet: photo, camera, or any file.
+  Future<void> _showAttachSheet() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AegisTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AegisTheme.surfaceHi,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _attachTile(sheet, 'gallery', Icons.image_rounded, 'Photo',
+                'Send a picture from your gallery'),
+            _attachTile(sheet, 'camera', Icons.photo_camera_rounded, 'Camera',
+                'Take a photo now'),
+            _attachTile(sheet, 'file', Icons.attach_file_rounded, 'File',
+                'Send any document, encrypted end-to-end'),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case 'gallery':
+      case 'camera':
+        await _pickImage(choice == 'camera');
+      case 'file':
+        await _pickFile();
+    }
+  }
+
+  Widget _attachTile(
+    BuildContext sheet,
+    String value,
+    IconData icon,
+    String title,
+    String subtitle,
+  ) {
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: AegisTheme.accent.withValues(alpha: 0.12),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: AegisTheme.accent, size: 20),
+      ),
+      title: Text(title,
+          style: const TextStyle(
+              color: AegisTheme.textHi, fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle,
+          style: const TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+      onTap: () => Navigator.pop(sheet, value),
+    );
+  }
+
+  Future<void> _pickImage(bool camera) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: camera ? ImageSource.camera : ImageSource.gallery,
+        // Downscale: a modern phone photo is many megabytes, and every chunk is
+        // its own packet through the mixnet.
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 82,
+      );
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      await _sendAttachment(
+        kind: MsgKind.image,
+        name: picked.name,
+        mime: picked.mimeType ?? 'image/jpeg',
+        bytes: bytes,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not attach: $e')));
+      }
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(withData: true);
+      final file = result?.files.singleOrNull;
+      if (file == null) return;
+      final bytes = file.bytes;
+      if (bytes == null) return;
+      await _sendAttachment(
+        kind: MsgKind.file,
+        name: file.name,
+        mime: '',
+        bytes: bytes,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not attach: $e')));
+      }
+    }
+  }
+
   bool get _isBlocked => widget.engine
       .contacts()
       .firstWhere((c) => c.aegisId == widget.contact.aegisId,
@@ -411,15 +563,33 @@ class _ChatScreenState extends State<ChatScreen> {
                             message: msg,
                             engine: widget.engine,
                             aegisId: widget.contact.aegisId,
-                            onRetry: () => widget.engine.resend(
-                                aegisId: widget.contact.aegisId, id: msg.id),
+                            // An attachment retry needs its bytes back from
+                            // storage, so it takes a different path than text.
+                            onRetry: () => msg.hasAttachment
+                                ? widget.engine.resendAttachment(
+                                    widget.contact.aegisId, msg)
+                                : widget.engine.resend(
+                                    aegisId: widget.contact.aegisId,
+                                    id: msg.id,
+                                  ),
                           ),
                         ],
                       );
                     },
                   ),
           ),
-          _Composer(controller: _input, onSend: _send),
+          _Composer(
+            controller: _input,
+            onSend: _send,
+            onAttach: _showAttachSheet,
+            onVoice: (bytes, durationMs) => _sendAttachment(
+              kind: MsgKind.voice,
+              name: 'voice-message.m4a',
+              mime: 'audio/mp4',
+              bytes: bytes,
+              durationMs: durationMs,
+            ),
+          ),
         ],
       ),
     );
@@ -446,28 +616,53 @@ class _Bubble extends StatelessWidget {
     );
   }
 
-  /// Long-press action sheet: copy, and — for our own messages — edit and
-  /// delete-for-everyone; delete-for-me is always available.
+  /// Long-press action sheet: a reaction row on top, then copy, and — for our
+  /// own messages — edit and delete-for-everyone; delete-for-me is always
+  /// available.
   Future<void> _showActions(BuildContext context) async {
     HapticFeedback.mediumImpact();
     final mine = message.fromMe;
+    final isText = message.kind == MsgKind.text;
+    // Our current reaction, so tapping it again in the bar clears it.
+    String? current;
+    for (final r in message.reactions) {
+      if (r.fromMe) current = r.emoji;
+    }
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AegisTheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.copy_rounded, color: AegisTheme.textHi),
-              title: const Text('Copy',
-                  style: TextStyle(color: AegisTheme.textHi)),
-              onTap: () {
+            ReactionBar(
+              current: current,
+              onPick: (emoji) {
                 Navigator.pop(sheet);
-                _copy(context);
+                // Picking the one already set toggles it off.
+                engine.react(
+                  aegisId,
+                  message.id,
+                  emoji == current ? '' : emoji,
+                );
               },
             ),
-            if (mine)
+            const Divider(height: 1, color: AegisTheme.surfaceHi),
+            if (isText)
+              ListTile(
+                leading:
+                    const Icon(Icons.copy_rounded, color: AegisTheme.textHi),
+                title: const Text('Copy',
+                    style: TextStyle(color: AegisTheme.textHi)),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  _copy(context);
+                },
+              ),
+            if (mine && isText)
               ListTile(
                 leading:
                     const Icon(Icons.edit_rounded, color: AegisTheme.textHi),
@@ -546,84 +741,133 @@ class _Bubble extends StatelessWidget {
     final mine = message.fromMe;
     final failed = mine && message.status == 3;
     final onBubble = mine ? const Color(0xFF06110F) : AegisTheme.textHi;
+    final isImage = message.kind == MsgKind.image && message.complete;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: () => _showActions(context),
-        onTap: failed ? onRetry : null,
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.76,
-          ),
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
-          decoration: BoxDecoration(
-            gradient: mine ? AegisTheme.shield : null,
-            color: mine ? null : AegisTheme.surfaceHi,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(18),
-              topRight: const Radius.circular(18),
-              bottomLeft: Radius.circular(mine ? 18 : 4),
-              bottomRight: Radius.circular(mine ? 4 : 18),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                message.text,
-                style: TextStyle(color: onBubble, fontSize: 15, height: 1.3),
+      child: Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onLongPress: () => _showActions(context),
+            onTap: failed ? onRetry : null,
+            // Double-tap to like, the gesture everyone already expects.
+            onDoubleTap: () {
+              HapticFeedback.mediumImpact();
+              final liked = message.reactions.any((r) => r.fromMe);
+              engine.react(aegisId, message.id, liked ? '' : '❤️');
+            },
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.76,
               ),
-              const SizedBox(height: 2),
-              Row(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              // An image fills its bubble; everything else keeps the inset.
+              padding: isImage
+                  ? const EdgeInsets.all(4)
+                  : const EdgeInsets.fromLTRB(14, 9, 14, 7),
+              decoration: BoxDecoration(
+                gradient: mine ? AegisTheme.shield : null,
+                color: mine ? null : AegisTheme.surfaceHi,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(mine ? 18 : 4),
+                  bottomRight: Radius.circular(mine ? 4 : 18),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (failed) ...[
-                    const Icon(Icons.error_outline_rounded,
-                        size: 12, color: AegisTheme.danger),
-                    const SizedBox(width: 3),
-                    const Text(
-                      'Not sent · tap to retry',
-                      style: TextStyle(
-                        color: AegisTheme.danger,
-                        fontSize: 10,
-                        height: 1.0,
-                        fontWeight: FontWeight.w600,
+                  if (message.hasAttachment)
+                    AttachmentContent(
+                      message: message,
+                      engine: engine,
+                      aegisId: aegisId,
+                      mine: mine,
+                    ),
+                  // Text, or an attachment's caption when it has one.
+                  if (message.text.isNotEmpty)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: message.hasAttachment ? 6 : 0,
+                        left: isImage ? 8 : 0,
+                        right: isImage ? 8 : 0,
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                              color: onBubble, fontSize: 15, height: 1.3),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 4),
-                  ],
-                  if (message.edited) ...[
-                    Text(
-                      'edited · ',
-                      style: TextStyle(
-                        color:
-                            mine ? const Color(0x9906110F) : AegisTheme.textLo,
-                        fontSize: 10,
-                        height: 1.0,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
-                  Text(
-                    formatClock(message.timestampMs.toInt()),
-                    style: TextStyle(
-                      // Dimmed: dark-on-gradient for mine, muted grey for theirs.
-                      color: mine ? const Color(0x9906110F) : AegisTheme.textLo,
-                      fontSize: 10,
-                      height: 1.0,
+                  const SizedBox(height: 2),
+                  Padding(
+                    padding: EdgeInsets.only(right: isImage ? 6 : 0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (failed) ...[
+                          const Icon(Icons.error_outline_rounded,
+                              size: 12, color: AegisTheme.danger),
+                          const SizedBox(width: 3),
+                          const Text(
+                            'Not sent · tap to retry',
+                            style: TextStyle(
+                              color: AegisTheme.danger,
+                              fontSize: 10,
+                              height: 1.0,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        if (message.edited) ...[
+                          Text(
+                            'edited · ',
+                            style: TextStyle(
+                              color: mine
+                                  ? const Color(0x9906110F)
+                                  : AegisTheme.textLo,
+                              fontSize: 10,
+                              height: 1.0,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                        Text(
+                          formatClock(message.timestampMs.toInt()),
+                          style: TextStyle(
+                            // Dimmed: dark-on-gradient for mine, muted grey
+                            // for theirs.
+                            color: mine
+                                ? const Color(0x9906110F)
+                                : AegisTheme.textLo,
+                            fontSize: 10,
+                            height: 1.0,
+                          ),
+                        ),
+                        if (mine && !failed) ...[
+                          const SizedBox(width: 4),
+                          _StatusTick(status: message.status),
+                        ],
+                      ],
                     ),
                   ),
-                  if (mine && !failed) ...[
-                    const SizedBox(width: 4),
-                    _StatusTick(status: message.status),
-                  ],
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+          ReactionChips(
+            message: message,
+            engine: engine,
+            aegisId: aegisId,
+            mine: mine,
+          ),
+        ],
       ),
     );
   }
@@ -677,10 +921,93 @@ class _DaySeparator extends StatelessWidget {
   }
 }
 
-class _Composer extends StatelessWidget {
+/// The message composer: attach, type, and hold the mic to record a voice note.
+///
+/// The send button becomes a mic when there is nothing typed, so one control
+/// covers both — press-and-hold records, release sends, and sliding away
+/// cancels.
+class _Composer extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
-  const _Composer({required this.controller, required this.onSend});
+  final VoidCallback onAttach;
+  final Future<void> Function(Uint8List bytes, int durationMs) onVoice;
+  const _Composer({
+    required this.controller,
+    required this.onSend,
+    required this.onAttach,
+    required this.onVoice,
+  });
+
+  @override
+  State<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends State<_Composer> {
+  final VoiceRecorder _recorder = VoiceRecorder();
+  bool _recording = false;
+  bool _cancelling = false;
+  bool _hasText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasText = widget.controller.text.trim().isNotEmpty;
+    widget.controller.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    final has = widget.controller.text.trim().isNotEmpty;
+    if (has != _hasText) setState(() => _hasText = has);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    _recorder.dispose();
+    super.dispose();
+  }
+
+  Future<void> _startRecording() async {
+    HapticFeedback.mediumImpact();
+    final ok = await _recorder.start();
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Microphone permission is needed for voice messages'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _recording = true;
+      _cancelling = false;
+    });
+  }
+
+  Future<void> _finishRecording() async {
+    if (!_recording) return;
+    final cancelled = _cancelling;
+    setState(() {
+      _recording = false;
+      _cancelling = false;
+    });
+    if (cancelled) {
+      HapticFeedback.heavyImpact();
+      await _recorder.cancel();
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    final result = await _recorder.stop();
+    if (result == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hold to record a voice message')),
+      );
+      return;
+    }
+    await widget.onVoice(result.bytes, result.durationMs);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -690,32 +1017,78 @@ class _Composer extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
         child: Row(
           children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                style: const TextStyle(color: AegisTheme.textHi),
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
-                decoration: const InputDecoration(
-                  hintText: 'Encrypted message…',
+            if (!_recording) ...[
+              _CircleButton(
+                icon: Icons.add_rounded,
+                onTap: widget.onAttach,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: TextField(
+                  controller: widget.controller,
+                  style: const TextStyle(color: AegisTheme.textHi),
+                  minLines: 1,
+                  maxLines: 5,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => widget.onSend(),
+                  decoration: const InputDecoration(
+                    hintText: 'Encrypted message…',
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onSend,
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: const BoxDecoration(
-                  gradient: AegisTheme.shield,
-                  shape: BoxShape.circle,
+            ] else
+              Expanded(
+                child: _RecordingBar(
+                  recorder: _recorder,
+                  cancelling: _cancelling,
                 ),
-                child: const Icon(
-                  Icons.arrow_upward_rounded,
-                  color: Color(0xFF06110F),
+              ),
+            const SizedBox(width: 8),
+            // One button, two jobs: tap to send typed text, hold to record.
+            GestureDetector(
+              onTap: _hasText ? widget.onSend : null,
+              onLongPressStart: _hasText ? null : (_) => _startRecording(),
+              onLongPressEnd: _hasText ? null : (_) => _finishRecording(),
+              // Dragging away from the button while holding cancels, so a
+              // recording started by accident is easy to abandon.
+              onLongPressMoveUpdate: _hasText
+                  ? null
+                  : (d) {
+                      final cancel = d.localOffsetFromOrigin.dx < -60;
+                      if (cancel != _cancelling) {
+                        setState(() => _cancelling = cancel);
+                        HapticFeedback.selectionClick();
+                      }
+                    },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                width: _recording ? 58 : 48,
+                height: _recording ? 58 : 48,
+                decoration: BoxDecoration(
+                  gradient: _cancelling ? null : AegisTheme.shield,
+                  color: _cancelling ? AegisTheme.danger : null,
+                  shape: BoxShape.circle,
+                  boxShadow: _recording
+                      ? [
+                          BoxShadow(
+                            color: (_cancelling
+                                    ? AegisTheme.danger
+                                    : AegisTheme.accent)
+                                .withValues(alpha: 0.45),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Icon(
+                  _recording
+                      ? (_cancelling ? Icons.delete_rounded : Icons.mic_rounded)
+                      : (_hasText
+                          ? Icons.arrow_upward_rounded
+                          : Icons.mic_rounded),
+                  color: _cancelling ? Colors.white : const Color(0xFF06110F),
                 ),
               ),
             ),
@@ -724,6 +1097,169 @@ class _Composer extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A round secondary button in the composer row.
+class _CircleButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _CircleButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: const BoxDecoration(
+          color: AegisTheme.surfaceHi,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: AegisTheme.textHi, size: 22),
+      ),
+    );
+  }
+}
+
+/// Replaces the text field while recording: elapsed time, a live waveform, and
+/// the slide-to-cancel hint.
+class _RecordingBar extends StatelessWidget {
+  final VoiceRecorder recorder;
+  final bool cancelling;
+  const _RecordingBar({required this.recorder, required this.cancelling});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: AegisTheme.surfaceHi,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          // A pulsing dot, so it's obvious recording is live.
+          const _RecordingDot(),
+          const SizedBox(width: 10),
+          ValueListenableBuilder<Duration>(
+            valueListenable: recorder.elapsed,
+            builder: (context, d, _) => Text(
+              formatDuration(d),
+              style: const TextStyle(
+                color: AegisTheme.textHi,
+                fontSize: 13,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: cancelling
+                ? const Text(
+                    'Release to cancel',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: AegisTheme.danger,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                : ValueListenableBuilder<List<double>>(
+                    valueListenable: recorder.waveform,
+                    builder: (context, levels, _) => SizedBox(
+                      height: 22,
+                      child: CustomPaint(
+                        painter: _LiveWavePainter(levels: levels),
+                      ),
+                    ),
+                  ),
+          ),
+          if (!cancelling) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.keyboard_arrow_left_rounded,
+                size: 16, color: AegisTheme.textLo),
+            const Text(
+              'slide to cancel',
+              style: TextStyle(color: AegisTheme.textLo, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The blinking "recording" indicator.
+class _RecordingDot extends StatefulWidget {
+  const _RecordingDot();
+
+  @override
+  State<_RecordingDot> createState() => _RecordingDotState();
+}
+
+class _RecordingDotState extends State<_RecordingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 850),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween(begin: 0.35, end: 1.0).animate(_c),
+      child: Container(
+        width: 9,
+        height: 9,
+        decoration: const BoxDecoration(
+          color: AegisTheme.danger,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+
+/// The live input level while recording, newest bars on the right.
+class _LiveWavePainter extends CustomPainter {
+  final List<double> levels;
+  const _LiveWavePainter({required this.levels});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (levels.isEmpty) return;
+    const slot = 4.0;
+    final count = (size.width / slot).floor().clamp(1, levels.length);
+    final shown = levels.sublist(levels.length - count);
+    final paint = Paint()
+      ..color = AegisTheme.accent
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 2;
+    for (var i = 0; i < shown.length; i++) {
+      // Right-align so the waveform scrolls leftwards as it grows.
+      final x = size.width - (shown.length - i) * slot;
+      final h = (size.height * shown[i]).clamp(2.0, size.height);
+      canvas.drawLine(
+        Offset(x, (size.height - h) / 2),
+        Offset(x, (size.height + h) / 2),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LiveWavePainter old) => old.levels != levels;
 }
 
 class _ChatEmpty extends StatelessWidget {
