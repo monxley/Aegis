@@ -162,6 +162,32 @@ pub struct ChatMessage {
     pub expires_at_ms: u64,
     /// Whether the message was edited after it was first sent.
     pub edited: bool,
+    /// What this message carries: 0 text, 1 file, 2 voice note, 3 image. For
+    /// anything but text the fields below describe the attachment.
+    pub kind: u8,
+    /// Original file name (file/image attachments).
+    pub file_name: String,
+    /// MIME type the sender reported — advisory only.
+    pub mime: String,
+    /// Attachment size in bytes.
+    pub file_size: u64,
+    /// Voice-note length in milliseconds (0 otherwise).
+    pub duration_ms: u32,
+    /// Where the encrypted attachment is stored on this device; empty until the
+    /// transfer finishes and the app persists it.
+    pub path: String,
+    /// Chunks expected and already received, for a transfer progress bar.
+    pub transfer_total: u32,
+    pub transfer_have: u32,
+    /// Emoji reactions on this message.
+    pub reactions: Vec<Reaction>,
+}
+
+/// One emoji reaction on a message.
+pub struct Reaction {
+    pub emoji: String,
+    /// Whether this is *our* reaction (tap toggles it off).
+    pub from_me: bool,
 }
 
 /// A message just delivered by [`AegisEngine::poll`].
@@ -219,6 +245,22 @@ impl From<ApiChatMessage> for ChatMessage {
             status: m.status,
             expires_at_ms: m.expires_at_ms,
             edited: m.edited,
+            kind: m.kind,
+            file_name: m.file_name,
+            mime: m.mime,
+            file_size: m.file_size,
+            duration_ms: m.duration_ms,
+            path: m.path,
+            transfer_total: m.transfer_total,
+            transfer_have: m.transfer_have,
+            reactions: m
+                .reactions
+                .into_iter()
+                .map(|r| Reaction {
+                    emoji: r.emoji,
+                    from_me: r.from_me,
+                })
+                .collect(),
         }
     }
 }
@@ -407,6 +449,71 @@ impl AegisEngine {
     pub fn delete_message(&self, aegis_id: String, id: u64, for_both: bool) -> Result<(), String> {
         self.with(|app| app.delete_message(aegis_id, id, for_both))
             .map_err(|e| e.to_string())
+    }
+
+    /// Send an attachment — a voice note, image, or file. The bytes are split
+    /// into packet-sized chunks and delivered end-to-end encrypted; the local
+    /// copy appears immediately. `kind` is 1 file / 2 voice / 3 image, and
+    /// `duration_ms` only matters for a voice note. Returns the message id, so
+    /// the caller can persist the bytes against it.
+    pub fn send_attachment(
+        &self,
+        aegis_id: String,
+        kind: u8,
+        file_name: String,
+        mime: String,
+        duration_ms: u32,
+        bytes: Vec<u8>,
+    ) -> Result<u64, String> {
+        self.with(|app| app.send_attachment(aegis_id, kind, file_name, mime, duration_ms, bytes))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Retry a failed attachment send with its bytes read back from storage.
+    pub fn resend_attachment(
+        &self,
+        aegis_id: String,
+        id: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        self.with(|app| app.resend_attachment(aegis_id, id, bytes))
+            .map_err(|e| e.to_string())
+    }
+
+    /// React to a message with an emoji, or clear our reaction with an empty
+    /// string. One reaction per side: reacting again replaces ours.
+    pub fn react(&self, aegis_id: String, target_id: u64, emoji: String) -> Result<(), String> {
+        self.with(|app| app.react(aegis_id, target_id, emoji))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Ids of finished attachments whose bytes are still only in memory, waiting
+    /// to be written to disk. Drain these after each poll.
+    #[frb(sync)]
+    pub fn pending_attachments(&self) -> Vec<u64> {
+        self.with(|app| app.pending_attachments())
+    }
+
+    /// Which conversation an attachment belongs to.
+    #[frb(sync)]
+    pub fn attachment_chat(&self, id: u64) -> Option<String> {
+        self.with(|app| app.attachment_chat(id))
+    }
+
+    /// Take an attachment's bytes out of memory **already encrypted**, ready to
+    /// write straight to a file — the plaintext never reaches storage.
+    pub fn take_attachment(&self, id: u64) -> Option<Vec<u8>> {
+        self.with(|app| app.take_attachment(id))
+    }
+
+    /// Decrypt an attachment file for playback or export.
+    pub fn open_attachment(&self, blob: Vec<u8>) -> Option<Vec<u8>> {
+        self.with(|app| app.open_attachment(blob))
+    }
+
+    /// Record where an attachment was saved, so it survives a restart.
+    pub fn set_attachment_path(&self, aegis_id: String, id: u64, path: String) {
+        self.with(|app| app.set_attachment_path(aegis_id, id, path))
     }
 
     /// Whether this chat has a per-chat password set.

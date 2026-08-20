@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/rust/api/aegis.dart';
 import 'src/rust/frb_generated.dart';
 
+import 'attachments.dart';
 import 'background.dart';
 import 'biometrics.dart';
 import 'config.dart';
@@ -863,7 +864,11 @@ class AegisEngineController extends ChangeNotifier {
       await prefs.remove(_notifyKey);
       await prefs.remove(_favNodesKey);
       await Biometrics.clear();
+      // Attachment payloads live in their own files, so clearing prefs alone
+      // would leave every voice note and photo behind.
+      await AttachmentStore.clear();
     }
+    await AttachmentStore.clearScratch();
     _engine = null;
     _node = null;
     _seed = null;
@@ -1242,9 +1247,100 @@ class AegisEngineController extends ChangeNotifier {
     BigInt id, {
     required bool forBoth,
   }) async {
+    // Take the attachment file with it — otherwise deleting a voice note would
+    // leave its (encrypted, but still present) bytes on disk.
+    for (final m in history(aegisId)) {
+      if (m.id == id && m.path.isNotEmpty) {
+        await AttachmentStore.remove(m.path);
+      }
+    }
     await _engine?.deleteMessage(aegisId: aegisId, id: id, forBoth: forBoth);
     _persist();
     notifyListeners();
+  }
+
+  // --- attachments & reactions ----------------------------------------------
+
+  /// Send an attachment. [kind] is [MsgKind.file] / `.voice` / `.image`;
+  /// [durationMs] only matters for a voice note. The bytes are chunked and
+  /// encrypted by the engine, then persisted here as a single sealed file.
+  Future<void> sendAttachment({
+    required String aegisId,
+    required int kind,
+    required String fileName,
+    required String mime,
+    required Uint8List bytes,
+    int durationMs = 0,
+  }) async {
+    final engine = _engine;
+    if (engine == null) return;
+    final id = await engine.sendAttachment(
+      aegisId: aegisId,
+      kind: kind,
+      fileName: fileName,
+      mime: mime,
+      durationMs: durationMs,
+      bytes: bytes,
+    );
+    await _persistAttachment(engine, id, aegisId);
+    _persist();
+    notifyListeners();
+  }
+
+  /// React to a message, or pass an empty [emoji] to clear our reaction.
+  Future<void> react(String aegisId, BigInt targetId, String emoji) async {
+    await _engine?.react(aegisId: aegisId, targetId: targetId, emoji: emoji);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Decrypt an attachment for playback / opening. Returns null if the file is
+  /// missing or can't be opened with this device's key.
+  Future<Uint8List?> attachmentBytes(ChatMessage m) async {
+    final engine = _engine;
+    if (engine == null || m.path.isEmpty) return null;
+    final sealed = await AttachmentStore.readSealed(m.path);
+    if (sealed == null) return null;
+    final plain = await engine.openAttachment(blob: sealed);
+    return plain;
+  }
+
+  /// Retry a failed attachment send, reading its bytes back from storage.
+  Future<void> resendAttachment(String aegisId, ChatMessage m) async {
+    final engine = _engine;
+    if (engine == null) return;
+    final plain = await attachmentBytes(m);
+    if (plain == null) return;
+    await engine.resendAttachment(aegisId: aegisId, id: m.id, bytes: plain);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Move any finished attachment from engine memory onto disk, sealed, and
+  /// record its path on the message. Called after each poll so a received voice
+  /// note is durable as soon as its last chunk lands.
+  Future<void> _drainAttachments(AegisEngine engine) async {
+    for (final id in engine.pendingAttachments()) {
+      await _persistAttachment(engine, id, engine.attachmentChat(id: id));
+    }
+  }
+
+  /// Persist one attachment's bytes (already sealed by the engine) and tell the
+  /// engine where they went.
+  Future<void> _persistAttachment(
+    AegisEngine engine,
+    BigInt id,
+    String? aegisId,
+  ) async {
+    if (aegisId == null) return;
+    try {
+      final sealed = await engine.takeAttachment(id: id);
+      if (sealed == null) return;
+      final path = await AttachmentStore.save(id, sealed);
+      await engine.setAttachmentPath(aegisId: aegisId, id: id, path: path);
+    } catch (e) {
+      debugPrint('attachment persist failed: $e');
+    }
   }
 
   // --- per-chat password (lock an individual conversation) ------------------
@@ -1335,6 +1431,9 @@ class AegisEngineController extends ChangeNotifier {
     if (engine == null) return;
     try {
       final res = await engine.poll();
+      // A finished transfer only lives in engine memory — write it to disk
+      // (sealed) before anything else, so it survives even if we're killed.
+      await _drainAttachments(engine);
       if (res.messages.isNotEmpty && _notify) {
         for (final m in res.messages) {
           Notifications.showMessage(
