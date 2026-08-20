@@ -320,26 +320,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// The "+" sheet: photo, camera, or any file.
   Future<void> _showAttachSheet() async {
+    // Shape, colour and drag handle all come from the theme's bottomSheetTheme.
     final choice = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AegisTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AegisTheme.surfaceHi,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 8),
             _attachTile(sheet, 'gallery', Icons.image_rounded, 'Photo',
                 'Send a picture from your gallery'),
             _attachTile(sheet, 'camera', Icons.photo_camera_rounded, 'Camera',
@@ -373,7 +360,7 @@ class _ChatScreenState extends State<ChatScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AegisTheme.accent.withValues(alpha: 0.12),
+          color: AegisTheme.accent.withOpacity(0.12),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, color: AegisTheme.accent, size: 20),
@@ -416,8 +403,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(withData: true);
-      final file = result?.files.singleOrNull;
-      if (file == null) return;
+      final files = result?.files;
+      if (files == null || files.isEmpty) return;
+      final file = files.first;
       final bytes = file.bytes;
       if (bytes == null) return;
       await _sendAttachment(
@@ -549,6 +537,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
                     itemCount: history.length,
+                    // Keep a screen of messages laid out either side of the
+                    // viewport so a fast flick doesn't build rows mid-scroll.
+                    cacheExtent: 600,
+                    // Nothing in a bubble holds scroll state worth keeping, so
+                    // don't pay to keep off-screen rows alive.
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: true,
                     itemBuilder: (context, i) {
                       final msg = history[i];
                       final showDay = i == 0 ||
@@ -559,19 +554,25 @@ class _ChatScreenState extends State<ChatScreen> {
                         children: [
                           if (showDay)
                             _DaySeparator(ms: msg.timestampMs.toInt()),
-                          _Bubble(
-                            message: msg,
-                            engine: widget.engine,
-                            aegisId: widget.contact.aegisId,
-                            // An attachment retry needs its bytes back from
-                            // storage, so it takes a different path than text.
-                            onRetry: () => msg.hasAttachment
-                                ? widget.engine.resendAttachment(
-                                    widget.contact.aegisId, msg)
-                                : widget.engine.resend(
-                                    aegisId: widget.contact.aegisId,
-                                    id: msg.id,
-                                  ),
+                          _BubbleEntrance(
+                            // Keyed by message id so the animation runs once,
+                            // when the message first appears — not again on
+                            // every rebuild or receipt tick.
+                            key: ValueKey(msg.id),
+                            child: _Bubble(
+                              message: msg,
+                              engine: widget.engine,
+                              aegisId: widget.contact.aegisId,
+                              // An attachment retry needs its bytes back from
+                              // storage, a different path than text.
+                              onRetry: () => msg.hasAttachment
+                                  ? widget.engine.resendAttachment(
+                                      widget.contact.aegisId, msg)
+                                  : widget.engine.resend(
+                                      aegisId: widget.contact.aegisId,
+                                      id: msg.id,
+                                    ),
+                            ),
                           ),
                         ],
                       );
@@ -630,10 +631,6 @@ class _Bubble extends StatelessWidget {
     }
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -873,6 +870,53 @@ class _Bubble extends StatelessWidget {
   }
 }
 
+/// Fades and lifts a bubble into place the first time it is built, so an
+/// arriving message settles in instead of snapping into the list.
+///
+/// The animation is deliberately tied to the widget's lifetime (via a keyed
+/// element in the list) rather than to a "is new" flag — scrolling an old
+/// message back into view rebuilds it, and re-animating then would look wrong.
+/// Because the list is keyed by message id, an element is created once per
+/// message, so this plays exactly once.
+class _BubbleEntrance extends StatefulWidget {
+  final Widget child;
+  const _BubbleEntrance({super.key, required this.child});
+
+  @override
+  State<_BubbleEntrance> createState() => _BubbleEntranceState();
+}
+
+class _BubbleEntranceState extends State<_BubbleEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: AegisMotion.medium,
+  )..forward();
+
+  late final Animation<double> _fade =
+      CurvedAnimation(parent: _c, curve: AegisMotion.enter);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.12),
+          end: Offset.zero,
+        ).animate(_fade),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 /// The delivery indicator on one of our own bubbles:
 /// `✓` sent · `✓✓` delivered · bright `✓✓` read.
 class _StatusTick extends StatelessWidget {
@@ -1075,7 +1119,7 @@ class _ComposerState extends State<_Composer> {
                             color: (_cancelling
                                     ? AegisTheme.danger
                                     : AegisTheme.accent)
-                                .withValues(alpha: 0.45),
+                                .withOpacity(0.45),
                             blurRadius: 18,
                             spreadRadius: 2,
                           ),
