@@ -58,12 +58,12 @@ class ReactionChips extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: r.fromMe
-                      ? AegisTheme.accent.withValues(alpha: 0.18)
+                      ? AegisTheme.accent.withOpacity(0.18)
                       : AegisTheme.surfaceHi,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: r.fromMe
-                        ? AegisTheme.accent.withValues(alpha: 0.55)
+                        ? AegisTheme.accent.withOpacity(0.55)
                         : Colors.transparent,
                   ),
                 ),
@@ -139,7 +139,7 @@ class _ReactionButtonState extends State<_ReactionButton> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: widget.selected
-                ? AegisTheme.accent.withValues(alpha: 0.18)
+                ? AegisTheme.accent.withOpacity(0.18)
                 : Colors.transparent,
           ),
           child: Text(widget.emoji, style: const TextStyle(fontSize: 24)),
@@ -224,7 +224,7 @@ class _TransferProgress extends StatelessWidget {
               Text(
                 '${(fraction * 100).round()}%',
                 style: TextStyle(
-                  color: fg.withValues(alpha: 0.7),
+                  color: fg.withOpacity(0.7),
                   fontSize: 11,
                 ),
               ),
@@ -236,7 +236,7 @@ class _TransferProgress extends StatelessWidget {
             child: LinearProgressIndicator(
               value: fraction,
               minHeight: 4,
-              backgroundColor: fg.withValues(alpha: 0.18),
+              backgroundColor: fg.withOpacity(0.18),
               valueColor: AlwaysStoppedAnimation(
                 mine ? const Color(0xFF06110F) : AegisTheme.accent,
               ),
@@ -287,79 +287,112 @@ class VoiceNote extends StatelessWidget {
       valueListenable: VoicePlayer.instance.playing,
       builder: (context, playingId, _) {
         final playing = playingId == message.id;
+        if (!playing) {
+          // Idle notes must NOT subscribe to the position stream — otherwise
+          // every voice bubble in the chat would rebuild on each playback tick.
+          return _body(
+            progress: 0,
+            shown: Duration(milliseconds: message.durationMs),
+            playing: false,
+            fg: fg,
+            bars: bars,
+          );
+        }
         return ValueListenableBuilder<Duration>(
           valueListenable: VoicePlayer.instance.position,
           builder: (context, pos, _) {
             return ValueListenableBuilder<Duration>(
               valueListenable: VoicePlayer.instance.total,
               builder: (context, total, _) {
-                // While playing, fill the waveform by elapsed fraction; the
-                // recorded duration is the fallback before the player reports.
-                final lengthMs = playing && total.inMilliseconds > 0
+                // Fill the waveform by elapsed fraction; the recorded duration
+                // is the fallback until the player reports its own.
+                final lengthMs = total.inMilliseconds > 0
                     ? total.inMilliseconds
                     : message.durationMs;
-                final progress = playing && lengthMs > 0
+                final progress = lengthMs > 0
                     ? (pos.inMilliseconds / lengthMs).clamp(0.0, 1.0)
                     : 0.0;
-                final shown = playing
-                    ? Duration(
-                        milliseconds:
-                            (lengthMs - pos.inMilliseconds).clamp(0, lengthMs))
-                    : Duration(milliseconds: message.durationMs);
-                return SizedBox(
-                  width: 208,
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: _toggle,
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: fg.withValues(alpha: 0.14),
-                          ),
-                          child: Icon(
-                            playing
-                                ? Icons.pause_rounded
-                                : Icons.play_arrow_rounded,
-                            color: fg,
-                            size: 22,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SizedBox(
-                          height: 26,
-                          child: CustomPaint(
-                            painter: _WaveformPainter(
-                              bars: bars,
-                              progress: progress,
-                              color: fg.withValues(alpha: 0.35),
-                              activeColor:
-                                  mine ? const Color(0xFF06110F) : AegisTheme.accent,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        formatDuration(shown),
-                        style: TextStyle(
-                          color: fg.withValues(alpha: 0.75),
-                          fontSize: 11,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
-                  ),
+                return _body(
+                  progress: progress.toDouble(),
+                  shown: Duration(
+                      milliseconds:
+                          (lengthMs - pos.inMilliseconds).clamp(0, lengthMs)),
+                  playing: true,
+                  fg: fg,
+                  bars: bars,
                 );
               },
             );
           },
         );
       },
+    );
+  }
+
+  /// The note itself, given the current playback state.
+  Widget _body({
+    required double progress,
+    required Duration shown,
+    required bool playing,
+    required Color fg,
+    required List<double> bars,
+  }) {
+    return SizedBox(
+      width: 208,
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _toggle,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: fg.withOpacity(0.14),
+              ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                transitionBuilder: (child, anim) =>
+                    ScaleTransition(scale: anim, child: child),
+                child: Icon(
+                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  // The key is what tells AnimatedSwitcher the icon changed.
+                  key: ValueKey(playing),
+                  color: fg,
+                  size: 22,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RepaintBoundary(
+              child: SizedBox(
+                height: 26,
+                child: CustomPaint(
+                  painter: _WaveformPainter(
+                    bars: bars,
+                    progress: progress,
+                    color: fg.withOpacity(0.35),
+                    activeColor:
+                        mine ? const Color(0xFF06110F) : AegisTheme.accent,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            formatDuration(shown),
+            style: TextStyle(
+              color: fg.withOpacity(0.75),
+              fontSize: 11,
+              // Tabular figures stop the countdown jittering as digits change.
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -430,7 +463,19 @@ class _ImageAttachmentState extends State<_ImageAttachment> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(_ImageAttachment old) {
+    super.didUpdateWidget(old);
+    // The bytes are persisted a moment after the last chunk lands, so a bubble
+    // built in between has no path yet. Retry once the path appears, instead of
+    // leaving a permanently broken-looking image.
+    if (old.message.path != widget.message.path && _bytes == null) {
+      _load();
+    }
+  }
+
   Future<void> _load() async {
+    if (widget.message.path.isEmpty) return;
     final bytes = await widget.engine.attachmentBytes(widget.message);
     if (!mounted) return;
     setState(() {
@@ -484,7 +529,15 @@ class _ImageAttachmentState extends State<_ImageAttachment> {
           tag: 'img-${widget.message.id}',
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 240, maxHeight: 300),
-            child: Image.memory(bytes, fit: BoxFit.cover),
+            child: Image.memory(
+              bytes,
+              fit: BoxFit.cover,
+              // Decode at roughly the size actually drawn (240 logical px at up
+              // to 3x density). Without this, a full-resolution photo is
+              // decoded into memory for a thumbnail and the list stutters.
+              cacheWidth: 720,
+              filterQuality: FilterQuality.medium,
+            ),
           ),
         ),
       ),
@@ -576,7 +629,7 @@ class _FileAttachmentState extends State<_FileAttachment> {
               height: 38,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: fg.withValues(alpha: 0.14),
+                color: fg.withOpacity(0.14),
               ),
               child: _opening
                   ? Padding(
@@ -608,7 +661,7 @@ class _FileAttachmentState extends State<_FileAttachment> {
                   Text(
                     formatBytes(widget.message.fileSize.toInt()),
                     style: TextStyle(
-                      color: fg.withValues(alpha: 0.7),
+                      color: fg.withOpacity(0.7),
                       fontSize: 11,
                     ),
                   ),

@@ -29,6 +29,9 @@ class AegisApp extends StatelessWidget {
       title: 'Aegis',
       debugShowCheckedModeBanner: false,
       theme: AegisTheme.dark,
+      // One scroll feel everywhere: stretch instead of the Material glow, and
+      // the same physics on Android and iOS.
+      scrollBehavior: const AegisScrollBehavior(),
       // Paint the living aurora once, behind every route. Scaffolds are
       // transparent (see theme) so it shows through the whole app; opaque app
       // bars, cards and sheets sit on top.

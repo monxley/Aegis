@@ -120,7 +120,7 @@ dart run flutter_launcher_icons >/dev/null 2>&1 || log "warning: launcher-icon g
 # Both are "normal" permissions: granted silently at install, no user prompt.
 MANIFEST="android/app/src/main/AndroidManifest.xml"
 if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-  log "adding INTERNET + network-state + notification + biometric permissions to AndroidManifest"
+  log "adding INTERNET + network-state + notification + biometric + media permissions to AndroidManifest"
   awk '/<application/ && !d {
         print "    <uses-permission android:name=\"android.permission.INTERNET\"/>";
         print "    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>";
@@ -128,6 +128,14 @@ if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; th
         print "    <uses-permission android:name=\"android.permission.USE_BIOMETRIC\"/>";
         print "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>";
         print "    <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_DATA_SYNC\"/>";
+        # Voice messages. RECORD_AUDIO is a runtime permission: the recorder
+        # asks for it the first time the user holds the mic button.
+        print "    <uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>";
+        # Camera for the in-chat photo attachment. Declared optional so the
+        # app still installs on a device without one (gallery still works).
+        print "    <uses-permission android:name=\"android.permission.CAMERA\"/>";
+        print "    <uses-feature android:name=\"android.hardware.camera\" android:required=\"false\"/>";
+        print "    <uses-feature android:name=\"android.hardware.microphone\" android:required=\"false\"/>";
         d=1
       } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 fi

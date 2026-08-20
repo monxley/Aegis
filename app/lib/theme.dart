@@ -20,6 +20,16 @@ class AegisTheme {
     colors: [accent, accent2],
   );
 
+  /// Rounded-corner scale, so sheets, cards and bubbles agree.
+  static const double radiusSm = 12;
+  static const double radiusMd = 18;
+  static const double radiusLg = 24;
+
+  /// The shape every bottom sheet uses.
+  static const RoundedRectangleBorder sheetShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(radiusLg)),
+  );
+
   static ThemeData get dark {
     const scheme = ColorScheme.dark(
       primary: accent,
@@ -83,13 +93,86 @@ class AegisTheme {
           borderSide: const BorderSide(color: accent, width: 1.5),
         ),
       ),
-      snackBarTheme: const SnackBarThemeData(
+      snackBarTheme: SnackBarThemeData(
         backgroundColor: surfaceHi,
-        contentTextStyle: TextStyle(color: textHi),
+        contentTextStyle: const TextStyle(color: textHi),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusSm),
+        ),
+        insetPadding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       ),
+      // Every sheet in the app gets the same rounded top and backdrop, instead
+      // of each call site repeating (and drifting from) the shape.
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: surface,
+        modalBackgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: sheetShape,
+        showDragHandle: true,
+        dragHandleColor: surfaceHi,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusMd),
+        ),
+      ),
+      listTileTheme: const ListTileThemeData(
+        iconColor: textHi,
+        textColor: textHi,
+      ),
+      dividerTheme: const DividerThemeData(
+        color: surfaceHi,
+        thickness: 1,
+        space: 1,
+      ),
+      // The default Material ink splash fights the dark, glassy surfaces; a
+      // quiet highlight reads better and costs less to paint.
+      splashFactory: InkSparkle.splashFactory,
     );
   }
+}
+
+/// Shared motion values, so animations across the app agree instead of each
+/// widget inventing its own timing.
+class AegisMotion {
+  /// A press, a toggle, an icon swap.
+  static const Duration fast = Duration(milliseconds: 160);
+  /// A sheet, an expanding row, a bubble arriving.
+  static const Duration medium = Duration(milliseconds: 260);
+  /// A page or a large reveal.
+  static const Duration slow = Duration(milliseconds: 380);
+
+  /// Decelerating: things entering or settling.
+  static const Curve enter = Curves.easeOutCubic;
+  /// Accelerating: things leaving.
+  static const Curve exit = Curves.easeInCubic;
+  /// A little overshoot, for something that should feel physical.
+  static const Curve spring = Curves.easeOutBack;
+}
+
+/// App-wide scroll feel: no Material glow (it clashes with the dark canvas),
+/// and the same stretch behaviour on every platform so Android and iOS match.
+class AegisScrollBehavior extends MaterialScrollBehavior {
+  const AegisScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return StretchingOverscrollIndicator(
+      axisDirection: details.direction,
+      child: child,
+    );
+  }
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
 }
 
 /// The Aegis page transition: a fade with a small upward rise, used for every
