@@ -18,10 +18,38 @@ void main() {
   runApp(AegisApp(engine: AegisEngineController()));
 }
 
-class AegisApp extends StatelessWidget {
+class AegisApp extends StatefulWidget {
   final AegisEngineController engine;
 
   const AegisApp({super.key, required this.engine});
+
+  @override
+  State<AegisApp> createState() => _AegisAppState();
+}
+
+class _AegisAppState extends State<AegisApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Saves are debounced, so leaving the foreground is the moment to make sure
+    // the pending one actually lands — the process may not come back.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(widget.engine.flushPendingSave());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +65,7 @@ class AegisApp extends StatelessWidget {
       // bars, cards and sheets sit on top.
       builder: (context, child) =>
           AuroraBackground(child: child ?? const SizedBox.shrink()),
-      home: _Bootstrap(engine: engine),
+      home: _Bootstrap(engine: widget.engine),
     );
   }
 }

@@ -29,21 +29,44 @@ class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
+  // Everything `build` needs from the engine is cached here.
+  //
+  // This matters for more than copying cost. Bridge reads are synchronous and
+  // take the engine's lock, and a poll holds that lock for its whole network
+  // round-trip. A `build` that called across the bridge would therefore block
+  // the UI thread for as long as the relay took to answer — every three
+  // seconds, and much longer when the network is slow. Reading once per actual
+  // change keeps the UI thread off that lock.
+  List<ChatMessage> _history = const [];
+  bool _locked = false;
+  bool _hasPassword = false;
+  int _disappearingSecs = 0;
+
   @override
   void initState() {
     super.initState();
     widget.engine.addListener(_onEngine);
+    _refresh();
     // Opening the chat marks its received messages read (sends read receipts).
     widget.engine.markRead(widget.contact.aegisId);
   }
 
+  /// Pull everything the screen renders across the bridge once, into local
+  /// state. Called on open and whenever the engine reports a change.
+  void _refresh() {
+    final id = widget.contact.aegisId;
+    _locked = widget.engine.chatLocked(id);
+    _hasPassword = widget.engine.chatHasPassword(id);
+    _disappearingSecs = widget.engine.disappearingSecs(id);
+    _history = _locked ? const [] : widget.engine.history(id);
+  }
+
   void _onEngine() {
-    if (mounted) {
-      setState(() {});
-      _scrollToEnd();
-      // New mail may have arrived while we're looking — receipt it as read.
-      widget.engine.markRead(widget.contact.aegisId);
-    }
+    if (!mounted) return;
+    setState(_refresh);
+    _scrollToEnd();
+    // New mail may have arrived while we're looking — receipt it as read.
+    widget.engine.markRead(widget.contact.aegisId);
   }
 
   @override
@@ -430,10 +453,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final locked = widget.engine.chatLocked(widget.contact.aegisId);
-    final history = locked
-        ? const <ChatMessage>[]
-        : widget.engine.history(widget.contact.aegisId);
+    // Both come from the cache refreshed on engine changes — see `_refresh`.
+    final locked = _locked;
+    final history = _history;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -464,10 +486,10 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(
             tooltip: 'Disappearing messages',
             icon: Icon(
-              widget.engine.disappearingSecs(widget.contact.aegisId) > 0
+              _disappearingSecs > 0
                   ? Icons.timer_rounded
                   : Icons.timer_off_outlined,
-              color: widget.engine.disappearingSecs(widget.contact.aegisId) > 0
+              color: _disappearingSecs > 0
                   ? AegisTheme.accent
                   : AegisTheme.textHi,
             ),
@@ -482,10 +504,10 @@ class _ChatScreenState extends State<ChatScreen> {
             IconButton(
               tooltip: 'Chat password',
               icon: Icon(
-                widget.engine.chatHasPassword(widget.contact.aegisId)
+                _hasPassword
                     ? Icons.lock_rounded
                     : Icons.lock_open_rounded,
-                color: widget.engine.chatHasPassword(widget.contact.aegisId)
+                color: _hasPassword
                     ? AegisTheme.accent
                     : AegisTheme.textHi,
               ),
@@ -512,7 +534,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-          if (widget.engine.disappearingSecs(widget.contact.aegisId) > 0)
+          if (_disappearingSecs > 0)
             Container(
               width: double.infinity,
               color: AegisTheme.surface,
@@ -524,7 +546,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(width: 6),
                   Text(
                     'Messages disappear after '
-                    '${_fmtTimer(widget.engine.disappearingSecs(widget.contact.aegisId))}',
+                    '${_fmtTimer(_disappearingSecs)}',
                     style: const TextStyle(color: AegisTheme.accent, fontSize: 12),
                   ),
                 ],

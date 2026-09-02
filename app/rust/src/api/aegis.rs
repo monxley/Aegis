@@ -666,7 +666,12 @@ impl AegisEngine {
 
     /// Snapshot state **encrypted at rest** under a seed-derived key — persist
     /// this so contacts/history are never stored in the clear.
-    #[frb(sync)]
+    ///
+    /// Deliberately **not** `frb(sync)`: this serializes every contact, session
+    /// and message and then encrypts the result, which grows with history. Run
+    /// synchronously it would block the UI thread on every save — the app's
+    /// worst source of dropped frames. As an async bridge call it runs on a
+    /// worker thread instead, and the UI keeps rendering while it works.
     pub fn export_state_encrypted(&self) -> Vec<u8> {
         self.with(|app| app.export_state_encrypted())
     }
