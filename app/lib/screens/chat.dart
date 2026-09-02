@@ -42,13 +42,27 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _hasPassword = false;
   int _disappearingSecs = 0;
 
+  /// Whether the user has scrolled far enough up that new messages would land
+  /// off-screen — drives the jump-to-latest button.
+  bool _showJumpToEnd = false;
+
   @override
   void initState() {
     super.initState();
     widget.engine.addListener(_onEngine);
+    _scroll.addListener(_onScroll);
     _refresh();
     // Opening the chat marks its received messages read (sends read receipts).
     widget.engine.markRead(widget.contact.aegisId);
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final pos = _scroll.position;
+    // Same threshold `_scrollToEnd` uses to decide whether to follow new
+    // content, so the button appears exactly when auto-follow stops.
+    final show = pos.maxScrollExtent - pos.pixels > 240;
+    if (show != _showJumpToEnd) setState(() => _showJumpToEnd = show);
   }
 
   /// Pull everything the screen renders across the bridge once, into local
@@ -72,6 +86,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     widget.engine.removeListener(_onEngine);
+    _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -555,50 +570,64 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: history.isEmpty
                 ? const _ChatEmpty()
-                : ListView.builder(
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
-                    itemCount: history.length,
-                    // Keep a screen of messages laid out either side of the
-                    // viewport so a fast flick doesn't build rows mid-scroll.
-                    cacheExtent: 600,
-                    // Nothing in a bubble holds scroll state worth keeping, so
-                    // don't pay to keep off-screen rows alive.
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: true,
-                    itemBuilder: (context, i) {
-                      final msg = history[i];
-                      final showDay = i == 0 ||
-                          differentDay(history[i - 1].timestampMs.toInt(),
-                              msg.timestampMs.toInt());
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (showDay)
-                            _DaySeparator(ms: msg.timestampMs.toInt()),
-                          _BubbleEntrance(
-                            // Keyed by message id so the animation runs once,
-                            // when the message first appears — not again on
-                            // every rebuild or receipt tick.
-                            key: ValueKey(msg.id),
-                            child: _Bubble(
-                              message: msg,
-                              engine: widget.engine,
-                              aegisId: widget.contact.aegisId,
-                              // An attachment retry needs its bytes back from
-                              // storage, a different path than text.
-                              onRetry: () => msg.hasAttachment
-                                  ? widget.engine.resendAttachment(
-                                      widget.contact.aegisId, msg)
-                                  : widget.engine.resend(
-                                      aegisId: widget.contact.aegisId,
-                                      id: msg.id,
-                                    ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+                : Stack(
+                    children: [
+                      ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
+                        itemCount: history.length,
+                        // Keep a screen of messages laid out either side of the
+                        // viewport so a fast flick doesn't build rows mid-scroll.
+                        cacheExtent: 600,
+                        // Nothing in a bubble holds scroll state worth keeping, so
+                        // don't pay to keep off-screen rows alive.
+                        addAutomaticKeepAlives: false,
+                        addRepaintBoundaries: true,
+                        itemBuilder: (context, i) {
+                          final msg = history[i];
+                          final showDay = i == 0 ||
+                              differentDay(history[i - 1].timestampMs.toInt(),
+                                  msg.timestampMs.toInt());
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (showDay)
+                                _DaySeparator(ms: msg.timestampMs.toInt()),
+                              _BubbleEntrance(
+                                // Keyed by message id so the animation runs once,
+                                // when the message first appears — not again on
+                                // every rebuild or receipt tick.
+                                key: ValueKey(msg.id),
+                                child: _Bubble(
+                                  message: msg,
+                                  engine: widget.engine,
+                                  aegisId: widget.contact.aegisId,
+                                  // An attachment retry needs its bytes back from
+                                  // storage, a different path than text.
+                                  onRetry: () => msg.hasAttachment
+                                      ? widget.engine.resendAttachment(
+                                          widget.contact.aegisId, msg)
+                                      : widget.engine.resend(
+                                          aegisId: widget.contact.aegisId,
+                                          id: msg.id,
+                                        ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      // Scrolled up far enough that new messages land
+                      // off-screen: offer a way straight back to the latest.
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: _JumpToLatest(
+                          visible: _showJumpToEnd,
+                          onTap: () => _scrollToEnd(force: true),
+                        ),
+                      ),
+                    ],
                   ),
           ),
           _Composer(
@@ -887,6 +916,54 @@ class _Bubble extends StatelessWidget {
             mine: mine,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The "jump to latest" button, shown only while the user is scrolled up.
+/// It fades and scales rather than popping in, so it never yanks attention
+/// away from the message being read.
+class _JumpToLatest extends StatelessWidget {
+  final bool visible;
+  final VoidCallback onTap;
+  const _JumpToLatest({required this.visible, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: AegisMotion.fast,
+        curve: AegisMotion.enter,
+        child: AnimatedScale(
+          scale: visible ? 1 : 0.8,
+          duration: AegisMotion.fast,
+          curve: AegisMotion.enter,
+          child: GestureDetector(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AegisTheme.surfaceHi,
+                shape: BoxShape.circle,
+                border: Border.all(color: AegisTheme.accent.withOpacity(0.35)),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x55000000), blurRadius: 10),
+                ],
+              ),
+              child: const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: AegisTheme.accent,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -634,6 +634,13 @@ fn read_msg(r: &mut StateReader, version: u8) -> Option<ChatMessage> {
         });
     }
     m.reactions = reactions;
+    // The outgoing-chunk queue lives only in memory, so an upload that was
+    // still in flight when the app closed cannot resume itself. Mark it failed
+    // rather than restoring a message stuck at "Sending…" with no way forward:
+    // failed messages offer a retry, which re-queues the payload from storage.
+    if m.from_me && m.kind != KIND_TEXT && m.transfer_have < m.transfer_total {
+        m.status = STATUS_FAILED;
+    }
     Some(m)
 }
 
@@ -3073,6 +3080,24 @@ mod tests {
         alice.set_attachment_path(bob.my_aegis_id(), id, "/data/att/1.bin".into());
         alice.react(bob.my_aegis_id(), id, "😻".into()).unwrap();
 
+        // An upload interrupted by a restart can't resume itself — the chunk
+        // queue is memory-only — so it must come back retryable rather than
+        // stuck showing progress forever.
+        let interrupted = alice.export_state();
+        let mut after_crash = AegisApp::create_in_memory(vec![5u8; 32]).unwrap();
+        after_crash.restore_state(interrupted).unwrap();
+        let stuck = after_crash
+            .history(bob.my_aegis_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .unwrap();
+        assert_eq!(
+            stuck.status, STATUS_FAILED,
+            "an unfinished upload restores as failed, so the UI offers a retry"
+        );
+
+        // The normal case: a finished upload survives intact.
+        alice.flush_attachments();
         let blob = alice.export_state();
         let mut restored = AegisApp::create_in_memory(vec![5u8; 32]).unwrap();
         restored.restore_state(blob).unwrap();
