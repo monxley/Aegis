@@ -24,11 +24,16 @@ dependencies:
   package_info_plus: ^8.0.0
   # Open the release / APK download URL in the browser for a sideload update.
   url_launcher: ^6.3.0
-  # Voice notes: record to Opus, and play back received ones.
+  # Voice notes: record audio, and play back received ones.
+  #
+  # These are held to versions whose web plugins still depend on `web ^0.5.0`,
+  # because flutter_rust_bridge 2.0.0 does — and that version is pinned in
+  # lockstep with app/rust/Cargo.toml and the codegen in deploy/build-*.sh.
+  # Newer releases pull in `web ^1.0.0` and pub cannot solve the two together.
   record: ^5.1.2
-  audioplayers: ^6.1.0
+  audioplayers: ^6.0.0
   # Pick a file or an image to send as an attachment.
-  file_picker: ^8.1.2
+  file_picker: ^8.0.7
   image_picker: ^1.1.2
   # Private app directory the (encrypted) attachment files live in.
   path_provider: ^2.1.4
