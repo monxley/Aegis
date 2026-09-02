@@ -183,6 +183,14 @@ pub struct ChatMessage {
     pub reactions: Vec<Reaction>,
 }
 
+/// How far a queued attachment upload has got.
+pub struct TransferProgress {
+    /// Chunks pushed out so far.
+    pub sent: u32,
+    /// Chunks in the whole transfer.
+    pub total: u32,
+}
+
 /// One emoji reaction on a message.
 pub struct Reaction {
     pub emoji: String,
@@ -469,6 +477,17 @@ impl AegisEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Push the next batch of a queued attachment, returning chunks sent so far
+    /// and the total, or `null` once it is finished.
+    ///
+    /// Uploads are pumped rather than sent in one call: each call takes and
+    /// releases the engine lock, so a large file no longer blocks every other
+    /// engine call for the whole upload. Loop until this returns `null`.
+    pub fn pump_attachment(&self, id: u64) -> Option<TransferProgress> {
+        self.with(|app| app.pump_attachment(id))
+            .map(|(sent, total)| TransferProgress { sent, total })
+    }
+
     /// Retry a failed attachment send with its bytes read back from storage.
     pub fn resend_attachment(
         &self,
@@ -601,7 +620,9 @@ impl AegisEngine {
     /// Set (or change) the notes password — a second encryption layer (PBKDF2,
     /// ~314k iterations) so reading notes needs both the device seed and this
     /// password. Re-export afterwards to persist.
-    #[frb(sync)]
+    /// Not `frb(sync)`: this stretches the password with PBKDF2 (hundreds of
+    /// thousands of rounds, deliberately). On the UI thread that is a visible
+    /// freeze, so it runs on a worker like the chat-password calls do.
     pub fn set_notes_password(&self, password: String) {
         self.with(|app| app.set_notes_password(password));
     }
@@ -614,7 +635,8 @@ impl AegisEngine {
 
     /// Unlock a password-protected notes blob with `password`. Errors on a wrong
     /// password.
-    #[frb(sync)]
+    /// Not `frb(sync)`: same PBKDF2 cost as [`set_notes_password`], so it is
+    /// kept off the UI thread.
     pub fn unlock_notes(&self, password: String, blob: Vec<u8>) -> Result<(), String> {
         self.with(|app| app.unlock_notes(password, blob))
             .map_err(|e| e.to_string())

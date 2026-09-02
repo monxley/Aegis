@@ -87,6 +87,12 @@ const MSG_ATTACH_CHUNK: u8 = 9; // one slice of it: `att_id(8) ‖ index(4) ‖ 
 // [`CHUNK_DATA`] leaves margin under that.
 const CHUNK_DATA: usize = 960;
 
+/// How many chunks one `pump_attachment` call sends before returning. Small
+/// enough that the engine lock is released often (the UI stays responsive
+/// during a large upload), large enough that the per-call overhead stays
+/// negligible against the network cost of the packets themselves.
+const CHUNK_BATCH: usize = 16;
+
 /// Ceiling on an attachment, so one send can't queue an unbounded number of
 /// packets (and a hostile peer can't make us buffer forever). 8 MiB ≈ 8700
 /// chunks — generous for a voice note or a photo, bounded for everything else.
@@ -462,6 +468,19 @@ impl ChatMessage {
     }
 }
 
+/// An outgoing attachment whose chunks are still being sent. Held so the upload
+/// can be driven a batch at a time instead of monopolising the engine lock.
+struct OutgoingAttachment {
+    aegis_id: String,
+    peer: AegisId,
+    bundle: Vec<u8>,
+    ttl: u32,
+    bytes: Vec<u8>,
+    /// Index of the next chunk to send.
+    next: usize,
+    total: usize,
+}
+
 /// An attachment transfer that is still being reassembled from chunks.
 struct PendingAttachment {
     /// Which conversation (and therefore which [`ChatMessage`]) it belongs to.
@@ -820,6 +839,8 @@ pub struct AegisApp {
     attachments: HashMap<u64, Vec<u8>>,
     /// Attachment transfers still being reassembled from chunks.
     incoming_attachments: HashMap<u64, PendingAttachment>,
+    /// Attachment uploads whose chunks are still being pushed out.
+    outgoing_attachments: HashMap<u64, OutgoingAttachment>,
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -969,6 +990,7 @@ impl AegisApp {
             locked_chats: HashMap::new(),
             attachments: HashMap::new(),
             incoming_attachments: HashMap::new(),
+            outgoing_attachments: HashMap::new(),
         }
     }
 
@@ -1586,8 +1608,7 @@ impl AegisApp {
 
         let id = rand_u64();
         let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
-        let chunks: Vec<&[u8]> = bytes.chunks(CHUNK_DATA).collect();
-        let total = chunks.len() as u32;
+        let total = bytes.len().div_ceil(CHUNK_DATA) as u32;
 
         // Open the transfer: everything the receiver needs to allocate for it.
         let mut meta = Vec::new();
@@ -1597,15 +1618,7 @@ impl AegisApp {
         meta.extend_from_slice(&duration_ms.to_le_bytes());
         push_short_str(&mut meta, &file_name);
         push_short_str(&mut meta, &mime);
-        let mut ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
-
-        // Then the payload itself, one packet per chunk.
-        for (i, chunk) in chunks.iter().enumerate() {
-            let mut content = Vec::with_capacity(4 + chunk.len());
-            content.extend_from_slice(&(i as u32).to_le_bytes());
-            content.extend_from_slice(chunk);
-            ok &= self.deliver(&peer, &bundle, &frame(MSG_ATTACH_CHUNK, id, ttl, &content));
-        }
+        let ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
 
         let now = now_ms();
         let mut msg = ChatMessage::text(
@@ -1622,10 +1635,82 @@ impl AegisApp {
         msg.file_size = bytes.len() as u64;
         msg.duration_ms = duration_ms;
         msg.transfer_total = total;
-        msg.transfer_have = total; // ours is complete by definition
+        msg.transfer_have = 0; // climbs as `pump_attachment` sends each chunk
+        // The chunks are *not* sent here. Pushing thousands of packets in one
+        // call would hold the engine lock for the whole upload, freezing every
+        // other engine call (including the UI's) until it finished. Instead the
+        // payload is queued and the caller pumps it a batch at a time, so the
+        // lock is released between batches and progress is observable.
+        self.outgoing_attachments.insert(
+            id,
+            OutgoingAttachment {
+                aegis_id: aegis_id.clone(),
+                peer,
+                bundle,
+                ttl,
+                bytes: bytes.clone(),
+                next: 0,
+                total: total as usize,
+            },
+        );
         self.attachments.insert(id, bytes);
         self.history.entry(aegis_id).or_default().push(msg);
         Ok(id)
+    }
+
+    /// Send the next batch of an attachment queued by
+    /// [`send_attachment`](Self::send_attachment).
+    ///
+    /// Returns `(sent, total)` chunks, or `None` once the transfer is finished
+    /// (or the id is unknown). Call it in a loop until it returns `None`:
+    /// each call takes and releases the engine lock, so a large upload no
+    /// longer blocks everything else for its whole duration.
+    pub fn pump_attachment(&mut self, id: u64) -> Option<(u32, u32)> {
+        let Some(out) = self.outgoing_attachments.get_mut(&id) else {
+            return None;
+        };
+        let (peer, bundle, ttl) = (out.peer.clone(), out.bundle.clone(), out.ttl);
+        let end = (out.next + CHUNK_BATCH).min(out.total);
+        let mut sent = Vec::with_capacity(end - out.next);
+        for i in out.next..end {
+            let start = i * CHUNK_DATA;
+            let stop = (start + CHUNK_DATA).min(out.bytes.len());
+            let mut content = Vec::with_capacity(4 + stop - start);
+            content.extend_from_slice(&(i as u32).to_le_bytes());
+            content.extend_from_slice(&out.bytes[start..stop]);
+            sent.push(content);
+        }
+        out.next = end;
+        let (aegis_id, next, total) = (out.aegis_id.clone(), out.next, out.total);
+
+        let mut ok = true;
+        for content in sent {
+            ok &= self.deliver(&peer, &bundle, &frame(MSG_ATTACH_CHUNK, id, ttl, &content));
+        }
+
+        // Mirror progress onto the message so the sender sees a bar too.
+        if let Some(msgs) = self.history.get_mut(&aegis_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.transfer_have = next as u32;
+                if !ok {
+                    m.status = STATUS_FAILED;
+                }
+            }
+        }
+        if next >= total {
+            self.outgoing_attachments.remove(&id);
+            return None;
+        }
+        Some((next as u32, total as u32))
+    }
+
+    /// Finish every queued attachment in one go. Convenience for tests and for
+    /// callers that don't need progress; the UI pumps incrementally instead.
+    pub fn flush_attachments(&mut self) {
+        let ids: Vec<u64> = self.outgoing_attachments.keys().copied().collect();
+        for id in ids {
+            while self.pump_attachment(id).is_some() {}
+        }
     }
 
     /// Retry a failed attachment send, given its bytes read back from storage.
@@ -1657,28 +1742,39 @@ impl AegisApp {
             (m.kind, m.file_name.clone(), m.mime.clone(), m.duration_ms);
         let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
 
-        let chunks: Vec<&[u8]> = bytes.chunks(CHUNK_DATA).collect();
+        let total = bytes.len().div_ceil(CHUNK_DATA) as u32;
         let mut meta = Vec::new();
         meta.push(kind);
         meta.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        meta.extend_from_slice(&(chunks.len() as u32).to_le_bytes());
+        meta.extend_from_slice(&total.to_le_bytes());
         meta.extend_from_slice(&duration_ms.to_le_bytes());
         push_short_str(&mut meta, &name);
         push_short_str(&mut meta, &mime);
-        let mut ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
-        for (i, chunk) in chunks.iter().enumerate() {
-            let mut content = Vec::with_capacity(4 + chunk.len());
-            content.extend_from_slice(&(i as u32).to_le_bytes());
-            content.extend_from_slice(chunk);
-            ok &= self.deliver(&peer, &bundle, &frame(MSG_ATTACH_CHUNK, id, ttl, &content));
-        }
+        let ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
         if ok {
             if let Some(msgs) = self.history.get_mut(&aegis_id) {
                 if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
                     m.status = STATUS_SENT;
+                    m.transfer_have = 0;
+                    m.transfer_total = total;
                 }
             }
         }
+        // Queue the payload rather than pushing it here, for the same reason as
+        // a first send: the caller pumps it so the lock is released between
+        // batches. Replaces any half-finished attempt for this id.
+        self.outgoing_attachments.insert(
+            id,
+            OutgoingAttachment {
+                aegis_id,
+                peer,
+                bundle,
+                ttl,
+                bytes,
+                next: 0,
+                total: total as usize,
+            },
+        );
         Ok(())
     }
 
@@ -2766,9 +2862,11 @@ mod tests {
         bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
             .unwrap();
 
-        // Deliberately several chunks long, and not a chunk multiple, so the
-        // final short chunk is exercised too.
-        let payload: Vec<u8> = (0..CHUNK_DATA * 3 + 17).map(|i| (i % 251) as u8).collect();
+        // Longer than one pump batch, and not a chunk multiple, so both the
+        // multi-batch path and the final short chunk are exercised.
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH + 5) + 17)
+            .map(|i| (i % 251) as u8)
+            .collect();
         let id = alice
             .send_attachment(
                 bob.my_aegis_id(),
@@ -2780,6 +2878,33 @@ mod tests {
             )
             .unwrap();
         assert!(payload.len() > CHUNK_DATA, "must span multiple packets");
+
+        // The chunks are queued, not blasted out inside the send call — that is
+        // what keeps a large upload from holding the engine lock throughout.
+        let queued = alice.history(bob.my_aegis_id())[0].clone();
+        assert_eq!(queued.transfer_have, 0, "nothing sent until pumped");
+        assert!(queued.transfer_total > 1);
+
+        // Pumping reports progress and finishes in more than one batch.
+        let mut pumps = 0;
+        while let Some((sent, total)) = alice.pump_attachment(id) {
+            assert!(sent <= total);
+            pumps += 1;
+            assert!(pumps < 1000, "pump must terminate");
+        }
+        assert!(
+            pumps >= 1,
+            "a transfer longer than one batch reports progress before finishing"
+        );
+        assert_eq!(
+            alice.history(bob.my_aegis_id())[0].transfer_have,
+            queued.transfer_total,
+            "sender's progress reaches 100%"
+        );
+        assert!(
+            alice.pump_attachment(id).is_none(),
+            "a finished transfer stays finished"
+        );
 
         transfer(&mut alice.store, &mut bob.store);
         let got = bob.poll().unwrap();
@@ -2806,6 +2931,59 @@ mod tests {
             "another device's key must not open it"
         );
         assert!(bob.take_attachment(id).is_none(), "drained after taking");
+    }
+
+    /// A retried attachment is re-queued and pumped, not blasted out inside the
+    /// call — and the peer still reassembles it byte-for-byte.
+    #[test]
+    fn a_retried_attachment_is_queued_and_arrives_intact() {
+        let mut alice = AegisApp::create_in_memory(vec![11u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![12u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * 2 + 5).map(|i| (i % 253) as u8).collect();
+        let id = alice
+            .send_attachment(
+                bob.my_aegis_id(),
+                KIND_FILE,
+                "report.pdf".into(),
+                "application/pdf".into(),
+                0,
+                payload.clone(),
+            )
+            .unwrap();
+        // Pretend the first attempt failed after the metadata went out.
+        alice.outgoing_attachments.remove(&id);
+        if let Some(msgs) = alice.history.get_mut(&bob.my_aegis_id()) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.status = STATUS_FAILED;
+            }
+        }
+
+        alice
+            .resend_attachment(bob.my_aegis_id(), id, payload.clone())
+            .unwrap();
+        assert!(
+            alice.outgoing_attachments.contains_key(&id),
+            "the retry queues the payload instead of sending it inline"
+        );
+        alice.flush_attachments();
+
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let got = bob
+            .history(alice.my_aegis_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("Bob received the retried attachment");
+        assert!(got.complete());
+        assert_eq!(got.file_name, "report.pdf");
+        let sealed = bob.take_attachment(id).expect("bytes reassembled");
+        assert_eq!(bob.open_attachment(sealed).unwrap(), payload);
     }
 
     /// Reactions replace (not accumulate) per side, sync to the peer, and clear.
