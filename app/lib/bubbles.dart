@@ -217,7 +217,9 @@ class _TransferProgress extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Receiving…',
+                  // The same bar serves both directions: our own message is
+                  // being uploaded, a peer's is being received.
+                  mine ? 'Sending…' : 'Receiving…',
                   style: TextStyle(color: fg, fontSize: 13),
                 ),
               ),
