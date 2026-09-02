@@ -183,7 +183,7 @@ class AegisEngineController extends ChangeNotifier {
     final b64 = prefs.getString(_activeNotesKey);
     if (b64 == null) return false;
     try {
-      engine.unlockNotes(password: password, blob: base64Decode(b64));
+      await engine.unlockNotes(password: password, blob: base64Decode(b64));
       _notesLocked = false;
       notifyListeners();
       return true;
@@ -195,7 +195,7 @@ class AegisEngineController extends ChangeNotifier {
   /// Set (or change) the notes password (double-layer encryption). Requires the
   /// notes to be unlocked. Persisted immediately.
   Future<void> setNotesPassword(String password) async {
-    _engine?.setNotesPassword(password: password);
+    await _engine?.setNotesPassword(password: password);
     await _persistNotes();
     notifyListeners();
   }
@@ -1280,9 +1280,35 @@ class AegisEngineController extends ChangeNotifier {
       durationMs: durationMs,
       bytes: bytes,
     );
+    // Store the bytes first, so the attachment survives even if the upload is
+    // interrupted — it can then be retried from storage.
     await _persistAttachment(engine, id, aegisId);
+    notifyListeners();
+    // Then push the payload a batch at a time. Each call releases the engine
+    // lock, so the rest of the app keeps working during a large upload and the
+    // progress bar actually moves.
+    await _pumpUpload(engine, id);
     _persist();
     notifyListeners();
+  }
+
+  /// Drive a queued upload to completion, refreshing the UI as it advances.
+  Future<void> _pumpUpload(AegisEngine engine, BigInt id) async {
+    try {
+      var guard = 0;
+      while (true) {
+        final progress = await engine.pumpAttachment(id: id);
+        if (progress == null) break; // finished
+        notifyListeners();
+        // Yield to the event loop so frames render between batches.
+        await Future<void>.delayed(Duration.zero);
+        // A transfer is bounded by MAX_ATTACHMENT / chunk size; this only
+        // guards against an unexpected non-terminating loop.
+        if (++guard > 200000) break;
+      }
+    } catch (e) {
+      debugPrint('attachment upload failed: $e');
+    }
   }
 
   /// React to a message, or pass an empty [emoji] to clear our reaction.
@@ -1310,6 +1336,9 @@ class AegisEngineController extends ChangeNotifier {
     final plain = await attachmentBytes(m);
     if (plain == null) return;
     await engine.resendAttachment(aegisId: aegisId, id: m.id, bytes: plain);
+    notifyListeners();
+    // The retry queues the payload; push it out the same way a first send does.
+    await _pumpUpload(engine, m.id);
     _persist();
     notifyListeners();
   }
