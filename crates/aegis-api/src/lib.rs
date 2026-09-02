@@ -273,7 +273,7 @@ impl<'a> StateReader<'a> {
 fn parse_app_state(blob: &[u8]) -> Option<AppState> {
     let mut r = StateReader::new(blob);
     let version = r.u8()?;
-    if version < 1 || version > APP_STATE_VERSION {
+    if !(1..=APP_STATE_VERSION).contains(&version) {
         return None;
     }
     let client = r.bytes()?.to_vec();
@@ -1642,7 +1642,8 @@ impl AegisApp {
         msg.file_size = bytes.len() as u64;
         msg.duration_ms = duration_ms;
         msg.transfer_total = total;
-        msg.transfer_have = 0; // climbs as `pump_attachment` sends each chunk
+        // Climbs as `pump_attachment` sends each batch.
+        msg.transfer_have = 0;
         // The chunks are *not* sent here. Pushing thousands of packets in one
         // call would hold the engine lock for the whole upload, freezing every
         // other engine call (including the UI's) until it finished. Instead the
@@ -1673,9 +1674,7 @@ impl AegisApp {
     /// each call takes and releases the engine lock, so a large upload no
     /// longer blocks everything else for its whole duration.
     pub fn pump_attachment(&mut self, id: u64) -> Option<(u32, u32)> {
-        let Some(out) = self.outgoing_attachments.get_mut(&id) else {
-            return None;
-        };
+        let out = self.outgoing_attachments.get_mut(&id)?;
         let (peer, bundle, ttl) = (out.peer.clone(), out.bundle.clone(), out.ttl);
         let end = (out.next + CHUNK_BATCH).min(out.total);
         let mut sent = Vec::with_capacity(end - out.next);
@@ -1861,7 +1860,11 @@ impl AegisApp {
             .history
             .get(&pending.aegis_id)
             .map(|m| m.as_slice())
-            .or_else(|| self.locked_chats.get(&pending.aegis_id).map(|l| &l.pending[..]))?;
+            .or_else(|| {
+                self.locked_chats
+                    .get(&pending.aegis_id)
+                    .map(|l| &l.pending[..])
+            })?;
         let m = msgs.iter().find(|m| m.id == id)?;
         Some(if m.file_name.is_empty() {
             match m.kind {
@@ -2292,8 +2295,7 @@ impl AegisApp {
                             let now = now_ms();
                             let mut msg =
                                 ChatMessage::text(false, String::new(), now, id, STATUS_SENT);
-                            msg.expires_at_ms =
-                                if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+                            msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
                             msg.kind = meta_kind;
                             msg.file_name = name;
                             msg.mime = mime;
@@ -2601,7 +2603,7 @@ mod tests {
 
         // The relay is back: a poll self-heals — retry_failed re-sends it and
         // flips the status to sent.
-        alice.poll().unwrap().messages;
+        alice.poll().unwrap();
         assert_eq!(
             alice.history(bob.my_aegis_id())[0].status,
             STATUS_SENT,
@@ -2915,7 +2917,11 @@ mod tests {
 
         transfer(&mut alice.store, &mut bob.store);
         let got = bob.poll().unwrap();
-        assert_eq!(got.messages.len(), 1, "one surfaced message for the transfer");
+        assert_eq!(
+            got.messages.len(),
+            1,
+            "one surfaced message for the transfer"
+        );
         assert_eq!(got.messages[0].text, "note.opus");
 
         let msg = bob
@@ -3134,7 +3140,7 @@ mod tests {
         assert!(alice.contacts().is_empty(), "deleted on Alice's side");
 
         transfer(&mut alice.store, &mut bob.store);
-        bob.poll().unwrap().messages;
+        bob.poll().unwrap();
         // Bob processed the text then the delete: the conversation is gone.
         assert!(bob.contacts().is_empty(), "Bob's chat was removed too");
         assert!(bob.history(alice.my_aegis_id()).is_empty());

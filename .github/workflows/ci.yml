@@ -51,6 +51,14 @@ jobs:
           flutter create --platforms=android,linux --project-name aegis .
           flutter pub get
           flutter_rust_bridge_codegen generate
+      # A fast pre-check that the Dart call sites still match the Rust bridge
+      # API (names, named arguments, sync vs async). `flutter analyze` catches
+      # this too, but only after codegen and a full toolchain install — this
+      # runs in a second and names the mismatch directly.
+      - name: Check the Dart/Rust bridge boundary
+        working-directory: app
+        run: python3 tool/check_bridge.py
+
       - name: Analyze (compiles the Dart + generated bindings)
         working-directory: app
         run: flutter analyze
