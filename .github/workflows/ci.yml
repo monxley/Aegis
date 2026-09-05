@@ -50,7 +50,17 @@ jobs:
         run: |
           flutter create --platforms=android,linux --project-name aegis .
           flutter pub get
+          # codegen canonicalizes this path before creating it, so it has to
+          # exist first (deploy/build-apk.sh does the same).
+          mkdir -p lib/src/rust
           flutter_rust_bridge_codegen generate
+          # codegen writes rust/src/frb_generated.rs but does not declare it in
+          # the crate root, so without this the glue is never compiled and the
+          # library loads with "undefined symbol: frb_get_rust_content_hash".
+          # Same fix the build scripts apply.
+          if [ -f rust/src/frb_generated.rs ] && ! grep -qE '^\s*(pub\s+)?mod frb_generated;' rust/src/lib.rs; then
+            printf '\nmod frb_generated;\n' >> rust/src/lib.rs
+          fi
       # A fast pre-check that the Dart call sites still match the Rust bridge
       # API (names, named arguments, sync vs async). `flutter analyze` catches
       # this too, but only after codegen and a full toolchain install — this
