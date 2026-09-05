@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../attachments.dart';
 import '../bubbles.dart';
+import '../design/security.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -183,57 +184,28 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
-  void _showSafetyNumber() {
-    String number;
+  /// The conversation's security sheet: plain-language state first, the safety
+  /// number to compare, and the full algorithm list one tap further in.
+  void _showSecurity() {
+    String? number;
     try {
       number = widget.engine.safetyNumber(widget.contact.aegisId);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not compute: $e')),
-      );
-      return;
+      // A missing safety number is not fatal — it just means no session has
+      // been established yet. Show the sheet without it rather than an error.
+      debugPrint('safety number unavailable: $e');
     }
-    showDialog<void>(
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
-        title: Row(
-          children: const [
-            Icon(Icons.verified_user_rounded, color: AegisTheme.accent, size: 20),
-            SizedBox(width: 8),
-            Text('Safety number',
-                style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SelectableText(
-              number,
-              style: const TextStyle(
-                color: AegisTheme.textHi,
-                fontFamily: 'monospace',
-                fontSize: 18,
-                letterSpacing: 1.5,
-                height: 1.6,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Compare these digits with ${widget.contact.name} over a channel '
-              'you trust (in person, a call). If they match, no one is in the '
-              'middle of your conversation.',
-              style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done', style: TextStyle(color: AegisTheme.accent)),
-          ),
-        ],
+      isScrollControlled: true,
+      builder: (_) => SecurityDetailsSheet(
+        contactName: widget.contact.name,
+        // The engine does not yet record a per-contact verified flag, so the
+        // honest state is "encrypted, identity not verified". Showing
+        // "verified" with nowhere to store the user's confirmation would be
+        // exactly the invented guarantee this product must not ship.
+        verification: VerificationState.unverified,
+        safetyNumber: number,
       ),
     );
   }
@@ -484,22 +456,26 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             ContactAvatar(name: widget.contact.name, size: 36),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.contact.name,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: AegisTheme.textHi,
+            // Name, then the security state — the second line answers "is this
+            // private, and do I know who this is" without a separate trip.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.contact.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: AegisType.heading,
                   ),
-                ),
-                Text(
-                  shortId(widget.contact.aegisId),
-                  style: const TextStyle(fontSize: 12, color: AegisTheme.textLo),
-                ),
-              ],
+                  SecurityIndicator(
+                    // No per-contact verified flag is stored yet, so the app
+                    // states what it can actually prove.
+                    verification: VerificationState.unverified,
+                    onTap: _showSecurity,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -511,15 +487,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? Icons.timer_rounded
                   : Icons.timer_off_outlined,
               color: _disappearingSecs > 0
-                  ? AegisTheme.accent
-                  : AegisTheme.textHi,
+                  ? AegisColor.accent
+                  : AegisColor.textSecondary,
             ),
             onPressed: _showDisappearing,
-          ),
-          IconButton(
-            tooltip: 'Verify safety number',
-            icon: const Icon(Icons.verified_user_rounded, color: AegisTheme.textHi),
-            onPressed: _showSafetyNumber,
           ),
           if (!locked)
             IconButton(
