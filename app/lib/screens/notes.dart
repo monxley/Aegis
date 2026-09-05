@@ -347,11 +347,11 @@ class _NoteBubble extends StatelessWidget {
             children: [
               Text(note.text,
                   style: const TextStyle(
-                      color: Color(0xFF06110F), fontSize: 15, height: 1.3)),
+                      color: AegisColor.textOnAccent, fontSize: 15, height: 1.3)),
               const SizedBox(height: 2),
               Text(
                 formatClock(note.timestampMs.toInt()),
-                style: const TextStyle(color: Color(0x9906110F), fontSize: 10),
+                style: const TextStyle(color: AegisColor.textMuted, fontSize: 10),
               ),
             ],
           ),
@@ -476,7 +476,7 @@ class _Composer extends StatelessWidget {
                   color: AegisColor.accent,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.add_rounded, color: Color(0xFF06110F)),
+                child: const Icon(Icons.add_rounded, color: AegisColor.textOnAccent),
               ),
             ),
           ],

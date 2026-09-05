@@ -963,9 +963,7 @@ class _JumpToLatest extends StatelessWidget {
                 color: AegisTheme.surfaceHi,
                 shape: BoxShape.circle,
                 border: Border.all(color: AegisTheme.accent.withValues(alpha: 0.35)),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x55000000), blurRadius: 10),
-                ],
+                boxShadow: AegisElevation.raised,
               ),
               child: const Icon(
                 Icons.keyboard_arrow_down_rounded,
@@ -1249,7 +1247,7 @@ class _ComposerState extends State<_Composer> {
                       : (_hasText
                           ? Icons.arrow_upward_rounded
                           : Icons.mic_rounded),
-                  color: _cancelling ? Colors.white : const Color(0xFF06110F),
+                  color: _cancelling ? AegisColor.textPrimary : AegisColor.textOnAccent,
                 ),
               ),
             ),
