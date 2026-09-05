@@ -553,7 +553,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemCount: history.length,
                         // Keep a screen of messages laid out either side of the
                         // viewport so a fast flick doesn't build rows mid-scroll.
-                        scrollCacheExtent: 600,
+                        scrollCacheExtent: const ScrollCacheExtent.pixels(600),
                         // Nothing in a bubble holds scroll state worth keeping, so
                         // don't pay to keep off-screen rows alive.
                         addAutomaticKeepAlives: false,
@@ -571,7 +571,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           // marker. Grouping by sender alone would glue a
                           // message from this morning onto one from last night.
                           final firstInGroup = showDay ||
-                              prev!.fromMe != msg.fromMe ||
+                              prev.fromMe != msg.fromMe ||
                               !_closeInTime(prev, msg);
                           final lastInGroup = next == null ||
                               next.fromMe != msg.fromMe ||
@@ -902,7 +902,7 @@ class _Bubble extends StatelessWidget {
                             const SizedBox(width: AegisSpace.s1),
                           ],
                           if (message.edited)
-                            Text('Edited · ', style: AegisType.meta),
+                            const Text('Edited · ', style: AegisType.meta),
                           Text(
                             formatClock(message.timestampMs.toInt()),
                             style: AegisType.meta,
@@ -1226,7 +1226,6 @@ class _ComposerState extends State<_Composer> {
                 height: _recording ? 58 : 48,
                 decoration: BoxDecoration(
                   color: _cancelling ? AegisColor.danger : AegisColor.accent,
-                  color: _cancelling ? AegisTheme.danger : null,
                   shape: BoxShape.circle,
                   boxShadow: _recording
                       ? [
@@ -1426,8 +1425,8 @@ class _ChatEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: const Column(
+    return const Center(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.lock_rounded, size: 40, color: AegisTheme.surfaceHi),
