@@ -364,7 +364,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
               Switch(
                 value: e.ownNodesOnly,
                 onChanged: (_busy || nodes.isEmpty) ? null : _setOnly,
-                activeColor: AegisTheme.accent,
+                activeThumbColor: AegisTheme.accent,
               ),
             ],
           ),

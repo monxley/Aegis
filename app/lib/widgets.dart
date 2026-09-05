@@ -2,17 +2,16 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// The Aegis shield mark: a rounded shield filled with the cyan→violet
-/// gradient. Scales with [size].
+/// The Aegis identity mark. Used where the product signs its name — the lock
+/// screen, onboarding, the app bar — and never as a security indicator.
 class ShieldMark extends StatelessWidget {
   final double size;
   const ShieldMark({super.key, this.size = 64});
 
   @override
   Widget build(BuildContext context) {
-    // The brand shield (metallic + cyan chevron, transparent background) — reads
-    // on the dark UI. Rendered a touch larger than the nominal size since the
-    // asset carries transparent margin.
+    // Rendered a touch larger than the nominal size, since the asset carries
+    // transparent margin of its own.
     return Image.asset(
       'assets/logo/shield.png',
       width: size * 1.18,
@@ -22,7 +21,7 @@ class ShieldMark extends StatelessWidget {
   }
 }
 
-/// The "AEGIS" wordmark (light gradient, transparent background).
+/// The "AEGIS" wordmark.
 class AegisWordmark extends StatelessWidget {
   final double height;
   const AegisWordmark({super.key, this.height = 34});
@@ -37,7 +36,6 @@ class AegisWordmark extends StatelessWidget {
   }
 }
 
-/// A full-width pill button filled with the shield gradient.
 /// The primary action button: one solid accent fill, no gradient.
 ///
 /// Supports the full set of states the design system requires — default,
@@ -219,7 +217,7 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
                   widthFactor: t,
                   heightFactor: 1,
                   alignment: Alignment.centerLeft,
-                  child: Container(color: AegisTheme.danger.withOpacity(0.25)),
+                  child: Container(color: AegisTheme.danger.withValues(alpha: 0.25)),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

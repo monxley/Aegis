@@ -53,6 +53,11 @@ jobs:
           # codegen canonicalizes this path before creating it, so it has to
           # exist first (deploy/build-apk.sh does the same).
           mkdir -p lib/src/rust
+          # `flutter create` drops a placeholder widget test that references a
+          # `MyApp` this project does not have, and imports flutter_test, which
+          # is not a dependency. It is scaffold noise, not a test we wrote, and
+          # it is the only thing in the tree with hard analyzer errors.
+          rm -f test/widget_test.dart
           flutter_rust_bridge_codegen generate
           # codegen writes rust/src/frb_generated.rs but does not declare it in
           # the crate root, so without this the glue is never compiled and the

@@ -102,7 +102,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
               contentPadding: EdgeInsets.zero,
               value: _torFirst,
               onChanged: _busy ? null : (v) => setState(() => _torFirst = v),
-              activeColor: AegisTheme.accent,
+              activeThumbColor: AegisTheme.accent,
               title: Text(
                 _torFirst ? 'Order: app → Tor → SOCKS5' : 'Order: app → SOCKS5 → Tor',
                 style: const TextStyle(color: AegisTheme.textHi, fontSize: 14),

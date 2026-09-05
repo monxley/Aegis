@@ -510,7 +510,7 @@ class _SecurityBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AegisTheme.danger.withOpacity(0.12),
+      color: AegisTheme.danger.withValues(alpha: 0.12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
@@ -549,7 +549,7 @@ class _UpdateBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     const amber = Color(0xFFFFC24B);
     return Material(
-      color: amber.withOpacity(0.12),
+      color: amber.withValues(alpha: 0.12),
       child: InkWell(
         onTap: () => showUpdateDialog(context, engine, update),
         child: Padding(
