@@ -318,7 +318,7 @@ class AegisEngineController extends ChangeNotifier {
         password: _proxyPass.isEmpty ? null : _proxyPass,
       );
   ProxyHop get _torHop =>
-      ProxyHop(proxy: _torEndpoint, username: null, password: null);
+      const ProxyHop(proxy: _torEndpoint, username: null, password: null);
 
   /// Push the current proxy choice into the Rust transport (process-wide). Both
   /// the mixnet and the provider connection honour it. Safe to call before a

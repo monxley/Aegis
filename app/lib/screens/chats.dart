@@ -223,8 +223,8 @@ class _NotesTile extends StatelessWidget {
         ),
         child: const Icon(Icons.bookmark_rounded, color: AegisColor.textOnAccent),
       ),
-      title: Row(
-        children: const [
+      title: const Row(
+        children: [
           Text('Notes',
               style: TextStyle(
                   color: AegisTheme.textHi,
