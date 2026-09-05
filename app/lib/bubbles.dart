@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -58,12 +56,12 @@ class ReactionChips extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: r.fromMe
-                      ? AegisTheme.accent.withOpacity(0.18)
+                      ? AegisTheme.accent.withValues(alpha: 0.18)
                       : AegisTheme.surfaceHi,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: r.fromMe
-                        ? AegisTheme.accent.withOpacity(0.55)
+                        ? AegisTheme.accent.withValues(alpha: 0.55)
                         : Colors.transparent,
                   ),
                 ),
@@ -139,7 +137,7 @@ class _ReactionButtonState extends State<_ReactionButton> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: widget.selected
-                ? AegisTheme.accent.withOpacity(0.18)
+                ? AegisTheme.accent.withValues(alpha: 0.18)
                 : Colors.transparent,
           ),
           child: Text(widget.emoji, style: const TextStyle(fontSize: 24)),
@@ -226,7 +224,7 @@ class _TransferProgress extends StatelessWidget {
               Text(
                 '${(fraction * 100).round()}%',
                 style: TextStyle(
-                  color: fg.withOpacity(0.7),
+                  color: fg.withValues(alpha: 0.7),
                   fontSize: 11,
                 ),
               ),
@@ -238,7 +236,7 @@ class _TransferProgress extends StatelessWidget {
             child: LinearProgressIndicator(
               value: fraction,
               minHeight: 4,
-              backgroundColor: fg.withOpacity(0.18),
+              backgroundColor: fg.withValues(alpha: 0.18),
               valueColor: AlwaysStoppedAnimation(
                 mine ? const Color(0xFF06110F) : AegisTheme.accent,
               ),
@@ -350,7 +348,7 @@ class VoiceNote extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: fg.withOpacity(0.14),
+                color: fg.withValues(alpha: 0.14),
               ),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 160),
@@ -375,7 +373,7 @@ class VoiceNote extends StatelessWidget {
                   painter: _WaveformPainter(
                     bars: bars,
                     progress: progress,
-                    color: fg.withOpacity(0.35),
+                    color: fg.withValues(alpha: 0.35),
                     activeColor:
                         mine ? const Color(0xFF06110F) : AegisTheme.accent,
                   ),
@@ -387,7 +385,7 @@ class VoiceNote extends StatelessWidget {
           Text(
             formatDuration(shown),
             style: TextStyle(
-              color: fg.withOpacity(0.75),
+              color: fg.withValues(alpha: 0.75),
               fontSize: 11,
               // Tabular figures stop the countdown jittering as digits change.
               fontFeatures: const [FontFeature.tabularFigures()],
@@ -631,7 +629,7 @@ class _FileAttachmentState extends State<_FileAttachment> {
               height: 38,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: fg.withOpacity(0.14),
+                color: fg.withValues(alpha: 0.14),
               ),
               child: _opening
                   ? Padding(
@@ -663,7 +661,7 @@ class _FileAttachmentState extends State<_FileAttachment> {
                   Text(
                     formatBytes(widget.message.fileSize.toInt()),
                     style: TextStyle(
-                      color: fg.withOpacity(0.7),
+                      color: fg.withValues(alpha: 0.7),
                       fontSize: 11,
                     ),
                   ),

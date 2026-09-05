@@ -201,7 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? c.withOpacity(0.15) : AegisTheme.surfaceHi,
+          color: selected ? c.withValues(alpha: 0.15) : AegisTheme.surfaceHi,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: selected ? c : AegisTheme.surfaceHi),
         ),
@@ -384,7 +384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Switch(
                     value: _bioEnabled,
                     onChanged: _busy ? null : _toggleBiometric,
-                    activeColor: AegisTheme.accent,
+                    activeThumbColor: AegisTheme.accent,
                   ),
                 ],
               ),
@@ -425,7 +425,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       Switch(
                         value: e.lockOnBackground,
-                        activeColor: AegisTheme.accent,
+                        activeThumbColor: AegisTheme.accent,
                         onChanged: _busy
                             ? null
                             : (v) => _apply(() => widget.engine.setLockOnBackground(v)),
@@ -515,7 +515,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setNotificationsEnabled(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeColor: AegisTheme.accent,
+                  activeThumbColor: AegisTheme.accent,
                 ),
               ],
             ),
@@ -549,7 +549,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setScreenshotsBlocked(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeColor: AegisTheme.accent,
+                  activeThumbColor: AegisTheme.accent,
                 ),
               ],
             ),
@@ -578,7 +578,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setBackgroundEnabled(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeColor: AegisTheme.accent,
+                  activeThumbColor: AegisTheme.accent,
                 ),
               ],
             ),
@@ -683,7 +683,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Switch(
                       value: e.nodeEnabled,
                       onChanged: _busy ? null : _toggleNode,
-                      activeColor: AegisTheme.accent,
+                      activeThumbColor: AegisTheme.accent,
                     ),
                   ],
                 ),

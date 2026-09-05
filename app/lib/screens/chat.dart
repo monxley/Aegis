@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-import 'dart:ui' show FontFeature;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -376,7 +374,7 @@ class _ChatScreenState extends State<ChatScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AegisTheme.accent.withOpacity(0.12),
+          color: AegisTheme.accent.withValues(alpha: 0.12),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, color: AegisTheme.accent, size: 20),
@@ -555,7 +553,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         itemCount: history.length,
                         // Keep a screen of messages laid out either side of the
                         // viewport so a fast flick doesn't build rows mid-scroll.
-                        cacheExtent: 600,
+                        scrollCacheExtent: 600,
                         // Nothing in a bubble holds scroll state worth keeping, so
                         // don't pay to keep off-screen rows alive.
                         addAutomaticKeepAlives: false,
@@ -964,7 +962,7 @@ class _JumpToLatest extends StatelessWidget {
               decoration: BoxDecoration(
                 color: AegisTheme.surfaceHi,
                 shape: BoxShape.circle,
-                border: Border.all(color: AegisTheme.accent.withOpacity(0.35)),
+                border: Border.all(color: AegisTheme.accent.withValues(alpha: 0.35)),
                 boxShadow: const [
                   BoxShadow(color: Color(0x55000000), blurRadius: 10),
                 ],
@@ -1238,7 +1236,7 @@ class _ComposerState extends State<_Composer> {
                             color: (_cancelling
                                     ? AegisTheme.danger
                                     : AegisTheme.accent)
-                                .withOpacity(0.45),
+                                .withValues(alpha: 0.45),
                             blurRadius: 18,
                             spreadRadius: 2,
                           ),
