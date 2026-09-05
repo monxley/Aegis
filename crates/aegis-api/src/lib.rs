@@ -1817,6 +1817,20 @@ impl AegisApp {
         Ok(())
     }
 
+    /// Whether this conversation already holds a message with `id` — including
+    /// one buffered while the chat is locked. Used to make delivery idempotent.
+    fn has_message(&self, aegis_id: &str, id: u64) -> bool {
+        let in_history = self
+            .history
+            .get(aegis_id)
+            .is_some_and(|msgs| msgs.iter().any(|m| m.id == id));
+        let in_pending = self
+            .locked_chats
+            .get(aegis_id)
+            .is_some_and(|l| l.pending.iter().any(|m| m.id == id));
+        in_history || in_pending
+    }
+
     /// File a received chunk into its transfer. Returns `None` if there is no
     /// such transfer (or the index is out of range), else whether the transfer
     /// is now complete. Duplicate chunks are ignored rather than double-counted.
@@ -2195,6 +2209,15 @@ impl AegisApp {
             };
             match kind {
                 MSG_TEXT => {
+                    // Delivery is idempotent. The network can hand us the same
+                    // envelope more than once — a retried anonymous fetch, a
+                    // provider replaying its queue — and the ratchet's skipped
+                    // message keys let a repeat still decrypt. Without this
+                    // guard the same message is appended again and the user
+                    // sees it two or three times in the conversation.
+                    if self.has_message(&aegis_id, id) {
+                        continue;
+                    }
                     let text = String::from_utf8_lossy(content).into_owned();
                     let from_name = self
                         .contacts
@@ -2280,6 +2303,13 @@ impl AegisApp {
                     }
                 }
                 MSG_ATTACH_META => {
+                    // Same idempotence rule as a text message: a redelivered
+                    // meta frame must not open a second transfer for one file.
+                    if self.has_message(&aegis_id, id)
+                        || self.incoming_attachments.contains_key(&id)
+                    {
+                        continue;
+                    }
                     // The peer is opening an attachment transfer: record the
                     // placeholder message now, so the UI can show it arriving.
                     if let Some((meta_kind, total_len, chunks, duration_ms, name, mime)) =
@@ -2997,6 +3027,46 @@ mod tests {
         assert_eq!(got.file_name, "report.pdf");
         let sealed = bob.take_attachment(id).expect("bytes reassembled");
         assert_eq!(bob.open_attachment(sealed).unwrap(), payload);
+    }
+
+    /// Delivery is idempotent: a message id already present is not appended
+    /// again.
+    ///
+    /// The network can hand the same envelope over more than once — a retried
+    /// anonymous fetch, a provider replaying its queue — and the ratchet's
+    /// skipped message keys mean the repeat can still decrypt. Without this the
+    /// user sees the same message two or three times, which is exactly what the
+    /// mixnet SURB test was intermittently catching.
+    #[test]
+    fn delivery_is_idempotent_for_a_repeated_message_id() {
+        let mut alice = AegisApp::create_in_memory(vec![13u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![14u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_aegis_id(), "only once".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        let chat = alice.my_aegis_id();
+        assert_eq!(bob.history(chat.clone()).len(), 1);
+        let id = bob.history(chat.clone())[0].id;
+
+        // The guard `poll` consults reports the message as already held, for
+        // both the open history and a locked chat's pending buffer.
+        assert!(bob.has_message(&chat, id));
+        assert!(!bob.has_message(&chat, id.wrapping_add(1)));
+
+        // Polling again after the same envelopes are re-offered leaves the
+        // conversation unchanged.
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        assert_eq!(
+            bob.history(chat).len(),
+            1,
+            "a redelivered message must not be appended twice"
+        );
     }
 
     /// Reactions replace (not accumulate) per side, sync to the peer, and clear.
