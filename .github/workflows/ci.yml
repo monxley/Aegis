@@ -50,7 +50,30 @@ jobs:
         run: |
           flutter create --platforms=android,linux --project-name aegis .
           flutter pub get
+          # codegen canonicalizes this path before creating it, so it has to
+          # exist first (deploy/build-apk.sh does the same).
+          mkdir -p lib/src/rust
+          # `flutter create` drops a placeholder widget test that references a
+          # `MyApp` this project does not have, and imports flutter_test, which
+          # is not a dependency. It is scaffold noise, not a test we wrote, and
+          # it is the only thing in the tree with hard analyzer errors.
+          rm -f test/widget_test.dart
           flutter_rust_bridge_codegen generate
+          # codegen writes rust/src/frb_generated.rs but does not declare it in
+          # the crate root, so without this the glue is never compiled and the
+          # library loads with "undefined symbol: frb_get_rust_content_hash".
+          # Same fix the build scripts apply.
+          if [ -f rust/src/frb_generated.rs ] && ! grep -qE '^\s*(pub\s+)?mod frb_generated;' rust/src/lib.rs; then
+            printf '\nmod frb_generated;\n' >> rust/src/lib.rs
+          fi
+      # A fast pre-check that the Dart call sites still match the Rust bridge
+      # API (names, named arguments, sync vs async). `flutter analyze` catches
+      # this too, but only after codegen and a full toolchain install — this
+      # runs in a second and names the mismatch directly.
+      - name: Check the Dart/Rust bridge boundary
+        working-directory: app
+        run: python3 tool/check_bridge.py
+
       - name: Analyze (compiles the Dart + generated bindings)
         working-directory: app
         run: flutter analyze
@@ -59,12 +82,18 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
-      - name: Build debug APK (installable, debug-signed)
+      # A release build: optimised, tree-shaken, no debug assertions or
+      # observatory. It is signed with the debug key, because `flutter create`
+      # points the release signingConfig at it and this repository has no
+      # release keystore — so the APK installs and runs, but it is NOT a
+      # distributable release. Publishing needs a real keystore (roadmap 2.3);
+      # until then this is "release build, development signature".
+      - name: Build release APK
         working-directory: app
-        run: flutter build apk --debug
+        run: flutter build apk --release
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aegis-apk
-          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          name: aegis-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

@@ -134,7 +134,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            GradientButton(
+            PrimaryButton(
               label: 'Use this relay',
               icon: Icons.dns_rounded,
               onPressed: () {
@@ -202,7 +202,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               decoration: const InputDecoration(hintText: 'word1 word2 word3 …'),
             ),
             const SizedBox(height: 12),
-            GradientButton(
+            PrimaryButton(
               label: 'Restore',
               icon: Icons.restore_rounded,
               onPressed: () => Navigator.pop(ctx, ctrl.text),
@@ -257,15 +257,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 style: TextStyle(fontSize: 15, height: 1.4, color: AegisTheme.textLo),
               ),
               const Spacer(),
-              GradientButton(
+              PrimaryButton(
                 label: _busy ? 'Creating…' : 'Create my identity',
                 icon: Icons.bolt_rounded,
                 onPressed: _busy ? null : _createNetwork,
               ),
               const SizedBox(height: 10),
-              Row(
+              const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
+                children: [
                   Icon(Icons.hub_rounded, size: 14, color: AegisTheme.accent),
                   SizedBox(width: 6),
                   Text('Connects to the anonymous mixnet — no setup',

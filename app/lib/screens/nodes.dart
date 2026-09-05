@@ -210,7 +210,7 @@ class _NodeTile extends StatelessWidget {
             IconButton(
               tooltip: fav ? 'Unstar' : 'Star',
               icon: Icon(fav ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: fav ? AegisTheme.accent2 : AegisTheme.textLo),
+                  color: fav ? AegisColor.accent : AegisTheme.textLo),
               onPressed: () => engine.toggleFavoriteNode(node.id),
             ),
           ],
@@ -285,8 +285,8 @@ class _MyNodesCardState extends State<_MyNodesCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
+          const Row(
+            children: [
               Icon(Icons.dns_rounded, size: 20, color: AegisTheme.accent),
               SizedBox(width: 10),
               Text('My nodes',
@@ -364,7 +364,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
               Switch(
                 value: e.ownNodesOnly,
                 onChanged: (_busy || nodes.isEmpty) ? null : _setOnly,
-                activeColor: AegisTheme.accent,
+                activeThumbColor: AegisTheme.accent,
               ),
             ],
           ),
@@ -372,7 +372,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
             const Text(
               'Routing exclusively through your nodes. If they go offline, the '
               'app can’t connect until they’re back.',
-              style: TextStyle(color: AegisTheme.accent2, fontSize: 11, height: 1.4),
+              style: TextStyle(color: AegisColor.accent, fontSize: 11, height: 1.4),
             ),
           if (_busy)
             const Padding(

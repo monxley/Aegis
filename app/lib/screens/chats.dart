@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../brand.dart';
+import '../design/states.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -130,7 +130,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 ),
               if (update != null) _UpdateBanner(engine: engine, update: update),
               _NotesTile(engine: engine),
-              const Divider(height: 1, indent: 82, color: Color(0xFF1B1E29)),
+              const Divider(height: 1, indent: 82, color: AegisColor.border),
               Expanded(
                 child: contacts.isEmpty
                     ? const _EmptyState()
@@ -140,7 +140,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         separatorBuilder: (_, __) => const Divider(
                           height: 1,
                           indent: 82,
-                          color: Color(0xFF1B1E29),
+                          color: AegisColor.border,
                         ),
                         itemBuilder: (context, i) =>
                             _ContactTile(engine: engine, contact: contacts[i]),
@@ -152,7 +152,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: AegisTheme.accent,
-        foregroundColor: const Color(0xFF06110F),
+        foregroundColor: AegisColor.textOnAccent,
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => AddContactScreen(engine: engine)),
         ),
@@ -178,7 +178,7 @@ class _ConnectionStatus extends StatelessWidget {
         final color = label.startsWith('Mixnet')
             ? AegisTheme.accent
             : label.startsWith('Relay')
-                ? const Color(0xFFFFC24B)
+                ? AegisColor.warning
                 : AegisTheme.textLo;
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -218,13 +218,13 @@ class _NotesTile extends StatelessWidget {
         width: 46,
         height: 46,
         decoration: const BoxDecoration(
-          gradient: AegisTheme.shield,
+          color: AegisColor.accent,
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.bookmark_rounded, color: Color(0xFF06110F)),
+        child: const Icon(Icons.bookmark_rounded, color: AegisColor.textOnAccent),
       ),
-      title: Row(
-        children: const [
+      title: const Row(
+        children: [
           Text('Notes',
               style: TextStyle(
                   color: AegisTheme.textHi,
@@ -269,53 +269,78 @@ class _ContactTile extends StatelessWidget {
         : '${contact.lastFromMe ? 'You: ' : ''}$lastText';
     final hasLast = lastText != null;
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-      leading: ContactAvatar(name: contact.name),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              contact.name,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AegisTheme.textHi,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
+    // The row is laid out by hand rather than with ListTile: the name and the
+    // timestamp sit on one baseline with the time right-aligned, which ListTile
+    // cannot do, and the whole row keeps a predictable height so the list
+    // scrolls without measuring text.
+    return Semantics(
+      button: true,
+      label: '${contact.name}. $preview',
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(engine: engine, contact: contact),
           ),
-          if (contact.pinned) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.push_pin_rounded, size: 13, color: AegisTheme.accent),
-          ],
-          if (contact.blocked) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.block_rounded, size: 13, color: AegisTheme.danger),
-          ],
-        ],
-      ),
-      subtitle: Text(
-        preview,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: AegisTheme.textLo,
-          fontStyle: hasLast ? FontStyle.normal : FontStyle.italic,
+        ),
+        onLongPress: () => _showActions(context),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ContactAvatar(name: contact.name),
+              const SizedBox(width: AegisSpace.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            contact.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: AegisType.heading,
+                          ),
+                        ),
+                        if (contact.pinned) ...[
+                          const SizedBox(width: AegisSpace.s1),
+                          const Icon(Icons.push_pin_rounded,
+                              size: 12, color: AegisColor.textMuted),
+                        ],
+                        if (contact.blocked) ...[
+                          const SizedBox(width: AegisSpace.s1),
+                          const Icon(Icons.block_rounded,
+                              size: 12, color: AegisColor.danger),
+                        ],
+                        const Spacer(),
+                        if (hasLast)
+                          Text(formatListTime(contact.lastTs.toInt()),
+                              style: AegisType.meta),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AegisType.secondary.copyWith(
+                        // An unstarted conversation reads as a prompt, not as a
+                        // message someone actually sent.
+                        color: hasLast
+                            ? AegisColor.textSecondary
+                            : AegisColor.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      trailing: hasLast
-          ? Text(
-              formatListTime(contact.lastTs.toInt()),
-              style: const TextStyle(color: AegisTheme.textLo, fontSize: 12),
-            )
-          : null,
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ChatScreen(engine: engine, contact: contact),
-        ),
-      ),
-      onLongPress: () => _showActions(context),
     );
   }
 
@@ -379,7 +404,7 @@ class _ContactTile extends StatelessWidget {
               danger: !contact.blocked,
               onTap: () => engine.setBlocked(contact.aegisId, !contact.blocked),
             ),
-            const Divider(height: 1, color: Color(0xFF1B1E29)),
+            const Divider(height: 1, color: AegisColor.border),
             _action(
               sheetCtx,
               icon: Icons.delete_outline_rounded,
@@ -468,32 +493,11 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            BrandGlyph(Brand.shieldLayered, size: 104),
-            SizedBox(height: 18),
-            Text(
-              'No conversations yet',
-              style: TextStyle(
-                color: AegisTheme.textHi,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Tap + to add a contact by their Aegis code, '
-              'then start an encrypted chat.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
-            ),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      icon: Icons.forum_outlined,
+      title: 'No conversations yet',
+      message: 'Add someone by their Aegis code to start an encrypted '
+          'conversation. There are no phone numbers or usernames to look up.',
     );
   }
 }
@@ -510,7 +514,7 @@ class _SecurityBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AegisTheme.danger.withOpacity(0.12),
+      color: AegisTheme.danger.withValues(alpha: 0.12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
@@ -547,9 +551,9 @@ class _UpdateBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const amber = Color(0xFFFFC24B);
+    const amber = AegisColor.warning;
     return Material(
-      color: amber.withOpacity(0.12),
+      color: amber.withValues(alpha: 0.12),
       child: InkWell(
         onTap: () => showUpdateDialog(context, engine, update),
         child: Padding(
@@ -641,7 +645,7 @@ Future<void> showUpdateDialog(
         FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: AegisTheme.accent,
-            foregroundColor: const Color(0xFF06110F),
+            foregroundColor: AegisColor.textOnAccent,
           ),
           icon: const Icon(Icons.download_rounded, size: 18),
           label: const Text('Download update'),

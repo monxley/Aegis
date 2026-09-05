@@ -1,12 +1,18 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// Asset paths for the Aegis brand art (see `pubspec.yaml` → `assets/brand/`).
+/// Brand assets.
+///
+/// The shield is the product's *identity mark*. It appears where a product
+/// signs its name — the lock screen, onboarding, the app bar — and nowhere
+/// else. It is deliberately not used as a security indicator: a padlock or
+/// shield stamped next to every message is decoration, and decoration that
+/// claims to mean "safe" is worse than no indicator at all. Security state is
+/// communicated by [SecurityIndicator] and by message state, in words.
 class Brand {
-  Brand._();
+  const Brand._();
+
   static const shieldHero = 'assets/brand/shield_hero.png';
   static const shieldLayered = 'assets/brand/shield_layered.png';
   static const shieldSilver = 'assets/brand/shield_silver.png';
@@ -19,7 +25,7 @@ class Brand {
   static const lockupHorizontal = 'assets/brand/lockup_horizontal.png';
 }
 
-/// A plain square brand image (transparent PNG), sized to [size].
+/// A brand image at a given size.
 class BrandGlyph extends StatelessWidget {
   final String asset;
   final double size;
@@ -31,315 +37,161 @@ class BrandGlyph extends StatelessWidget {
       asset,
       width: size,
       height: size,
+      fit: BoxFit.contain,
+      // Decorative: the surrounding copy already carries the meaning, so a
+      // screen reader should skip it rather than announce an image.
+      excludeFromSemantics: true,
       filterQuality: FilterQuality.medium,
     );
   }
 }
 
-/// The vertical lockup (shield + AEGIS + "NOTHING TO INTERCEPT.").
+/// The vertical mark + wordmark lockup, for the splash and onboarding.
 class AegisLockupVertical extends StatelessWidget {
   final double width;
   const AegisLockupVertical({super.key, this.width = 200});
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      Brand.lockupVertical,
-      width: width,
-      filterQuality: FilterQuality.medium,
-    );
-  }
-}
-
-/// A soft, slowly-drifting aurora of the two brand colours behind the content.
-/// Purely decorative and cheap: two radial blooms that orbit a little. Give it
-/// as the bottom layer of a `Stack`.
-class AuroraBackground extends StatefulWidget {
-  final Widget child;
-  const AuroraBackground({super.key, required this.child});
-
-  @override
-  State<AuroraBackground> createState() => _AuroraBackgroundState();
-}
-
-class _AuroraBackgroundState extends State<AuroraBackground>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 18),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const ColoredBox(color: AegisTheme.bg),
-        RepaintBoundary(
-          child: AnimatedBuilder(
-            animation: _ctrl,
-            builder: (_, __) => CustomPaint(painter: _AuroraPainter(_ctrl.value)),
-          ),
-        ),
-        widget.child,
-      ],
-    );
-  }
-}
-
-class _AuroraPainter extends CustomPainter {
-  final double t;
-  _AuroraPainter(this.t);
-
-  void _bloom(Canvas c, Offset center, double radius, Color color) {
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: [color, color.withOpacity(0)],
-      ).createShader(Rect.fromCircle(center: center, radius: radius));
-    c.drawCircle(center, radius, paint);
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final a = 2 * math.pi * t;
-    _bloom(
-      canvas,
-      Offset(w * (0.24 + 0.06 * math.sin(a)), h * (0.26 + 0.05 * math.cos(a))),
-      w * 0.62,
-      AegisTheme.accent.withOpacity(0.16),
-    );
-    _bloom(
-      canvas,
-      Offset(w * (0.82 + 0.05 * math.cos(a * 0.8)),
-          h * (0.72 + 0.06 * math.sin(a * 1.2))),
-      w * 0.66,
-      AegisTheme.accent2.withOpacity(0.16),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_AuroraPainter old) => old.t != t;
-}
-
-/// A slim indeterminate progress bar with a brand-gradient highlight sliding
-/// across it. Use where the work has no measurable progress (boot, discovery).
-class ShimmerBar extends StatefulWidget {
-  final double width;
-  const ShimmerBar({super.key, this.width = 150});
-
-  @override
-  State<ShimmerBar> createState() => _ShimmerBarState();
-}
-
-class _ShimmerBarState extends State<ShimmerBar>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: widget.width,
-      height: 4,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(2),
-        child: AnimatedBuilder(
-          animation: _ctrl,
-          builder: (_, __) => CustomPaint(painter: _ShimmerPainter(_ctrl.value)),
-        ),
+    return Semantics(
+      label: 'Aegis',
+      child: Image.asset(
+        Brand.lockupVertical,
+        width: width,
+        fit: BoxFit.contain,
+        excludeFromSemantics: true,
+        filterQuality: FilterQuality.medium,
       ),
     );
   }
 }
 
-class _ShimmerPainter extends CustomPainter {
-  final double t;
-  _ShimmerPainter(this.t);
+/// A thin indeterminate progress line.
+///
+/// Replaces the shimmering bar that used to sit on the splash: a looping
+/// gradient sweep is decoration that says nothing about what the app is doing.
+/// This is a plain, honest "working" indicator, and it stops moving entirely
+/// under reduced motion rather than animating in place.
+class ProgressLine extends StatefulWidget {
+  final double width;
+  const ProgressLine({super.key, this.width = 120});
 
   @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = AegisTheme.surfaceHi);
-    final hl = size.width * 0.42;
-    final x = -hl + (size.width + hl) * t;
-    final rect = Rect.fromLTWH(x, 0, hl, size.height);
-    final shader = const LinearGradient(
-      colors: [
-        Color(0x0035E0D0),
-        AegisTheme.accent,
-        AegisTheme.accent2,
-        Color(0x007C5CFF),
-      ],
-    ).createShader(rect);
-    canvas.drawRect(rect, Paint()..shader = shader);
+  State<ProgressLine> createState() => _ProgressLineState();
+}
+
+class _ProgressLineState extends State<ProgressLine>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
   }
 
   @override
-  bool shouldRepaint(_ShimmerPainter old) => old.t != t;
+  Widget build(BuildContext context) {
+    final reduced = AegisMotion.reduced(context);
+    if (reduced) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat();
+    }
+    return SizedBox(
+      width: widget.width,
+      height: 2,
+      child: Semantics(
+        label: 'Working',
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AegisColor.border,
+            borderRadius: BorderRadius.circular(AegisRadius.xs),
+          ),
+          child: reduced
+              // Static two-thirds bar: still reads as "in progress" without
+              // moving pixels for someone who asked us not to.
+              ? FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: 0.66,
+                  child: _bar(),
+                )
+              : AnimatedBuilder(
+                  animation: _c,
+                  builder: (context, _) {
+                    // A short segment travelling left to right.
+                    final t = Curves.easeInOut.transform(_c.value);
+                    return Align(
+                      alignment: Alignment(-1 + 2 * t, 0),
+                      child: FractionallySizedBox(
+                        widthFactor: 0.4,
+                        child: _bar(),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bar() => DecoratedBox(
+        decoration: BoxDecoration(
+          color: AegisColor.accent,
+          borderRadius: BorderRadius.circular(AegisRadius.xs),
+        ),
+      );
 }
 
-/// The visual heart of the unlock flow: a gradient progress ring wrapped around
-/// the lock glyph, which cross-fades to the open shield when [progress] reaches
-/// 1. Drive [progress] (0..1) from the caller as the key derivation runs; set
-/// [error] to flush the ring red.
-class UnlockOrb extends StatelessWidget {
+/// The unlock indicator: a determinate ring showing key-derivation progress.
+///
+/// Unlocking genuinely takes time — the vault key is deliberately expensive to
+/// derive — so this reports real progress rather than spinning. It replaces a
+/// glowing orb, which implied something mystical was happening instead of
+/// telling the user the app was working and roughly how far along it was.
+class UnlockProgress extends StatelessWidget {
+  /// 0..1 derivation progress.
   final double progress;
   final bool error;
   final double size;
-  const UnlockOrb({
+
+  const UnlockProgress({
     super.key,
     required this.progress,
     this.error = false,
-    this.size = 148,
+    this.size = 72,
   });
 
   @override
   Widget build(BuildContext context) {
-    final unlocked = progress >= 0.999 && !error;
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(
-            size: Size.square(size),
-            painter: _RingPainter(progress: progress, error: error),
-          ),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 320),
-            transitionBuilder: (child, anim) => ScaleTransition(
-              scale: Tween(begin: 0.7, end: 1.0).animate(
-                CurvedAnimation(parent: anim, curve: Curves.easeOutBack),
-              ),
-              child: FadeTransition(opacity: anim, child: child),
-            ),
-            child: BrandGlyph(
-              unlocked ? Brand.shieldHero : Brand.lock,
-              key: ValueKey(unlocked),
-              size: size * 0.52,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RingPainter extends CustomPainter {
-  final double progress;
-  final bool error;
-  _RingPainter({required this.progress, required this.error});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const stroke = 6.0;
-    final center = size.center(Offset.zero);
-    final radius = (size.shortestSide - stroke) / 2;
-    final rect = Rect.fromCircle(center: center, radius: radius);
-
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..color = AegisTheme.surfaceHi;
-    canvas.drawCircle(center, radius, track);
-
-    final sweep = 2 * math.pi * progress.clamp(0.0, 1.0);
-    if (sweep <= 0) return;
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: 3 * math.pi / 2,
-        colors: error
-            ? const [AegisTheme.danger, AegisTheme.danger]
-            : const [AegisTheme.accent, AegisTheme.accent2, AegisTheme.accent],
-      ).createShader(rect);
-    canvas.drawArc(rect, -math.pi / 2, sweep, false, arc);
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) =>
-      old.progress != progress || old.error != error;
-}
-
-/// Text painted with a gradient (defaults to the brand cyan→violet). Handy for
-/// section titles and headers.
-class GradientText extends StatelessWidget {
-  final String text;
-  final TextStyle style;
-  final Gradient gradient;
-  const GradientText(
-    this.text, {
-    super.key,
-    required this.style,
-    this.gradient = AegisTheme.shield,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ShaderMask(
-      shaderCallback: (bounds) => gradient.createShader(bounds),
-      blendMode: BlendMode.srcIn,
-      child: Text(text, style: style.copyWith(color: Colors.white)),
-    );
-  }
-}
-
-/// A centred, on-brand empty state: a brand glyph over a title and subtitle.
-class BrandEmptyState extends StatelessWidget {
-  final String asset;
-  final String title;
-  final String subtitle;
-  final double glyphSize;
-  const BrandEmptyState({
-    super.key,
-    required this.asset,
-    required this.title,
-    required this.subtitle,
-    this.glyphSize = 104,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    final color = error ? AegisColor.danger : AegisColor.accent;
+    final pct = (progress.clamp(0.0, 1.0) * 100).round();
+    return Semantics(
+      label: error ? 'Unlock failed' : 'Unlocking, $pct percent',
+      value: '$pct%',
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            BrandGlyph(asset, size: glyphSize),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AegisTheme.textHi,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+            SizedBox.expand(
+              child: CircularProgressIndicator(
+                // Indeterminate only before work starts; determinate after.
+                value: progress <= 0 ? null : progress.clamp(0.0, 1.0),
+                strokeWidth: 2,
+                backgroundColor: AegisColor.border,
+                valueColor: AlwaysStoppedAnimation(color),
+                strokeCap: StrokeCap.round,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AegisTheme.textLo, height: 1.4),
+            Icon(
+              error ? Icons.priority_high_rounded : Icons.lock_outline_rounded,
+              size: size * 0.3,
+              color: error ? AegisColor.danger : AegisColor.textSecondary,
             ),
           ],
         ),

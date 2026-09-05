@@ -108,7 +108,10 @@ fn sweep_deletes_stored_messages_but_a_seq_cursor_survives_it() {
     // Sweeping everything older than 0ms removes it.
     std::thread::sleep(Duration::from_millis(5));
     assert_eq!(store.sweep(0).unwrap(), 1, "one message swept");
-    assert!(store.fetch_since(0).unwrap().1.is_empty(), "mailbox emptied");
+    assert!(
+        store.fetch_since(0).unwrap().1.is_empty(),
+        "mailbox emptied"
+    );
 
     // A caught-up recipient (cursor past the deleted seq) still receives the
     // NEXT message — deletion doesn't shift the sequence-based cursor.
@@ -116,5 +119,9 @@ fn sweep_deletes_stored_messages_but_a_seq_cursor_survives_it() {
         .send(&mut store, &bob.aegis_id(), b"after sweep")
         .unwrap();
     let (_c2, msgs2) = store.fetch_since(cursor).unwrap();
-    assert_eq!(msgs2.len(), 1, "the post-sweep message arrives at the old cursor");
+    assert_eq!(
+        msgs2.len(),
+        1,
+        "the post-sweep message arrives at the old cursor"
+    );
 }

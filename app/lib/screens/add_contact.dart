@@ -110,7 +110,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 ),
               ],
               const Spacer(),
-              GradientButton(
+              PrimaryButton(
                 label: 'Add contact',
                 icon: Icons.check_rounded,
                 onPressed: _save,

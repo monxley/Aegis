@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../brand.dart';
 import '../engine.dart';
 import '../share.dart';
 import '../theme.dart';
@@ -201,7 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? c.withOpacity(0.15) : AegisTheme.surfaceHi,
+          color: selected ? c.withValues(alpha: 0.15) : AegisTheme.surfaceHi,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: selected ? c : AegisTheme.surfaceHi),
         ),
@@ -384,7 +383,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Switch(
                     value: _bioEnabled,
                     onChanged: _busy ? null : _toggleBiometric,
-                    activeColor: AegisTheme.accent,
+                    activeThumbColor: AegisTheme.accent,
                   ),
                 ],
               ),
@@ -425,7 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       Switch(
                         value: e.lockOnBackground,
-                        activeColor: AegisTheme.accent,
+                        activeThumbColor: AegisTheme.accent,
                         onChanged: _busy
                             ? null
                             : (v) => _apply(() => widget.engine.setLockOnBackground(v)),
@@ -515,7 +514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setNotificationsEnabled(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeColor: AegisTheme.accent,
+                  activeThumbColor: AegisTheme.accent,
                 ),
               ],
             ),
@@ -549,7 +548,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setScreenshotsBlocked(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeColor: AegisTheme.accent,
+                  activeThumbColor: AegisTheme.accent,
                 ),
               ],
             ),
@@ -578,7 +577,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setBackgroundEnabled(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeColor: AegisTheme.accent,
+                  activeThumbColor: AegisTheme.accent,
                 ),
               ],
             ),
@@ -683,7 +682,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Switch(
                       value: e.nodeEnabled,
                       onChanged: _busy ? null : _toggleNode,
-                      activeColor: AegisTheme.accent,
+                      activeThumbColor: AegisTheme.accent,
                     ),
                   ],
                 ),
@@ -718,7 +717,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'Synchronizing… ~$mins min left. Keep node mode on to '
                           'finish verifying; after that it turns on instantly.',
                           style: const TextStyle(
-                              color: AegisTheme.accent2, fontSize: 12, height: 1.4),
+                              color: AegisColor.accent, fontSize: 12, height: 1.4),
                         ),
                       );
                     }
@@ -1204,17 +1203,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   alignment: Alignment.center,
-                  child: ShaderMask(
-                    shaderCallback: (r) => AegisTheme.shield.createShader(r),
-                    child: Icon(icon, size: 18, color: Colors.white),
-                  ),
+                  child: Icon(icon, size: 18, color: AegisColor.accent),
                 ),
                 const SizedBox(width: 12),
-                GradientText(title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    )),
+                Text(title, style: AegisType.heading),
               ],
             ),
           ),
@@ -1230,14 +1222,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _sectionHeader(String label) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
-      child: GradientText(
-        label.toUpperCase(),
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 2,
-        ),
-      ),
+      child: Text(label.toUpperCase(), style: AegisType.label),
     );
   }
 }
@@ -1270,7 +1255,7 @@ class _ProfileCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        GradientButton(
+        PrimaryButton(
           label: 'Copy share code',
           icon: Icons.copy_rounded,
           onPressed: () {

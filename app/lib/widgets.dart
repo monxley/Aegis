@@ -2,17 +2,16 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// The Aegis shield mark: a rounded shield filled with the cyan→violet
-/// gradient. Scales with [size].
+/// The Aegis identity mark. Used where the product signs its name — the lock
+/// screen, onboarding, the app bar — and never as a security indicator.
 class ShieldMark extends StatelessWidget {
   final double size;
   const ShieldMark({super.key, this.size = 64});
 
   @override
   Widget build(BuildContext context) {
-    // The brand shield (metallic + cyan chevron, transparent background) — reads
-    // on the dark UI. Rendered a touch larger than the nominal size since the
-    // asset carries transparent margin.
+    // Rendered a touch larger than the nominal size, since the asset carries
+    // transparent margin of its own.
     return Image.asset(
       'assets/logo/shield.png',
       width: size * 1.18,
@@ -22,7 +21,7 @@ class ShieldMark extends StatelessWidget {
   }
 }
 
-/// The "AEGIS" wordmark (light gradient, transparent background).
+/// The "AEGIS" wordmark.
 class AegisWordmark extends StatelessWidget {
   final double height;
   const AegisWordmark({super.key, this.height = 34});
@@ -37,55 +36,105 @@ class AegisWordmark extends StatelessWidget {
   }
 }
 
-/// A full-width pill button filled with the shield gradient.
-class GradientButton extends StatelessWidget {
+/// The primary action button: one solid accent fill, no gradient.
+///
+/// Supports the full set of states the design system requires — default,
+/// pressed, focused, disabled and loading — because a button that only has a
+/// default state is where interfaces start to feel cheap. Focus is drawn as a
+/// visible ring so the control is usable from a keyboard.
+class PrimaryButton extends StatefulWidget {
   final String label;
   final IconData? icon;
   final VoidCallback? onPressed;
 
-  const GradientButton({
+  /// Shows a spinner and blocks input. Use for actions that take long enough to
+  /// notice, so the user isn't left wondering whether the tap registered.
+  final bool loading;
+
+  const PrimaryButton({
     super.key,
     required this.label,
     this.icon,
     this.onPressed,
+    this.loading = false,
   });
 
   @override
+  State<PrimaryButton> createState() => _PrimaryButtonState();
+}
+
+class _PrimaryButtonState extends State<PrimaryButton> {
+  bool _pressed = false;
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null;
-    return Opacity(
-      opacity: enabled ? 1 : 0.5,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onPressed,
-          child: Ink(
+    final enabled = widget.onPressed != null && !widget.loading;
+    // Disabled is expressed as a muted surface, not as a faded copy of the
+    // enabled state — translucent text fails contrast.
+    final fill = enabled ? AegisColor.accent : AegisColor.surfaceElevated;
+    final fg = enabled ? AegisColor.textOnAccent : AegisColor.textMuted;
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.label,
+      child: FocusableActionDetector(
+        enabled: enabled,
+        onShowFocusHighlight: (v) => setState(() => _focused = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onPressed?.call();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+          onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+          onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+          onTap: enabled ? widget.onPressed : null,
+          child: AnimatedContainer(
+            duration: AegisMotion.of(context, AegisMotion.fast),
+            curve: AegisMotion.enter,
+            height: 48,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
-              gradient: AegisTheme.shield,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Container(
-              height: 54,
-              alignment: Alignment.center,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, color: const Color(0xFF06110F), size: 20),
-                    const SizedBox(width: 8),
-                  ],
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Color(0xFF06110F),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+              color: _pressed ? AegisColor.accentMuted : fill,
+              borderRadius: BorderRadius.circular(AegisRadius.sm),
+              border: Border.all(
+                color: _focused ? AegisColor.textPrimary : Colors.transparent,
+                width: 2,
               ),
             ),
+            child: widget.loading
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(fg),
+                    ),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.icon != null) ...[
+                        Icon(widget.icon, color: fg, size: 18),
+                        const SizedBox(width: AegisSpace.s2),
+                      ],
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          color: fg,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),
@@ -168,7 +217,7 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
                   widthFactor: t,
                   heightFactor: 1,
                   alignment: Alignment.centerLeft,
-                  child: Container(color: AegisTheme.danger.withOpacity(0.25)),
+                  child: Container(color: AegisTheme.danger.withValues(alpha: 0.25)),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

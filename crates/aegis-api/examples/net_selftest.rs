@@ -54,7 +54,9 @@ fn main() {
         .unwrap();
     println!("• two identities created and introduced.");
 
-    alice.send(bob.my_aegis_id(), "selftest ping".into()).unwrap();
+    alice
+        .send(bob.my_aegis_id(), "selftest ping".into())
+        .unwrap();
     println!("→ alice sent \"selftest ping\"");
 
     // Bob polls for the message.

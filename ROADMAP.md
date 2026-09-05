@@ -44,10 +44,21 @@ Status legend: 🔜 next · 📋 planned · 🔬 research / hard · ⏳ future
 
 | # | Item | Difficulty |
 |---|---|---|
-| 3.1 | 📋 **Images** (compress + encrypt + chunk across fixed 4 KB Sphinx packets) | High — needs a file-transfer sub-protocol over fixed-size packets |
-| 3.2 | 📋 Voice messages | Medium — same transport channel as 3.1 |
-| 3.3 | 📋 File attachments | Medium — after 3.1 |
+| 3.1 | ✅ **Images** (downscale + encrypt + chunk across fixed 4 KB Sphinx packets) | Done — chunked transfer sub-protocol, reassembled by index |
+| 3.2 | ✅ Voice messages | Done — hold-to-record, waveform, chunked over the same channel |
+| 3.3 | ✅ File attachments | Done — any file, sealed at rest, opens via the OS |
 | 3.4 | 📋 Typing / presence (opt-in, inside the ratchet) | Low — but a metadata trade-off, off by default |
+| 3.5 | ✅ Message reactions | Done — one emoji per side, synced both ways |
+| 3.6 | 📋 Reply-to / quoted messages | Low — a target id on the text frame |
+
+**On the attachment sub-protocol (3.1–3.3).** The mixnet carries fixed-size
+Sphinx payloads, so anything larger than one packet is split into chunks that
+each ride in their own end-to-end-encrypted message and are reassembled by
+index (duplicates and out-of-order arrival both handled). Attachment bytes are
+kept **out of the app-state blob** — that blob is rewritten on every change —
+and stored as individual files sealed under the state key, so nothing is ever
+written in the clear. A guard test keeps the chunk size inside the onion packet
+budget, since exceeding it would silently stop attachments routing.
 
 ## Horizon 4 — distribution & platforms
 

@@ -147,6 +147,21 @@ if [ -f "$PLIST" ]; then
     /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes array' "$PLIST"
     /usr/libexec/PlistBuddy -c 'Add :UIBackgroundModes:0 string fetch' "$PLIST"
   fi
+  # Attachments: iOS kills the app on first use of the mic/camera/library
+  # without these strings, so they are required, not optional polish. The
+  # wording is what the user sees in the system prompt.
+  add_plist_string() { # $1=key  $2=purpose string
+    if ! /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST" >/dev/null 2>&1; then
+      log "adding $1 to Info.plist"
+      /usr/libexec/PlistBuddy -c "Add :$1 string \"$2\"" "$PLIST"
+    fi
+  }
+  add_plist_string NSMicrophoneUsageDescription \
+    "Aegis uses the microphone to record voice messages, which are encrypted before they leave your device."
+  add_plist_string NSCameraUsageDescription \
+    "Aegis uses the camera to take photos you send in a chat, encrypted end-to-end."
+  add_plist_string NSPhotoLibraryUsageDescription \
+    "Aegis needs access to your photos so you can attach one to a message. Photos are encrypted before sending."
 fi
 
 # 8. Native glue — rewrite AppDelegate.swift to add the `aegis/screen_security`

@@ -47,7 +47,8 @@ fn now_ms() -> u64 {
 
 /// Version tag on exported app state; bump on a format change. v2 adds the
 /// per-message id and delivery status; v1 blobs still load (id 0, status sent).
-const APP_STATE_VERSION: u8 = 7;
+/// v8 adds attachment metadata and reactions to every message.
+const APP_STATE_VERSION: u8 = 8;
 
 /// PBKDF2 iterations for a per-chat password (heavy, like the notes password —
 /// a rarely-typed human secret deserves real stretching).
@@ -68,6 +69,41 @@ const MSG_TIMER: u8 = 3; // sets the conversation's disappearing timer
 const MSG_DELETE: u8 = 4; // asks the peer to delete this conversation too
 const MSG_EDIT: u8 = 5; // new text for a previously-sent message (id matches)
 const MSG_DELETE_ONE: u8 = 6; // asks the peer to delete a single message (by id)
+const MSG_REACTION: u8 = 7; // an emoji reaction on a message: `target(8) ‖ emoji`
+const MSG_ATTACH_META: u8 = 8; // opens an attachment transfer (see `AttachMeta`)
+const MSG_ATTACH_CHUNK: u8 = 9; // one slice of it: `att_id(8) ‖ index(4) ‖ data`
+
+// --- attachments ---------------------------------------------------------
+//
+// A voice note or file is far larger than one packet: the mixnet carries
+// fixed-size Sphinx payloads ([`aegis_net::PAYLOAD_LEN`] = 4096) and the client
+// pads every plaintext up to a length bucket, so the largest plaintext that
+// still fits an onion packet after ratchet + envelope overhead is the 1024
+// bucket. Attachments are therefore **split into chunks** that each ride in
+// their own packet, and reassembled by the receiver.
+//
+// Budget for one chunk, working down from the 1024-byte bucket:
+//   1024 - 4 (pad length prefix) - 13 (frame header) - 12 (att_id + index) = 995
+// [`CHUNK_DATA`] leaves margin under that.
+const CHUNK_DATA: usize = 960;
+
+/// How many chunks one `pump_attachment` call sends before returning. Small
+/// enough that the engine lock is released often (the UI stays responsive
+/// during a large upload), large enough that the per-call overhead stays
+/// negligible against the network cost of the packets themselves.
+const CHUNK_BATCH: usize = 16;
+
+/// Ceiling on an attachment, so one send can't queue an unbounded number of
+/// packets (and a hostile peer can't make us buffer forever). 8 MiB ≈ 8700
+/// chunks — generous for a voice note or a photo, bounded for everything else.
+const MAX_ATTACHMENT: usize = 8 * 1024 * 1024;
+
+/// What a [`ChatMessage`] carries. Text is the default; the others additionally
+/// have attachment metadata and bytes.
+pub const KIND_TEXT: u8 = 0;
+pub const KIND_FILE: u8 = 1;
+pub const KIND_VOICE: u8 = 2;
+pub const KIND_IMAGE: u8 = 3;
 
 /// Delivery status of one of *our* sent messages (mirrored to the UI as ticks).
 const STATUS_SENT: u8 = 0;
@@ -94,6 +130,68 @@ fn parse_frame(bytes: &[u8]) -> Option<(u8, u64, u32, &[u8])> {
     let id = u64::from_le_bytes(bytes[1..9].try_into().ok()?);
     let ttl = u32::from_le_bytes(bytes[9..13].try_into().ok()?);
     Some((bytes[0], id, ttl, &bytes[13..]))
+}
+
+/// AAD binding a sealed attachment file to its purpose, so an attachment blob
+/// can't be swapped in for a state blob or a notes blob.
+const ATTACH_AAD: &[u8] = b"aegis-attachment-v1";
+
+/// Append `s` to `out` as `len(2 LE) ‖ utf8`, for the attachment metadata frame.
+fn push_short_str(out: &mut Vec<u8>, s: &str) {
+    let b = s.as_bytes();
+    let n = b.len().min(u16::MAX as usize);
+    out.extend_from_slice(&(n as u16).to_le_bytes());
+    out.extend_from_slice(&b[..n]);
+}
+
+/// Read a string written by [`push_short_str`], returning it and the rest.
+fn take_short_str(buf: &[u8]) -> Option<(String, &[u8])> {
+    let n = u16::from_le_bytes(buf.get(..2)?.try_into().ok()?) as usize;
+    let s = String::from_utf8_lossy(buf.get(2..2 + n)?).into_owned();
+    Some((s, &buf[2 + n..]))
+}
+
+/// Parse a [`MSG_ATTACH_META`] body:
+/// `kind(1) ‖ total_len(4) ‖ chunks(4) ‖ duration_ms(4) ‖ name ‖ mime`.
+/// Returns `(kind, total_len, chunks, duration_ms, name, mime)`.
+#[allow(clippy::type_complexity)]
+fn parse_attach_meta(content: &[u8]) -> Option<(u8, usize, u32, u32, String, String)> {
+    if content.len() < 13 {
+        return None;
+    }
+    let kind = content[0];
+    let total_len = u32::from_le_bytes(content[1..5].try_into().ok()?) as usize;
+    let chunks = u32::from_le_bytes(content[5..9].try_into().ok()?);
+    let duration_ms = u32::from_le_bytes(content[9..13].try_into().ok()?);
+    let (name, rest) = take_short_str(&content[13..])?;
+    let (mime, _) = take_short_str(rest)?;
+    Some((kind, total_len, chunks, duration_ms, name, mime))
+}
+
+/// One-line description of a message for the chat list. An attachment has no
+/// text of its own, so it is described by what it is rather than shown blank.
+fn preview_text(m: &ChatMessage) -> String {
+    if m.kind == KIND_TEXT || !m.text.is_empty() {
+        return m.text.clone();
+    }
+    match m.kind {
+        KIND_VOICE => "🎤 Voice message".to_string(),
+        KIND_IMAGE => "📷 Photo".to_string(),
+        _ if m.file_name.is_empty() => "📎 File".to_string(),
+        _ => format!("📎 {}", m.file_name),
+    }
+}
+
+/// Set (or, for an empty `emoji`, clear) one side's reaction on a message.
+/// Each side has at most one reaction, so reacting again replaces it.
+fn set_reaction(reactions: &mut Vec<Reaction>, from_me: bool, emoji: &str) {
+    reactions.retain(|r| r.from_me != from_me);
+    if !emoji.is_empty() {
+        reactions.push(Reaction {
+            emoji: emoji.to_string(),
+            from_me,
+        });
+    }
 }
 
 fn rand_u64() -> u64 {
@@ -175,7 +273,7 @@ impl<'a> StateReader<'a> {
 fn parse_app_state(blob: &[u8]) -> Option<AppState> {
     let mut r = StateReader::new(blob);
     let version = r.u8()?;
-    if version < 1 || version > APP_STATE_VERSION {
+    if !(1..=APP_STATE_VERSION).contains(&version) {
         return None;
     }
     let client = r.bytes()?.to_vec();
@@ -206,26 +304,7 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
         let msg_count = r.u32()? as usize;
         let mut msgs = Vec::with_capacity(msg_count);
         for _ in 0..msg_count {
-            let from_me = r.u8()? != 0;
-            let text = r.string()?;
-            let timestamp_ms = r.u64()?;
-            // v2 adds id + status; v1 defaults them. v3 adds expiry.
-            let (id, status) = if version >= 2 {
-                (r.u64()?, r.u8()?)
-            } else {
-                (0, STATUS_SENT)
-            };
-            let expires_at_ms = if version >= 3 { r.u64()? } else { 0 };
-            let edited = if version >= 6 { r.u8()? != 0 } else { false };
-            msgs.push(ChatMessage {
-                from_me,
-                text,
-                timestamp_ms,
-                id,
-                status,
-                expires_at_ms,
-                edited,
-            });
+            msgs.push(read_msg(&mut r, version)?);
         }
         history.insert(aegis_id, msgs);
     }
@@ -251,12 +330,16 @@ fn parse_app_state(blob: &[u8]) -> Option<AppState> {
             let salt: [u8; 16] = r.bytes()?.try_into().ok()?;
             let iters = r.u32()?;
             let history_ct = r.bytes()?.to_vec();
-            let pending = deserialize_msgs(r.bytes()?)?;
+            let pending = deserialize_msgs(r.bytes()?, version)?;
+            // v8 records the layout version of the sealed blob itself; a v7
+            // state's blobs are, by definition, v7.
+            let blob_version = if version >= 8 { r.u8()? } else { 7 };
             locked_chats.insert(
                 aegis_id,
                 LockedChat {
                     salt,
                     iters,
+                    version: blob_version,
                     history_ct,
                     pending,
                 },
@@ -321,6 +404,92 @@ pub struct ChatMessage {
     /// Whether this message was edited after it was first sent (shown as an
     /// "edited" marker in the UI).
     pub edited: bool,
+    /// [`KIND_TEXT`] / `_FILE` / `_VOICE` / `_IMAGE`. For anything but text the
+    /// attachment fields below are meaningful and `text` holds the caption
+    /// (usually empty).
+    pub kind: u8,
+    /// Original file name, for a file/image attachment.
+    pub file_name: String,
+    /// MIME type as reported by the sender (advisory — never trusted to decide
+    /// how bytes are handled).
+    pub mime: String,
+    /// Attachment size in bytes.
+    pub file_size: u64,
+    /// Voice-note length in milliseconds (0 for other kinds).
+    pub duration_ms: u32,
+    /// Where the (encrypted) attachment bytes live on this device, once they
+    /// have been persisted. Empty while a transfer is still in flight.
+    pub path: String,
+    /// Chunks expected / already present, so the UI can show transfer progress.
+    /// `transfer_have == transfer_total` means the attachment is complete.
+    pub transfer_total: u32,
+    pub transfer_have: u32,
+    /// Emoji reactions on this message, ours and the peer's.
+    pub reactions: Vec<Reaction>,
+}
+
+/// One emoji reaction on a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reaction {
+    /// The emoji itself (a short grapheme cluster; length-capped on receipt).
+    pub emoji: String,
+    /// Whether *we* are the one who reacted (so the UI can highlight it and a
+    /// tap can toggle it off).
+    pub from_me: bool,
+}
+
+impl ChatMessage {
+    /// A plain outgoing/incoming text message with every attachment field at
+    /// its default — the common case, so callers don't repeat it.
+    fn text(from_me: bool, text: String, timestamp_ms: u64, id: u64, status: u8) -> ChatMessage {
+        ChatMessage {
+            from_me,
+            text,
+            timestamp_ms,
+            id,
+            status,
+            expires_at_ms: 0,
+            edited: false,
+            kind: KIND_TEXT,
+            file_name: String::new(),
+            mime: String::new(),
+            file_size: 0,
+            duration_ms: 0,
+            path: String::new(),
+            transfer_total: 0,
+            transfer_have: 0,
+            reactions: Vec::new(),
+        }
+    }
+
+    /// Whether every chunk of this message's attachment has arrived.
+    pub fn complete(&self) -> bool {
+        self.kind == KIND_TEXT || self.transfer_have >= self.transfer_total
+    }
+}
+
+/// An outgoing attachment whose chunks are still being sent. Held so the upload
+/// can be driven a batch at a time instead of monopolising the engine lock.
+struct OutgoingAttachment {
+    aegis_id: String,
+    peer: AegisId,
+    bundle: Vec<u8>,
+    ttl: u32,
+    bytes: Vec<u8>,
+    /// Index of the next chunk to send.
+    next: usize,
+    total: usize,
+}
+
+/// An attachment transfer that is still being reassembled from chunks.
+struct PendingAttachment {
+    /// Which conversation (and therefore which [`ChatMessage`]) it belongs to.
+    aegis_id: String,
+    /// Slots for every chunk; `None` until that index arrives, so out-of-order
+    /// and duplicate chunks are both handled.
+    chunks: Vec<Option<Vec<u8>>>,
+    /// Declared total size, used to reject a peer that over-sends.
+    total_len: usize,
 }
 
 /// A private note in the local-only "Notes" chat. These never touch the network
@@ -372,6 +541,9 @@ struct LockedChat {
     history_ct: Vec<u8>,
     /// Messages received while locked, to be merged in on unlock.
     pending: Vec<ChatMessage>,
+    /// App-state version the sealed blob was written with, so it is parsed in
+    /// the field layout of its own era rather than today's.
+    version: u8,
 }
 
 /// Serialize a message list (count-prefixed) — used for the per-chat history
@@ -380,34 +552,96 @@ fn serialize_msgs(msgs: &[ChatMessage]) -> Vec<u8> {
     let mut w = StateWriter::new();
     w.push_u32(msgs.len() as u32);
     for m in msgs {
-        w.push_u8(m.from_me as u8);
-        w.push_bytes(m.text.as_bytes());
-        w.push_u64(m.timestamp_ms);
-        w.push_u64(m.id);
-        w.push_u8(m.status);
-        w.push_u64(m.expires_at_ms);
-        w.push_u8(m.edited as u8);
+        write_msg(&mut w, m);
     }
     w.into_bytes()
 }
 
-/// Inverse of [`serialize_msgs`].
-fn deserialize_msgs(bytes: &[u8]) -> Option<Vec<ChatMessage>> {
+/// Inverse of [`serialize_msgs`]. `version` is the app-state version the blob
+/// was written with — a v7 blob has no attachment/reaction fields, so it must
+/// not be read as if it did.
+fn deserialize_msgs(bytes: &[u8], version: u8) -> Option<Vec<ChatMessage>> {
     let mut r = StateReader::new(bytes);
     let n = r.u32()? as usize;
     let mut v = Vec::with_capacity(n);
     for _ in 0..n {
-        v.push(ChatMessage {
-            from_me: r.u8()? != 0,
-            text: r.string()?,
-            timestamp_ms: r.u64()?,
-            id: r.u64()?,
-            status: r.u8()?,
-            expires_at_ms: r.u64()?,
-            edited: r.u8()? != 0,
-        });
+        v.push(read_msg(&mut r, version)?);
     }
     Some(v)
+}
+
+/// Write one message. Shared by the sealed per-chat blobs and the plain history
+/// section of the app state, so the two can never drift apart.
+fn write_msg(w: &mut StateWriter, m: &ChatMessage) {
+    w.push_u8(m.from_me as u8);
+    w.push_bytes(m.text.as_bytes());
+    w.push_u64(m.timestamp_ms);
+    w.push_u64(m.id);
+    w.push_u8(m.status);
+    w.push_u64(m.expires_at_ms);
+    w.push_u8(m.edited as u8); // v6
+                               // v8: attachments + reactions.
+    w.push_u8(m.kind);
+    w.push_bytes(m.file_name.as_bytes());
+    w.push_bytes(m.mime.as_bytes());
+    w.push_u64(m.file_size);
+    w.push_u32(m.duration_ms);
+    w.push_bytes(m.path.as_bytes());
+    w.push_u32(m.transfer_total);
+    w.push_u32(m.transfer_have);
+    w.push_u32(m.reactions.len() as u32);
+    for rx in &m.reactions {
+        w.push_bytes(rx.emoji.as_bytes());
+        w.push_u8(rx.from_me as u8);
+    }
+}
+
+/// Read one message written by [`write_msg`], defaulting anything the given
+/// state `version` predates.
+fn read_msg(r: &mut StateReader, version: u8) -> Option<ChatMessage> {
+    let from_me = r.u8()? != 0;
+    let text = r.string()?;
+    let timestamp_ms = r.u64()?;
+    // v2 adds id + status; v1 defaults them. v3 adds expiry.
+    let (id, status) = if version >= 2 {
+        (r.u64()?, r.u8()?)
+    } else {
+        (0, STATUS_SENT)
+    };
+    let expires_at_ms = if version >= 3 { r.u64()? } else { 0 };
+    let edited = if version >= 6 { r.u8()? != 0 } else { false };
+
+    let mut m = ChatMessage::text(from_me, text, timestamp_ms, id, status);
+    m.expires_at_ms = expires_at_ms;
+    m.edited = edited;
+    if version < 8 {
+        return Some(m); // pre-attachment state: everything else keeps its default
+    }
+    m.kind = r.u8()?;
+    m.file_name = r.string()?;
+    m.mime = r.string()?;
+    m.file_size = r.u64()?;
+    m.duration_ms = r.u32()?;
+    m.path = r.string()?;
+    m.transfer_total = r.u32()?;
+    m.transfer_have = r.u32()?;
+    let n = r.u32()? as usize;
+    let mut reactions = Vec::with_capacity(n.min(64));
+    for _ in 0..n {
+        reactions.push(Reaction {
+            emoji: r.string()?,
+            from_me: r.u8()? != 0,
+        });
+    }
+    m.reactions = reactions;
+    // The outgoing-chunk queue lives only in memory, so an upload that was
+    // still in flight when the app closed cannot resume itself. Mark it failed
+    // rather than restoring a message stuck at "Sending…" with no way forward:
+    // failed messages offer a retry, which re-queues the payload from storage.
+    if m.from_me && m.kind != KIND_TEXT && m.transfer_have < m.transfer_total {
+        m.status = STATUS_FAILED;
+    }
+    Some(m)
 }
 
 /// Seal `plain` under `key` as `nonce(12) ‖ ciphertext`.
@@ -603,6 +837,17 @@ pub struct AegisApp {
     /// Per-chat passwords still **locked** this session — history sealed, new
     /// messages buffered until unlocked.
     locked_chats: HashMap<String, LockedChat>,
+    /// Completed attachment payloads (att_id → plaintext bytes) waiting to be
+    /// persisted by the UI layer. Deliberately **not** part of the exported
+    /// state: the state blob is rewritten on every change, and folding
+    /// multi-megabyte files into it would make every keystroke expensive. The
+    /// UI drains these with [`AegisApp::take_attachment`] and stores each one as
+    /// its own sealed file, keeping only the path in the message.
+    attachments: HashMap<u64, Vec<u8>>,
+    /// Attachment transfers still being reassembled from chunks.
+    incoming_attachments: HashMap<u64, PendingAttachment>,
+    /// Attachment uploads whose chunks are still being pushed out.
+    outgoing_attachments: HashMap<u64, OutgoingAttachment>,
 }
 
 fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
@@ -750,6 +995,9 @@ impl AegisApp {
             notes_pw: None,
             chat_pw: HashMap::new(),
             locked_chats: HashMap::new(),
+            attachments: HashMap::new(),
+            incoming_attachments: HashMap::new(),
+            outgoing_attachments: HashMap::new(),
         }
     }
 
@@ -838,7 +1086,7 @@ impl AegisApp {
                     aegis_id: c.aegis_id.clone(),
                     pinned: c.pinned,
                     blocked: c.blocked,
-                    last_text: last.map(|m| m.text.clone()),
+                    last_text: last.map(preview_text),
                     last_from_me: last.map(|m| m.from_me).unwrap_or(false),
                     last_ts: last.map(|m| m.timestamp_ms).unwrap_or(0),
                 }
@@ -1032,7 +1280,7 @@ impl AegisApp {
             .ok_or(AppError::UnknownContact)?;
         let key = derive_pw_key(&password, &locked.salt, locked.iters);
         match open_blob(&locked.history_ct, &key, CHAT_HISTORY_AAD)
-            .and_then(|plain| deserialize_msgs(&plain))
+            .and_then(|plain| deserialize_msgs(&plain, locked.version))
         {
             Some(mut msgs) => {
                 msgs.extend(locked.pending.iter().cloned());
@@ -1319,16 +1567,370 @@ impl AegisApp {
         let ok = self.deliver(&peer, &bundle, &payload);
 
         let now = now_ms();
-        self.history.entry(aegis_id).or_default().push(ChatMessage {
-            from_me: true,
+        let mut msg = ChatMessage::text(
+            true,
             text,
-            timestamp_ms: now,
+            now,
             id,
-            edited: false,
-            status: if ok { STATUS_SENT } else { STATUS_FAILED },
-            expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
-        });
+            if ok { STATUS_SENT } else { STATUS_FAILED },
+        );
+        msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+        self.history.entry(aegis_id).or_default().push(msg);
         Ok(())
+    }
+
+    /// Send an attachment (voice note, image, or file) to `aegis_id`.
+    ///
+    /// The bytes are split into [`CHUNK_DATA`]-sized pieces, each delivered as
+    /// its own end-to-end-encrypted packet — the mixnet carries fixed-size
+    /// payloads, so nothing larger fits in a single message. A [`MSG_ATTACH_META`]
+    /// frame opens the transfer and the chunks follow; the receiver reassembles
+    /// them in [`poll`](Self::poll).
+    ///
+    /// The local copy is stored immediately (optimistic echo, like [`send`]) and
+    /// the payload is kept in memory for the UI to persist via
+    /// [`take_attachment`](Self::take_attachment). Returns the new message's id.
+    ///
+    /// `kind` is [`KIND_FILE`] / [`KIND_VOICE`] / [`KIND_IMAGE`]; `duration_ms`
+    /// is only meaningful for a voice note.
+    pub fn send_attachment(
+        &mut self,
+        aegis_id: String,
+        kind: u8,
+        file_name: String,
+        mime: String,
+        duration_ms: u32,
+        bytes: Vec<u8>,
+    ) -> Result<u64, AppError> {
+        if bytes.is_empty() || bytes.len() > MAX_ATTACHMENT {
+            return Err(AppError::Protocol("attachment too large".into()));
+        }
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.aegis_id == aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = AegisId::decode(&contact.aegis_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let id = rand_u64();
+        let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
+        let total = bytes.len().div_ceil(CHUNK_DATA) as u32;
+
+        // Open the transfer: everything the receiver needs to allocate for it.
+        let mut meta = Vec::new();
+        meta.push(kind);
+        meta.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        meta.extend_from_slice(&total.to_le_bytes());
+        meta.extend_from_slice(&duration_ms.to_le_bytes());
+        push_short_str(&mut meta, &file_name);
+        push_short_str(&mut meta, &mime);
+        let ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
+
+        let now = now_ms();
+        let mut msg = ChatMessage::text(
+            true,
+            String::new(),
+            now,
+            id,
+            if ok { STATUS_SENT } else { STATUS_FAILED },
+        );
+        msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+        msg.kind = kind;
+        msg.file_name = file_name;
+        msg.mime = mime;
+        msg.file_size = bytes.len() as u64;
+        msg.duration_ms = duration_ms;
+        msg.transfer_total = total;
+        // Climbs as `pump_attachment` sends each batch.
+        msg.transfer_have = 0;
+        // The chunks are *not* sent here. Pushing thousands of packets in one
+        // call would hold the engine lock for the whole upload, freezing every
+        // other engine call (including the UI's) until it finished. Instead the
+        // payload is queued and the caller pumps it a batch at a time, so the
+        // lock is released between batches and progress is observable.
+        self.outgoing_attachments.insert(
+            id,
+            OutgoingAttachment {
+                aegis_id: aegis_id.clone(),
+                peer,
+                bundle,
+                ttl,
+                bytes: bytes.clone(),
+                next: 0,
+                total: total as usize,
+            },
+        );
+        self.attachments.insert(id, bytes);
+        self.history.entry(aegis_id).or_default().push(msg);
+        Ok(id)
+    }
+
+    /// Send the next batch of an attachment queued by
+    /// [`send_attachment`](Self::send_attachment).
+    ///
+    /// Returns `(sent, total)` chunks, or `None` once the transfer is finished
+    /// (or the id is unknown). Call it in a loop until it returns `None`:
+    /// each call takes and releases the engine lock, so a large upload no
+    /// longer blocks everything else for its whole duration.
+    pub fn pump_attachment(&mut self, id: u64) -> Option<(u32, u32)> {
+        let out = self.outgoing_attachments.get_mut(&id)?;
+        let (peer, bundle, ttl) = (out.peer.clone(), out.bundle.clone(), out.ttl);
+        let end = (out.next + CHUNK_BATCH).min(out.total);
+        let mut sent = Vec::with_capacity(end - out.next);
+        for i in out.next..end {
+            let start = i * CHUNK_DATA;
+            let stop = (start + CHUNK_DATA).min(out.bytes.len());
+            let mut content = Vec::with_capacity(4 + stop - start);
+            content.extend_from_slice(&(i as u32).to_le_bytes());
+            content.extend_from_slice(&out.bytes[start..stop]);
+            sent.push(content);
+        }
+        out.next = end;
+        let (aegis_id, next, total) = (out.aegis_id.clone(), out.next, out.total);
+
+        let mut ok = true;
+        for content in sent {
+            ok &= self.deliver(&peer, &bundle, &frame(MSG_ATTACH_CHUNK, id, ttl, &content));
+        }
+
+        // Mirror progress onto the message so the sender sees a bar too.
+        if let Some(msgs) = self.history.get_mut(&aegis_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.transfer_have = next as u32;
+                if !ok {
+                    m.status = STATUS_FAILED;
+                }
+            }
+        }
+        if next >= total {
+            self.outgoing_attachments.remove(&id);
+            return None;
+        }
+        Some((next as u32, total as u32))
+    }
+
+    /// Finish every queued attachment in one go. Convenience for tests and for
+    /// callers that don't need progress; the UI pumps incrementally instead.
+    pub fn flush_attachments(&mut self) {
+        let ids: Vec<u64> = self.outgoing_attachments.keys().copied().collect();
+        for id in ids {
+            while self.pump_attachment(id).is_some() {}
+        }
+    }
+
+    /// Retry a failed attachment send, given its bytes read back from storage.
+    /// The message keeps its id (so a later receipt still matches) and its
+    /// metadata; only delivery is repeated. A no-op if `id` isn't a failed
+    /// outgoing attachment in this conversation.
+    pub fn resend_attachment(
+        &mut self,
+        aegis_id: String,
+        id: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), AppError> {
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.aegis_id == aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = AegisId::decode(&contact.aegis_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let Some(m) = self.history.get(&aegis_id).and_then(|msgs| {
+            msgs.iter()
+                .find(|m| m.from_me && m.id == id && m.status == STATUS_FAILED)
+                .filter(|m| m.kind != KIND_TEXT)
+        }) else {
+            return Ok(());
+        };
+        let (kind, name, mime, duration_ms) =
+            (m.kind, m.file_name.clone(), m.mime.clone(), m.duration_ms);
+        let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
+
+        let total = bytes.len().div_ceil(CHUNK_DATA) as u32;
+        let mut meta = Vec::new();
+        meta.push(kind);
+        meta.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        meta.extend_from_slice(&total.to_le_bytes());
+        meta.extend_from_slice(&duration_ms.to_le_bytes());
+        push_short_str(&mut meta, &name);
+        push_short_str(&mut meta, &mime);
+        let ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
+        if ok {
+            if let Some(msgs) = self.history.get_mut(&aegis_id) {
+                if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
+                    m.status = STATUS_SENT;
+                    m.transfer_have = 0;
+                    m.transfer_total = total;
+                }
+            }
+        }
+        // Queue the payload rather than pushing it here, for the same reason as
+        // a first send: the caller pumps it so the lock is released between
+        // batches. Replaces any half-finished attempt for this id.
+        self.outgoing_attachments.insert(
+            id,
+            OutgoingAttachment {
+                aegis_id,
+                peer,
+                bundle,
+                ttl,
+                bytes,
+                next: 0,
+                total: total as usize,
+            },
+        );
+        Ok(())
+    }
+
+    /// React to a message with an emoji, or clear our reaction by passing an
+    /// empty `emoji`. One reaction per person per message: reacting again
+    /// replaces ours. The change is mirrored to the peer.
+    pub fn react(
+        &mut self,
+        aegis_id: String,
+        target_id: u64,
+        emoji: String,
+    ) -> Result<(), AppError> {
+        // A reaction is a tiny, self-contained control frame; cap it so a peer
+        // can't smuggle a payload through the emoji field.
+        if emoji.chars().count() > 8 {
+            return Err(AppError::Protocol("reaction too long".into()));
+        }
+        let msgs = self
+            .history
+            .get_mut(&aegis_id)
+            .ok_or(AppError::UnknownContact)?;
+        let m = msgs
+            .iter_mut()
+            .find(|m| m.id == target_id)
+            .ok_or(AppError::UnknownContact)?;
+        set_reaction(&mut m.reactions, true, &emoji);
+
+        if let Ok(peer) = AegisId::decode(&aegis_id) {
+            let mut content = target_id.to_le_bytes().to_vec();
+            content.extend_from_slice(emoji.as_bytes());
+            let payload = frame(MSG_REACTION, rand_u64(), 0, &content);
+            let _ = self.client.send(&mut self.store, &peer, &payload);
+        }
+        Ok(())
+    }
+
+    /// Whether this conversation already holds a message with `id` — including
+    /// one buffered while the chat is locked. Used to make delivery idempotent.
+    fn has_message(&self, aegis_id: &str, id: u64) -> bool {
+        let in_history = self
+            .history
+            .get(aegis_id)
+            .is_some_and(|msgs| msgs.iter().any(|m| m.id == id));
+        let in_pending = self
+            .locked_chats
+            .get(aegis_id)
+            .is_some_and(|l| l.pending.iter().any(|m| m.id == id));
+        in_history || in_pending
+    }
+
+    /// File a received chunk into its transfer. Returns `None` if there is no
+    /// such transfer (or the index is out of range), else whether the transfer
+    /// is now complete. Duplicate chunks are ignored rather than double-counted.
+    fn store_chunk(&mut self, id: u64, index: usize, data: &[u8]) -> Option<bool> {
+        let pending = self.incoming_attachments.get_mut(&id)?;
+        let slot = pending.chunks.get_mut(index)?;
+        if slot.is_some() {
+            return Some(false); // already have it
+        }
+        *slot = Some(data.to_vec());
+        let have = pending.chunks.iter().filter(|c| c.is_some()).count() as u32;
+        let aegis_id = pending.aegis_id.clone();
+        let done = have as usize == pending.chunks.len();
+        // Mirror progress onto the message so the UI can show a progress bar.
+        let msgs = self
+            .history
+            .get_mut(&aegis_id)
+            .or_else(|| self.locked_chats.get_mut(&aegis_id).map(|l| &mut l.pending));
+        if let Some(msgs) = msgs {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.transfer_have = have;
+            }
+        }
+        Some(done)
+    }
+
+    /// Join a fully-received transfer into one buffer and move it to the
+    /// pending-persist map. Returns the attachment's display name, or `None` if
+    /// the reassembled bytes don't match the size the sender declared.
+    fn finish_attachment(&mut self, id: u64) -> Option<String> {
+        let pending = self.incoming_attachments.remove(&id)?;
+        let mut bytes = Vec::with_capacity(pending.total_len);
+        for chunk in &pending.chunks {
+            bytes.extend_from_slice(chunk.as_deref()?);
+        }
+        if bytes.len() != pending.total_len {
+            return None; // sender's declared size and its chunks disagree
+        }
+        self.attachments.insert(id, bytes);
+        let msgs = self
+            .history
+            .get(&pending.aegis_id)
+            .map(|m| m.as_slice())
+            .or_else(|| {
+                self.locked_chats
+                    .get(&pending.aegis_id)
+                    .map(|l| &l.pending[..])
+            })?;
+        let m = msgs.iter().find(|m| m.id == id)?;
+        Some(if m.file_name.is_empty() {
+            match m.kind {
+                KIND_VOICE => "Voice message".to_string(),
+                KIND_IMAGE => "Photo".to_string(),
+                _ => "File".to_string(),
+            }
+        } else {
+            m.file_name.clone()
+        })
+    }
+
+    /// Ids of completed attachments whose bytes are still only in memory. The UI
+    /// drains these after each [`poll`](Self::poll) and persists them.
+    pub fn pending_attachments(&self) -> Vec<u64> {
+        self.attachments.keys().copied().collect()
+    }
+
+    /// Take an attachment's bytes out of memory, **sealed** under the app's
+    /// state key so the caller can write them straight to disk without ever
+    /// holding a plaintext file. Pair with [`open_attachment`](Self::open_attachment).
+    pub fn take_attachment(&mut self, id: u64) -> Option<Vec<u8>> {
+        let plain = self.attachments.remove(&id)?;
+        Some(seal_blob(&plain, &self.state_key, ATTACH_AAD))
+    }
+
+    /// Decrypt an attachment blob produced by [`take_attachment`](Self::take_attachment)
+    /// — for playback or export. `None` if it is not ours or has been tampered with.
+    pub fn open_attachment(&self, blob: Vec<u8>) -> Option<Vec<u8>> {
+        open_blob(&blob, &self.state_key, ATTACH_AAD)
+    }
+
+    /// Record where a message's attachment was persisted, so it survives a
+    /// restart. A no-op if the message isn't found.
+    pub fn set_attachment_path(&mut self, aegis_id: String, id: u64, path: String) {
+        if let Some(msgs) = self.history.get_mut(&aegis_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.path = path;
+            }
+        }
+    }
+
+    /// Which conversation a pending/completed attachment belongs to, so the UI
+    /// can record its path against the right chat.
+    pub fn attachment_chat(&self, id: u64) -> Option<String> {
+        if let Some(p) = self.incoming_attachments.get(&id) {
+            return Some(p.aegis_id.clone());
+        }
+        self.history
+            .iter()
+            .find(|(_, msgs)| msgs.iter().any(|m| m.id == id && m.kind != KIND_TEXT))
+            .map(|(chat, _)| chat.clone())
     }
 
     /// Deliver an already-framed `payload` to `peer`, starting the session from
@@ -1362,9 +1964,14 @@ impl AegisApp {
         let bundle = contact.bundle.clone();
 
         let ttl = self.disappearing.get(&aegis_id).copied().unwrap_or(0);
+        // Attachments are re-sent through `resend_attachment`, which needs the
+        // bytes back from storage — re-framing one as text would deliver an
+        // empty message, so leave it failed for the UI to retry explicitly.
         let text = self.history.get(&aegis_id).and_then(|msgs| {
             msgs.iter()
-                .find(|m| m.from_me && m.id == id && m.status == STATUS_FAILED)
+                .find(|m| {
+                    m.from_me && m.id == id && m.status == STATUS_FAILED && m.kind == KIND_TEXT
+                })
                 .map(|m| m.text.clone())
         });
         let Some(text) = text else { return Ok(()) };
@@ -1484,13 +2091,7 @@ impl AegisApp {
             w.push_bytes(aegis_id.as_bytes());
             w.push_u32(msgs.len() as u32);
             for m in msgs {
-                w.push_u8(m.from_me as u8);
-                w.push_bytes(m.text.as_bytes());
-                w.push_u64(m.timestamp_ms);
-                w.push_u64(m.id);
-                w.push_u8(m.status);
-                w.push_u64(m.expires_at_ms);
-                w.push_u8(m.edited as u8); // v6
+                write_msg(&mut w, m);
             }
         }
 
@@ -1512,6 +2113,8 @@ impl AegisApp {
             w.push_u32(pw.iters);
             w.push_bytes(&seal_blob(&serialize_msgs(msgs), &pw.key, CHAT_HISTORY_AAD));
             w.push_bytes(&serialize_msgs(&[]));
+            // Unlocked: we just re-sealed it in today's layout.
+            w.push_u8(APP_STATE_VERSION); // v8
         }
         for (id, lc) in &self.locked_chats {
             w.push_bytes(id.as_bytes());
@@ -1519,6 +2122,9 @@ impl AegisApp {
             w.push_u32(lc.iters);
             w.push_bytes(&lc.history_ct);
             w.push_bytes(&serialize_msgs(&lc.pending));
+            // Still locked, so its blob can't be re-sealed — carry the layout
+            // version it was written with so unlock parses it correctly.
+            w.push_u8(lc.version); // v8
         }
         w.into_bytes()
     }
@@ -1603,6 +2209,15 @@ impl AegisApp {
             };
             match kind {
                 MSG_TEXT => {
+                    // Delivery is idempotent. The network can hand us the same
+                    // envelope more than once — a retried anonymous fetch, a
+                    // provider replaying its queue — and the ratchet's skipped
+                    // message keys let a repeat still decrypt. Without this
+                    // guard the same message is appended again and the user
+                    // sees it two or three times in the conversation.
+                    if self.has_message(&aegis_id, id) {
+                        continue;
+                    }
                     let text = String::from_utf8_lossy(content).into_owned();
                     let from_name = self
                         .contacts
@@ -1617,15 +2232,8 @@ impl AegisApp {
                         self.disappearing.insert(aegis_id.clone(), ttl);
                     }
                     let now = now_ms();
-                    let msg = ChatMessage {
-                        from_me: false,
-                        text: text.clone(),
-                        timestamp_ms: now,
-                        id,
-                        status: STATUS_SENT,
-                        expires_at_ms: if ttl == 0 { 0 } else { now + ttl as u64 * 1000 },
-                        edited: false,
-                    };
+                    let mut msg = ChatMessage::text(false, text.clone(), now, id, STATUS_SENT);
+                    msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
                     // If the chat is locked, buffer the message (its plaintext
                     // history isn't in memory); it merges in on unlock.
                     if let Some(locked) = self.locked_chats.get_mut(&aegis_id) {
@@ -1673,6 +2281,100 @@ impl AegisApp {
                             m.text = new_text;
                             m.edited = true;
                             changed = true;
+                        }
+                    }
+                }
+                MSG_REACTION => {
+                    // The peer reacted to a message. `content` is
+                    // `target_id(8) ‖ emoji`; an empty emoji clears it.
+                    if content.len() >= 8 {
+                        let target = u64::from_le_bytes(content[..8].try_into().unwrap());
+                        let emoji = String::from_utf8_lossy(&content[8..]).into_owned();
+                        // Cap it the same way our own side is capped, so a
+                        // hostile peer can't stuff a payload into the field.
+                        if emoji.chars().count() <= 8 {
+                            if let Some(msgs) = self.history.get_mut(&aegis_id) {
+                                if let Some(m) = msgs.iter_mut().find(|m| m.id == target) {
+                                    set_reaction(&mut m.reactions, false, &emoji);
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                MSG_ATTACH_META => {
+                    // Same idempotence rule as a text message: a redelivered
+                    // meta frame must not open a second transfer for one file.
+                    if self.has_message(&aegis_id, id)
+                        || self.incoming_attachments.contains_key(&id)
+                    {
+                        continue;
+                    }
+                    // The peer is opening an attachment transfer: record the
+                    // placeholder message now, so the UI can show it arriving.
+                    if let Some((meta_kind, total_len, chunks, duration_ms, name, mime)) =
+                        parse_attach_meta(content)
+                    {
+                        // Bound what a peer can make us buffer.
+                        if total_len <= MAX_ATTACHMENT && chunks as usize <= MAX_ATTACHMENT {
+                            if ttl == 0 {
+                                self.disappearing.remove(&aegis_id);
+                            } else {
+                                self.disappearing.insert(aegis_id.clone(), ttl);
+                            }
+                            let now = now_ms();
+                            let mut msg =
+                                ChatMessage::text(false, String::new(), now, id, STATUS_SENT);
+                            msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+                            msg.kind = meta_kind;
+                            msg.file_name = name;
+                            msg.mime = mime;
+                            msg.file_size = total_len as u64;
+                            msg.duration_ms = duration_ms;
+                            msg.transfer_total = chunks;
+                            msg.transfer_have = 0;
+                            self.incoming_attachments.insert(
+                                id,
+                                PendingAttachment {
+                                    aegis_id: aegis_id.clone(),
+                                    chunks: vec![None; chunks as usize],
+                                    total_len,
+                                },
+                            );
+                            if let Some(locked) = self.locked_chats.get_mut(&aegis_id) {
+                                locked.pending.push(msg);
+                            } else {
+                                self.history.entry(aegis_id.clone()).or_default().push(msg);
+                            }
+                            self.send_receipt(&r.from, id, MSG_DELIVERED);
+                            changed = true;
+                        }
+                    }
+                }
+                MSG_ATTACH_CHUNK => {
+                    // One slice of a transfer opened above: `index(4) ‖ data`.
+                    if content.len() >= 4 {
+                        let index = u32::from_le_bytes(content[..4].try_into().unwrap()) as usize;
+                        let data = &content[4..];
+                        if let Some(done) = self.store_chunk(id, index, data) {
+                            changed = true;
+                            if done {
+                                // Every chunk is in — surface it like a message.
+                                if let Some(name) = self.finish_attachment(id) {
+                                    let from_name = self
+                                        .contacts
+                                        .iter()
+                                        .find(|c| c.aegis_id == aegis_id)
+                                        .map(|c| c.name.clone());
+                                    if !self.locked_chats.contains_key(&aegis_id) {
+                                        out.push(IncomingMessage {
+                                            from_aegis_id: aegis_id.clone(),
+                                            from_name,
+                                            text: name,
+                                        });
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1920,20 +2622,18 @@ mod tests {
             .history
             .entry(bob.my_aegis_id())
             .or_default()
-            .push(ChatMessage {
-                from_me: true,
-                text: "queued while offline".into(),
-                timestamp_ms: now_ms(),
+            .push(ChatMessage::text(
+                true,
+                "queued while offline".into(),
+                now_ms(),
                 id,
-                status: STATUS_FAILED,
-                expires_at_ms: 0,
-                edited: false,
-            });
+                STATUS_FAILED,
+            ));
         assert_eq!(alice.history(bob.my_aegis_id()).len(), 1);
 
         // The relay is back: a poll self-heals — retry_failed re-sends it and
         // flips the status to sent.
-        alice.poll().unwrap().messages;
+        alice.poll().unwrap();
         assert_eq!(
             alice.history(bob.my_aegis_id())[0].status,
             STATUS_SENT,
@@ -2189,6 +2889,309 @@ mod tests {
         assert!(alice.history(bob.my_aegis_id()).is_empty());
     }
 
+    /// A multi-chunk attachment survives the round trip byte-for-byte, and the
+    /// receiver can decrypt what it persisted.
+    #[test]
+    fn attachment_is_chunked_reassembled_and_sealed() {
+        let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        // Longer than one pump batch, and not a chunk multiple, so both the
+        // multi-batch path and the final short chunk are exercised.
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH + 5) + 17)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let id = alice
+            .send_attachment(
+                bob.my_aegis_id(),
+                KIND_VOICE,
+                "note.opus".into(),
+                "audio/opus".into(),
+                4200,
+                payload.clone(),
+            )
+            .unwrap();
+        assert!(payload.len() > CHUNK_DATA, "must span multiple packets");
+
+        // The chunks are queued, not blasted out inside the send call — that is
+        // what keeps a large upload from holding the engine lock throughout.
+        let queued = alice.history(bob.my_aegis_id())[0].clone();
+        assert_eq!(queued.transfer_have, 0, "nothing sent until pumped");
+        assert!(queued.transfer_total > 1);
+
+        // Pumping reports progress and finishes in more than one batch.
+        let mut pumps = 0;
+        while let Some((sent, total)) = alice.pump_attachment(id) {
+            assert!(sent <= total);
+            pumps += 1;
+            assert!(pumps < 1000, "pump must terminate");
+        }
+        assert!(
+            pumps >= 1,
+            "a transfer longer than one batch reports progress before finishing"
+        );
+        assert_eq!(
+            alice.history(bob.my_aegis_id())[0].transfer_have,
+            queued.transfer_total,
+            "sender's progress reaches 100%"
+        );
+        assert!(
+            alice.pump_attachment(id).is_none(),
+            "a finished transfer stays finished"
+        );
+
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap();
+        assert_eq!(
+            got.messages.len(),
+            1,
+            "one surfaced message for the transfer"
+        );
+        assert_eq!(got.messages[0].text, "note.opus");
+
+        let msg = bob
+            .history(alice.my_aegis_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("Bob has the attachment message");
+        assert_eq!(msg.kind, KIND_VOICE);
+        assert_eq!(msg.duration_ms, 4200);
+        assert_eq!(msg.file_size, payload.len() as u64);
+        assert!(msg.complete(), "every chunk arrived");
+
+        // Bob persists it: the bytes come out sealed, and only his key opens them.
+        assert_eq!(bob.pending_attachments(), vec![id]);
+        let sealed = bob.take_attachment(id).expect("bytes are ready to persist");
+        assert_ne!(sealed, payload, "never handed out in the clear");
+        assert_eq!(bob.open_attachment(sealed.clone()).unwrap(), payload);
+        assert!(
+            alice.open_attachment(sealed).is_none(),
+            "another device's key must not open it"
+        );
+        assert!(bob.take_attachment(id).is_none(), "drained after taking");
+    }
+
+    /// A retried attachment is re-queued and pumped, not blasted out inside the
+    /// call — and the peer still reassembles it byte-for-byte.
+    #[test]
+    fn a_retried_attachment_is_queued_and_arrives_intact() {
+        let mut alice = AegisApp::create_in_memory(vec![11u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![12u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * 2 + 5).map(|i| (i % 253) as u8).collect();
+        let id = alice
+            .send_attachment(
+                bob.my_aegis_id(),
+                KIND_FILE,
+                "report.pdf".into(),
+                "application/pdf".into(),
+                0,
+                payload.clone(),
+            )
+            .unwrap();
+        // Pretend the first attempt failed after the metadata went out.
+        alice.outgoing_attachments.remove(&id);
+        if let Some(msgs) = alice.history.get_mut(&bob.my_aegis_id()) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.status = STATUS_FAILED;
+            }
+        }
+
+        alice
+            .resend_attachment(bob.my_aegis_id(), id, payload.clone())
+            .unwrap();
+        assert!(
+            alice.outgoing_attachments.contains_key(&id),
+            "the retry queues the payload instead of sending it inline"
+        );
+        alice.flush_attachments();
+
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let got = bob
+            .history(alice.my_aegis_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("Bob received the retried attachment");
+        assert!(got.complete());
+        assert_eq!(got.file_name, "report.pdf");
+        let sealed = bob.take_attachment(id).expect("bytes reassembled");
+        assert_eq!(bob.open_attachment(sealed).unwrap(), payload);
+    }
+
+    /// Delivery is idempotent: a message id already present is not appended
+    /// again.
+    ///
+    /// The network can hand the same envelope over more than once — a retried
+    /// anonymous fetch, a provider replaying its queue — and the ratchet's
+    /// skipped message keys mean the repeat can still decrypt. Without this the
+    /// user sees the same message two or three times, which is exactly what the
+    /// mixnet SURB test was intermittently catching.
+    #[test]
+    fn delivery_is_idempotent_for_a_repeated_message_id() {
+        let mut alice = AegisApp::create_in_memory(vec![13u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![14u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_aegis_id(), "only once".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        let chat = alice.my_aegis_id();
+        assert_eq!(bob.history(chat.clone()).len(), 1);
+        let id = bob.history(chat.clone())[0].id;
+
+        // The guard `poll` consults reports the message as already held, for
+        // both the open history and a locked chat's pending buffer.
+        assert!(bob.has_message(&chat, id));
+        assert!(!bob.has_message(&chat, id.wrapping_add(1)));
+
+        // Polling again after the same envelopes are re-offered leaves the
+        // conversation unchanged.
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        assert_eq!(
+            bob.history(chat).len(),
+            1,
+            "a redelivered message must not be appended twice"
+        );
+    }
+
+    /// Reactions replace (not accumulate) per side, sync to the peer, and clear.
+    #[test]
+    fn reactions_sync_to_the_peer_and_toggle_off() {
+        let mut alice = AegisApp::create_in_memory(vec![3u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![4u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_aegis_id(), "ping".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let id = bob.history(alice.my_aegis_id())[0].id;
+
+        // Bob reacts, then changes his mind — one reaction, not two.
+        bob.react(alice.my_aegis_id(), id, "👍".into()).unwrap();
+        bob.react(alice.my_aegis_id(), id, "🔥".into()).unwrap();
+        let mine = &bob.history(alice.my_aegis_id())[0].reactions;
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].emoji, "🔥");
+        assert!(mine[0].from_me);
+
+        // Alice sees it as the peer's reaction on her own message. (One
+        // transfer, because the test relay re-delivers everything from the
+        // start on each transfer.)
+        transfer(&mut bob.store, &mut alice.store);
+        alice.poll().unwrap();
+        let hers = &alice.history(bob.my_aegis_id())[0].reactions;
+        assert_eq!(hers.len(), 1);
+        assert_eq!(hers[0].emoji, "🔥");
+        assert!(!hers[0].from_me, "it is the peer's reaction, not hers");
+    }
+
+    /// Clearing a reaction propagates to the peer, not just locally.
+    #[test]
+    fn clearing_a_reaction_syncs_to_the_peer() {
+        let mut alice = AegisApp::create_in_memory(vec![9u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![10u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_aegis_id(), "ping".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let id = bob.history(alice.my_aegis_id())[0].id;
+
+        // React then clear, both before the single transfer: Alice replays them
+        // in order and must end with no reaction at all.
+        bob.react(alice.my_aegis_id(), id, "👍".into()).unwrap();
+        bob.react(alice.my_aegis_id(), id, String::new()).unwrap();
+        assert!(bob.history(alice.my_aegis_id())[0].reactions.is_empty());
+
+        transfer(&mut bob.store, &mut alice.store);
+        alice.poll().unwrap();
+        assert!(
+            alice.history(bob.my_aegis_id())[0].reactions.is_empty(),
+            "the clear followed the reaction across"
+        );
+    }
+
+    /// Attachment metadata and reactions survive a save/restore cycle (v8).
+    #[test]
+    fn attachments_and_reactions_survive_a_restart() {
+        let mut alice = AegisApp::create_in_memory(vec![5u8; 32]).unwrap();
+        let bob = AegisApp::create_in_memory(vec![6u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+
+        let id = alice
+            .send_attachment(
+                bob.my_aegis_id(),
+                KIND_IMAGE,
+                "cat.png".into(),
+                "image/png".into(),
+                0,
+                vec![7u8; 2048],
+            )
+            .unwrap();
+        alice.set_attachment_path(bob.my_aegis_id(), id, "/data/att/1.bin".into());
+        alice.react(bob.my_aegis_id(), id, "😻".into()).unwrap();
+
+        // An upload interrupted by a restart can't resume itself — the chunk
+        // queue is memory-only — so it must come back retryable rather than
+        // stuck showing progress forever.
+        let interrupted = alice.export_state();
+        let mut after_crash = AegisApp::create_in_memory(vec![5u8; 32]).unwrap();
+        after_crash.restore_state(interrupted).unwrap();
+        let stuck = after_crash
+            .history(bob.my_aegis_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .unwrap();
+        assert_eq!(
+            stuck.status, STATUS_FAILED,
+            "an unfinished upload restores as failed, so the UI offers a retry"
+        );
+
+        // The normal case: a finished upload survives intact.
+        alice.flush_attachments();
+        let blob = alice.export_state();
+        let mut restored = AegisApp::create_in_memory(vec![5u8; 32]).unwrap();
+        restored.restore_state(blob).unwrap();
+
+        let m = restored
+            .history(bob.my_aegis_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("the attachment message came back");
+        assert_eq!(m.kind, KIND_IMAGE);
+        assert_eq!(m.file_name, "cat.png");
+        assert_eq!(m.mime, "image/png");
+        assert_eq!(m.file_size, 2048);
+        assert_eq!(m.path, "/data/att/1.bin");
+        assert_eq!(m.reactions.len(), 1);
+        assert_eq!(m.reactions[0].emoji, "😻");
+    }
+
     #[test]
     fn delete_for_both_removes_the_conversation_on_the_peer() {
         let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
@@ -2207,7 +3210,7 @@ mod tests {
         assert!(alice.contacts().is_empty(), "deleted on Alice's side");
 
         transfer(&mut alice.store, &mut bob.store);
-        bob.poll().unwrap().messages;
+        bob.poll().unwrap();
         // Bob processed the text then the delete: the conversation is gone.
         assert!(bob.contacts().is_empty(), "Bob's chat was removed too");
         assert!(bob.history(alice.my_aegis_id()).is_empty());
@@ -2437,6 +3440,22 @@ mod tests {
 
     /// Test helper: copy every envelope from one in-memory store into another,
     /// standing in for a shared relay.
+    /// The chunk size must leave a framed attachment packet inside the 1024
+    /// pad bucket — the largest that still fits an onion packet once ratchet
+    /// and envelope overhead is added. If this ever fails, attachments would
+    /// silently stop routing over the mixnet.
+    #[test]
+    fn chunk_size_stays_within_the_onion_budget() {
+        let content = 4 + CHUNK_DATA; // att_id index(4) + data
+        let framed = 13 + content; // frame header
+        let padded = framed + 4; // client pad length prefix
+        assert!(
+            padded <= 1024,
+            "a chunk packet must fit the 1024 bucket, got {padded}"
+        );
+        assert!(padded + 256 < aegis_net::PAYLOAD_LEN);
+    }
+
     fn transfer(from: &mut Store, to: &mut Store) {
         let (Store::Memory(from), Store::Memory(to)) = (from, to) else {
             unreachable!("test uses in-memory stores")

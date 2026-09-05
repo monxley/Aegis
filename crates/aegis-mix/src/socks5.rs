@@ -260,7 +260,8 @@ mod tests {
                 let mut port = [0u8; 2];
                 c.read_exact(&mut port).unwrap();
                 let target = format!("{host}:{}", u16::from_be_bytes(port));
-                c.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).unwrap();
+                c.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                    .unwrap();
                 let mut up = TcpStream::connect(target).unwrap();
                 let mut c2 = c.try_clone().unwrap();
                 let mut up2 = up.try_clone().unwrap();
@@ -314,8 +315,7 @@ mod tests {
         let hop2 = fake_proxy(None);
         let hop1 = fake_proxy(None);
         // app → hop1 → hop2 → target
-        let mut s =
-            dial_chain(&[cfg(hop1), cfg(hop2)], target, Duration::from_secs(5)).unwrap();
+        let mut s = dial_chain(&[cfg(hop1), cfg(hop2)], target, Duration::from_secs(5)).unwrap();
         s.write_all(b"chn!").unwrap();
         let mut buf = [0u8; 4];
         s.read_exact(&mut buf).unwrap();

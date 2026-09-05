@@ -163,10 +163,10 @@ class _NotesScreenState extends State<NotesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          children: const [
+          children: [
             Text('Notes'),
             Text('Local · encrypted · never sent',
                 style: TextStyle(color: AegisTheme.textLo, fontSize: 11)),
@@ -278,7 +278,7 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          GradientButton(
+          PrimaryButton(
             label: _busy ? 'Unlocking…' : 'Unlock notes',
             icon: Icons.lock_open_rounded,
             onPressed: _busy ? null : _unlock,
@@ -332,9 +332,9 @@ class _NoteBubble extends StatelessWidget {
           ),
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
-          decoration: BoxDecoration(
-            gradient: AegisTheme.shield,
-            borderRadius: const BorderRadius.only(
+          decoration: const BoxDecoration(
+            color: AegisColor.accent,
+            borderRadius: BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
               bottomLeft: Radius.circular(18),
@@ -347,11 +347,11 @@ class _NoteBubble extends StatelessWidget {
             children: [
               Text(note.text,
                   style: const TextStyle(
-                      color: Color(0xFF06110F), fontSize: 15, height: 1.3)),
+                      color: AegisColor.textOnAccent, fontSize: 15, height: 1.3)),
               const SizedBox(height: 2),
               Text(
                 formatClock(note.timestampMs.toInt()),
-                style: const TextStyle(color: Color(0x9906110F), fontSize: 10),
+                style: const TextStyle(color: AegisColor.textMuted, fontSize: 10),
               ),
             ],
           ),
@@ -473,10 +473,10 @@ class _Composer extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: const BoxDecoration(
-                  gradient: AegisTheme.shield,
+                  color: AegisColor.accent,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.add_rounded, color: Color(0xFF06110F)),
+                child: const Icon(Icons.add_rounded, color: AegisColor.textOnAccent),
               ),
             ),
           ],

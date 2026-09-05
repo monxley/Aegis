@@ -162,6 +162,40 @@ pub struct ChatMessage {
     pub expires_at_ms: u64,
     /// Whether the message was edited after it was first sent.
     pub edited: bool,
+    /// What this message carries: 0 text, 1 file, 2 voice note, 3 image. For
+    /// anything but text the fields below describe the attachment.
+    pub kind: u8,
+    /// Original file name (file/image attachments).
+    pub file_name: String,
+    /// MIME type the sender reported — advisory only.
+    pub mime: String,
+    /// Attachment size in bytes.
+    pub file_size: u64,
+    /// Voice-note length in milliseconds (0 otherwise).
+    pub duration_ms: u32,
+    /// Where the encrypted attachment is stored on this device; empty until the
+    /// transfer finishes and the app persists it.
+    pub path: String,
+    /// Chunks expected and already received, for a transfer progress bar.
+    pub transfer_total: u32,
+    pub transfer_have: u32,
+    /// Emoji reactions on this message.
+    pub reactions: Vec<Reaction>,
+}
+
+/// How far a queued attachment upload has got.
+pub struct TransferProgress {
+    /// Chunks pushed out so far.
+    pub sent: u32,
+    /// Chunks in the whole transfer.
+    pub total: u32,
+}
+
+/// One emoji reaction on a message.
+pub struct Reaction {
+    pub emoji: String,
+    /// Whether this is *our* reaction (tap toggles it off).
+    pub from_me: bool,
 }
 
 /// A message just delivered by [`AegisEngine::poll`].
@@ -219,6 +253,22 @@ impl From<ApiChatMessage> for ChatMessage {
             status: m.status,
             expires_at_ms: m.expires_at_ms,
             edited: m.edited,
+            kind: m.kind,
+            file_name: m.file_name,
+            mime: m.mime,
+            file_size: m.file_size,
+            duration_ms: m.duration_ms,
+            path: m.path,
+            transfer_total: m.transfer_total,
+            transfer_have: m.transfer_have,
+            reactions: m
+                .reactions
+                .into_iter()
+                .map(|r| Reaction {
+                    emoji: r.emoji,
+                    from_me: r.from_me,
+                })
+                .collect(),
         }
     }
 }
@@ -409,6 +459,82 @@ impl AegisEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Send an attachment — a voice note, image, or file. The bytes are split
+    /// into packet-sized chunks and delivered end-to-end encrypted; the local
+    /// copy appears immediately. `kind` is 1 file / 2 voice / 3 image, and
+    /// `duration_ms` only matters for a voice note. Returns the message id, so
+    /// the caller can persist the bytes against it.
+    pub fn send_attachment(
+        &self,
+        aegis_id: String,
+        kind: u8,
+        file_name: String,
+        mime: String,
+        duration_ms: u32,
+        bytes: Vec<u8>,
+    ) -> Result<u64, String> {
+        self.with(|app| app.send_attachment(aegis_id, kind, file_name, mime, duration_ms, bytes))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Push the next batch of a queued attachment, returning chunks sent so far
+    /// and the total, or `null` once it is finished.
+    ///
+    /// Uploads are pumped rather than sent in one call: each call takes and
+    /// releases the engine lock, so a large file no longer blocks every other
+    /// engine call for the whole upload. Loop until this returns `null`.
+    pub fn pump_attachment(&self, id: u64) -> Option<TransferProgress> {
+        self.with(|app| app.pump_attachment(id))
+            .map(|(sent, total)| TransferProgress { sent, total })
+    }
+
+    /// Retry a failed attachment send with its bytes read back from storage.
+    pub fn resend_attachment(
+        &self,
+        aegis_id: String,
+        id: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        self.with(|app| app.resend_attachment(aegis_id, id, bytes))
+            .map_err(|e| e.to_string())
+    }
+
+    /// React to a message with an emoji, or clear our reaction with an empty
+    /// string. One reaction per side: reacting again replaces ours.
+    pub fn react(&self, aegis_id: String, target_id: u64, emoji: String) -> Result<(), String> {
+        self.with(|app| app.react(aegis_id, target_id, emoji))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Ids of finished attachments whose bytes are still only in memory, waiting
+    /// to be written to disk. Drain these after each poll.
+    #[frb(sync)]
+    pub fn pending_attachments(&self) -> Vec<u64> {
+        self.with(|app| app.pending_attachments())
+    }
+
+    /// Which conversation an attachment belongs to.
+    #[frb(sync)]
+    pub fn attachment_chat(&self, id: u64) -> Option<String> {
+        self.with(|app| app.attachment_chat(id))
+    }
+
+    /// Take an attachment's bytes out of memory **already encrypted**, ready to
+    /// write straight to a file — the plaintext never reaches storage.
+    pub fn take_attachment(&self, id: u64) -> Option<Vec<u8>> {
+        self.with(|app| app.take_attachment(id))
+    }
+
+    /// Decrypt an attachment file for playback or export.
+    pub fn open_attachment(&self, blob: Vec<u8>) -> Option<Vec<u8>> {
+        self.with(|app| app.open_attachment(blob))
+    }
+
+    /// Record where an attachment was saved, so it survives a restart.
+    pub fn set_attachment_path(&self, aegis_id: String, id: u64, path: String) {
+        self.with(|app| app.set_attachment_path(aegis_id, id, path))
+    }
+
     /// Whether this chat has a per-chat password set.
     #[frb(sync)]
     pub fn chat_has_password(&self, aegis_id: String) -> bool {
@@ -494,7 +620,9 @@ impl AegisEngine {
     /// Set (or change) the notes password — a second encryption layer (PBKDF2,
     /// ~314k iterations) so reading notes needs both the device seed and this
     /// password. Re-export afterwards to persist.
-    #[frb(sync)]
+    /// Not `frb(sync)`: this stretches the password with PBKDF2 (hundreds of
+    /// thousands of rounds, deliberately). On the UI thread that is a visible
+    /// freeze, so it runs on a worker like the chat-password calls do.
     pub fn set_notes_password(&self, password: String) {
         self.with(|app| app.set_notes_password(password));
     }
@@ -507,7 +635,8 @@ impl AegisEngine {
 
     /// Unlock a password-protected notes blob with `password`. Errors on a wrong
     /// password.
-    #[frb(sync)]
+    /// Not `frb(sync)`: same PBKDF2 cost as [`set_notes_password`], so it is
+    /// kept off the UI thread.
     pub fn unlock_notes(&self, password: String, blob: Vec<u8>) -> Result<(), String> {
         self.with(|app| app.unlock_notes(password, blob))
             .map_err(|e| e.to_string())
@@ -559,7 +688,12 @@ impl AegisEngine {
 
     /// Snapshot state **encrypted at rest** under a seed-derived key — persist
     /// this so contacts/history are never stored in the clear.
-    #[frb(sync)]
+    ///
+    /// Deliberately **not** `frb(sync)`: this serializes every contact, session
+    /// and message and then encrypts the result, which grows with history. Run
+    /// synchronously it would block the UI thread on every save — the app's
+    /// worst source of dropped frames. As an async bridge call it runs on a
+    /// worker thread instead, and the UI keeps rendering while it works.
     pub fn export_state_encrypted(&self) -> Vec<u8> {
         self.with(|app| app.export_state_encrypted())
     }

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/rust/api/aegis.dart';
 import 'src/rust/frb_generated.dart';
 
+import 'attachments.dart';
 import 'background.dart';
 import 'biometrics.dart';
 import 'config.dart';
@@ -20,6 +20,7 @@ import 'disguise.dart';
 import 'notifications.dart';
 import 'screen_security.dart';
 import 'secure_store.dart';
+import 'state_store.dart';
 import 'updater.dart';
 
 const _seedKey = 'aegis.master_seed';
@@ -181,7 +182,7 @@ class AegisEngineController extends ChangeNotifier {
     final b64 = prefs.getString(_activeNotesKey);
     if (b64 == null) return false;
     try {
-      engine.unlockNotes(password: password, blob: base64Decode(b64));
+      await engine.unlockNotes(password: password, blob: base64Decode(b64));
       _notesLocked = false;
       notifyListeners();
       return true;
@@ -193,7 +194,7 @@ class AegisEngineController extends ChangeNotifier {
   /// Set (or change) the notes password (double-layer encryption). Requires the
   /// notes to be unlocked. Persisted immediately.
   Future<void> setNotesPassword(String password) async {
-    _engine?.setNotesPassword(password: password);
+    await _engine?.setNotesPassword(password: password);
     await _persistNotes();
     notifyListeners();
   }
@@ -317,7 +318,7 @@ class AegisEngineController extends ChangeNotifier {
         password: _proxyPass.isEmpty ? null : _proxyPass,
       );
   ProxyHop get _torHop =>
-      ProxyHop(proxy: _torEndpoint, username: null, password: null);
+      const ProxyHop(proxy: _torEndpoint, username: null, password: null);
 
   /// Push the current proxy choice into the Rust transport (process-wide). Both
   /// the mixnet and the provider connection honour it. Safe to call before a
@@ -403,13 +404,7 @@ class AegisEngineController extends ChangeNotifier {
       return;
     }
     await _start(seed);
-    final prefs = await SharedPreferences.getInstance();
-    final blob = prefs.getString(_activeStateKey);
-    if (blob != null) {
-      try {
-        _engine!.restoreStateEncrypted(blob: base64Decode(blob));
-      } catch (_) {}
-    }
+    await _restoreSavedState();
     notifyListeners();
   }
 
@@ -418,8 +413,8 @@ class AegisEngineController extends ChangeNotifier {
   bool get hasBootstrap => _bootstrap.isNotEmpty;
 
   bool get isReady => _engine != null;
-  String get myAegisId => _engine!.myAegisId();
-  Uint8List get myBundle => _engine!.myBundle();
+  String get myAegisId => _engine?.myAegisId() ?? '';
+  Uint8List get myBundle => _engine?.myBundle() ?? Uint8List(0);
 
   /// Whether this device is also running an opt-in mix node.
   bool get nodeEnabled => _nodeEnabled;
@@ -844,10 +839,15 @@ class AegisEngineController extends ChangeNotifier {
     _pollTimer?.cancel();
     _coverTimer?.cancel();
     _cancelSyncWait();
+    // A queued save must not resurrect what we are about to wipe.
+    _saveDebounce?.cancel();
+    _saveDebounce = null;
+    _saveAgain = false;
     final prefs = await SharedPreferences.getInstance();
     if (decoyOnly) {
       await prefs.remove(_decoyStateKey);
       await prefs.remove(_decoyNotesKey);
+      await _stateStore.remove(_decoyStateKey);
     } else {
       await prefs.remove(_seedKey);
       await SecureStore.clear();
@@ -863,7 +863,13 @@ class AegisEngineController extends ChangeNotifier {
       await prefs.remove(_notifyKey);
       await prefs.remove(_favNodesKey);
       await Biometrics.clear();
+      // State and attachments live in their own files now, so clearing prefs
+      // alone would leave the history and every voice note behind.
+      await _stateStore.remove(_stateKey);
+      await _stateStore.remove(_decoyStateKey);
+      await AttachmentStore.clear();
     }
+    await AttachmentStore.clearScratch();
     _engine = null;
     _node = null;
     _seed = null;
@@ -889,14 +895,7 @@ class AegisEngineController extends ChangeNotifier {
     _notify = prefs.getBool(_notifyKey) ?? false;
     await _start(seed);
     // Restore sessions, contacts, and history saved on the last run.
-    final blob = prefs.getString(_stateKey);
-    if (blob != null) {
-      try {
-        _engine!.restoreStateEncrypted(blob: base64Decode(blob));
-      } catch (e) {
-        debugPrint('state restore failed (starting fresh): $e');
-      }
-    }
+    await _restoreSavedState();
     await _restoreNotes();
     // Resume node mode (defaults per platform on first run).
     _nodeVerified = prefs.getBool(_nodeVerifiedKey) ?? false;
@@ -924,15 +923,9 @@ class AegisEngineController extends ChangeNotifier {
     _nodeEnabled = false;
     _nodeVerified = false;
     await _start(seed);
-    // Restore the decoy's own history, if it has been used before.
-    final blob = prefs.getString(_decoyStateKey);
-    if (blob != null) {
-      try {
-        _engine!.restoreStateEncrypted(blob: base64Decode(blob));
-      } catch (e) {
-        debugPrint('decoy state restore failed (starting fresh): $e');
-      }
-    }
+    // Restore the decoy's own history, if it has been used before. `_isDecoy`
+    // is already set, so this reads the decoy's state, not the real one.
+    await _restoreSavedState();
     await _restoreNotes();
   }
 
@@ -1064,12 +1057,7 @@ class AegisEngineController extends ChangeNotifier {
     // anonymous receive on/off, restoring saved state.
     if (_mode == 'network' && _seed != null) {
       await _start(_seed!);
-      final blob = prefs.getString(_activeStateKey);
-      if (blob != null) {
-        try {
-          _engine!.restoreStateEncrypted(blob: base64Decode(blob));
-        } catch (_) {}
-      }
+      await _restoreSavedState();
     } else if (enabled) {
       await _startNode();
     } else {
@@ -1201,22 +1189,36 @@ class AegisEngineController extends ChangeNotifier {
   List<ChatMessage> history(String aegisId) =>
       _engine?.history(aegisId: aegisId) ?? const [];
 
+  /// The engine, or a readable error if it isn't running.
+  ///
+  /// These paths are only reachable from an unlocked UI, but a locked, wiped or
+  /// failed-to-boot engine can still race a tap in flight. Failing with a clear
+  /// message beats an opaque null-check crash — every caller already surfaces
+  /// the exception to the user.
+  AegisEngine get _requireEngine {
+    final engine = _engine;
+    if (engine == null) {
+      throw StateError('Aegis is locked or still starting up');
+    }
+    return engine;
+  }
+
   /// The safety number to compare with a contact out of band (MITM check).
   String safetyNumber(String aegisId) =>
-      _engine!.safetyNumber(aegisId: aegisId);
+      _requireEngine.safetyNumber(aegisId: aegisId);
 
   void addContact({
     required String name,
     required String aegisId,
     required Uint8List bundle,
   }) {
-    _engine!.addContact(name: name, aegisId: aegisId, bundle: bundle);
+    _requireEngine.addContact(name: name, aegisId: aegisId, bundle: bundle);
     _persist();
     notifyListeners();
   }
 
   Future<void> send({required String aegisId, required String text}) async {
-    await _engine!.send(aegisId: aegisId, text: text);
+    await _requireEngine.send(aegisId: aegisId, text: text);
     _persist();
     notifyListeners();
   }
@@ -1242,9 +1244,129 @@ class AegisEngineController extends ChangeNotifier {
     BigInt id, {
     required bool forBoth,
   }) async {
+    // Take the attachment file with it — otherwise deleting a voice note would
+    // leave its (encrypted, but still present) bytes on disk.
+    for (final m in history(aegisId)) {
+      if (m.id == id && m.path.isNotEmpty) {
+        await AttachmentStore.remove(m.path);
+      }
+    }
     await _engine?.deleteMessage(aegisId: aegisId, id: id, forBoth: forBoth);
     _persist();
     notifyListeners();
+  }
+
+  // --- attachments & reactions ----------------------------------------------
+
+  /// Send an attachment. [kind] is [MsgKind.file] / `.voice` / `.image`;
+  /// [durationMs] only matters for a voice note. The bytes are chunked and
+  /// encrypted by the engine, then persisted here as a single sealed file.
+  Future<void> sendAttachment({
+    required String aegisId,
+    required int kind,
+    required String fileName,
+    required String mime,
+    required Uint8List bytes,
+    int durationMs = 0,
+  }) async {
+    final engine = _engine;
+    if (engine == null) return;
+    final id = await engine.sendAttachment(
+      aegisId: aegisId,
+      kind: kind,
+      fileName: fileName,
+      mime: mime,
+      durationMs: durationMs,
+      bytes: bytes,
+    );
+    // Store the bytes first, so the attachment survives even if the upload is
+    // interrupted — it can then be retried from storage.
+    await _persistAttachment(engine, id, aegisId);
+    notifyListeners();
+    // Then push the payload a batch at a time. Each call releases the engine
+    // lock, so the rest of the app keeps working during a large upload and the
+    // progress bar actually moves.
+    await _pumpUpload(engine, id);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Drive a queued upload to completion, refreshing the UI as it advances.
+  Future<void> _pumpUpload(AegisEngine engine, BigInt id) async {
+    try {
+      var guard = 0;
+      while (true) {
+        final progress = await engine.pumpAttachment(id: id);
+        if (progress == null) break; // finished
+        notifyListeners();
+        // Yield to the event loop so frames render between batches.
+        await Future<void>.delayed(Duration.zero);
+        // A transfer is bounded by MAX_ATTACHMENT / chunk size; this only
+        // guards against an unexpected non-terminating loop.
+        if (++guard > 200000) break;
+      }
+    } catch (e) {
+      debugPrint('attachment upload failed: $e');
+    }
+  }
+
+  /// React to a message, or pass an empty [emoji] to clear our reaction.
+  Future<void> react(String aegisId, BigInt targetId, String emoji) async {
+    await _engine?.react(aegisId: aegisId, targetId: targetId, emoji: emoji);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Decrypt an attachment for playback / opening. Returns null if the file is
+  /// missing or can't be opened with this device's key.
+  Future<Uint8List?> attachmentBytes(ChatMessage m) async {
+    final engine = _engine;
+    if (engine == null || m.path.isEmpty) return null;
+    final sealed = await AttachmentStore.readSealed(m.path);
+    if (sealed == null) return null;
+    final plain = await engine.openAttachment(blob: sealed);
+    return plain;
+  }
+
+  /// Retry a failed attachment send, reading its bytes back from storage.
+  Future<void> resendAttachment(String aegisId, ChatMessage m) async {
+    final engine = _engine;
+    if (engine == null) return;
+    final plain = await attachmentBytes(m);
+    if (plain == null) return;
+    await engine.resendAttachment(aegisId: aegisId, id: m.id, bytes: plain);
+    notifyListeners();
+    // The retry queues the payload; push it out the same way a first send does.
+    await _pumpUpload(engine, m.id);
+    _persist();
+    notifyListeners();
+  }
+
+  /// Move any finished attachment from engine memory onto disk, sealed, and
+  /// record its path on the message. Called after each poll so a received voice
+  /// note is durable as soon as its last chunk lands.
+  Future<void> _drainAttachments(AegisEngine engine) async {
+    for (final id in engine.pendingAttachments()) {
+      await _persistAttachment(engine, id, engine.attachmentChat(id: id));
+    }
+  }
+
+  /// Persist one attachment's bytes (already sealed by the engine) and tell the
+  /// engine where they went.
+  Future<void> _persistAttachment(
+    AegisEngine engine,
+    BigInt id,
+    String? aegisId,
+  ) async {
+    if (aegisId == null) return;
+    try {
+      final sealed = await engine.takeAttachment(id: id);
+      if (sealed == null) return;
+      final path = await AttachmentStore.save(id, sealed);
+      await engine.setAttachmentPath(aegisId: aegisId, id: id, path: path);
+    } catch (e) {
+      debugPrint('attachment persist failed: $e');
+    }
   }
 
   // --- per-chat password (lock an individual conversation) ------------------
@@ -1330,11 +1452,22 @@ class AegisEngineController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Guards against overlapping polls. A poll holds the engine lock for its
+  /// whole network round-trip, so if the relay is slow the 3-second timer would
+  /// otherwise stack requests, each waiting on the lock and stretching the
+  /// window in which the UI can't read from the engine. One at a time: a tick
+  /// that arrives while a poll is still running is simply skipped.
+  bool _polling = false;
+
   Future<void> _poll() async {
     final engine = _engine;
-    if (engine == null) return;
+    if (engine == null || _polling) return;
+    _polling = true;
     try {
       final res = await engine.poll();
+      // A finished transfer only lives in engine memory — write it to disk
+      // (sealed) before anything else, so it survives even if we're killed.
+      await _drainAttachments(engine);
       if (res.messages.isNotEmpty && _notify) {
         for (final m in res.messages) {
           Notifications.showMessage(
@@ -1353,26 +1486,97 @@ class AegisEngineController extends ChangeNotifier {
     } catch (e) {
       // Relay unreachable — stay quiet; the next tick retries.
       debugPrint('poll failed: $e');
+    } finally {
+      _polling = false;
     }
   }
 
-  /// Save the engine's state (sessions, contacts, history) so the next launch
-  /// resumes where this one left off. Fire-and-forget; a missed save just means
-  /// the last few messages re-sync from the relay.
-  Future<void> _persist() async {
+  // --- state persistence ----------------------------------------------------
+  //
+  // Saving means serializing every contact, session and message and encrypting
+  // the result, so its cost grows with history. Three things keep that off the
+  // critical path:
+  //
+  //  1. the export itself is an async bridge call, so the work happens on a
+  //     worker thread rather than blocking the UI;
+  //  2. saves are *coalesced* — a burst of changes (a poll that lands five
+  //     messages, a fast typist, a chunked attachment) writes once, not once
+  //     per change;
+  //  3. only one save runs at a time; anything requested while one is in
+  //     flight is folded into a single follow-up.
+
+  final StateStore _stateStore = StateStore();
+  Timer? _saveDebounce;
+  bool _saving = false;
+  bool _saveAgain = false;
+
+  /// Load the saved state into a freshly started engine. A missing or
+  /// unreadable blob is not fatal — the app just starts empty and re-syncs.
+  Future<void> _restoreSavedState() async {
     final engine = _engine;
     if (engine == null) return;
     try {
-      final blob = engine.exportStateEncrypted();
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_activeStateKey, base64Encode(blob));
+      final blob = await _stateStore.read(_activeStateKey);
+      if (blob == null) return;
+      engine.restoreStateEncrypted(blob: blob);
     } catch (e) {
+      debugPrint('state restore failed: $e');
+    }
+  }
+
+  /// Ask for a save. Returns immediately — the write happens shortly after the
+  /// last change in a burst. Call [flushPendingSave] when the app is about to
+  /// lose focus and the write must actually land.
+  void _persist() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 350), _saveNow);
+  }
+
+  /// Write the state now, unless a write is already running (in which case one
+  /// more is queued for when it finishes, so the newest state always wins).
+  Future<void> _saveNow() async {
+    _saveDebounce?.cancel();
+    _saveDebounce = null;
+    if (_saving) {
+      _saveAgain = true;
+      return;
+    }
+    final engine = _engine;
+    if (engine == null) return;
+    _saving = true;
+    try {
+      // Async bridge call: serialization + encryption happen off the UI thread.
+      final blob = await engine.exportStateEncrypted();
+      await _stateStore.write(_activeStateKey, blob);
+    } catch (e) {
+      // A missed save just means the last few messages re-sync from the relay.
       debugPrint('state save failed: $e');
+    } finally {
+      _saving = false;
+      if (_saveAgain) {
+        _saveAgain = false;
+        unawaited(_saveNow());
+      }
+    }
+  }
+
+  /// Force any pending save to complete — call before the app is backgrounded
+  /// or the engine is torn down, so a debounced write is never lost.
+  Future<void> flushPendingSave() async {
+    if (_saveDebounce?.isActive ?? false) {
+      await _saveNow();
+    }
+    // Wait out an in-flight write so the caller knows the state is on disk.
+    while (_saving) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
     }
   }
 
   @override
   void dispose() {
+    // A debounced save must still land, or the last few messages are lost.
+    unawaited(flushPendingSave());
+    _saveDebounce?.cancel();
     _pollTimer?.cancel();
     _coverTimer?.cancel();
     _syncTimer?.cancel();
