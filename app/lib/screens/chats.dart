@@ -130,7 +130,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 ),
               if (update != null) _UpdateBanner(engine: engine, update: update),
               _NotesTile(engine: engine),
-              const Divider(height: 1, indent: 82, color: Color(0xFF1B1E29)),
+              const Divider(height: 1, indent: 82, color: AegisColor.border),
               Expanded(
                 child: contacts.isEmpty
                     ? const _EmptyState()
@@ -140,7 +140,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                         separatorBuilder: (_, __) => const Divider(
                           height: 1,
                           indent: 82,
-                          color: Color(0xFF1B1E29),
+                          color: AegisColor.border,
                         ),
                         itemBuilder: (context, i) =>
                             _ContactTile(engine: engine, contact: contacts[i]),
@@ -152,7 +152,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: AegisTheme.accent,
-        foregroundColor: const Color(0xFF06110F),
+        foregroundColor: AegisColor.textOnAccent,
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => AddContactScreen(engine: engine)),
         ),
@@ -178,7 +178,7 @@ class _ConnectionStatus extends StatelessWidget {
         final color = label.startsWith('Mixnet')
             ? AegisTheme.accent
             : label.startsWith('Relay')
-                ? const Color(0xFFFFC24B)
+                ? AegisColor.warning
                 : AegisTheme.textLo;
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -221,7 +221,7 @@ class _NotesTile extends StatelessWidget {
           color: AegisColor.accent,
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.bookmark_rounded, color: Color(0xFF06110F)),
+        child: const Icon(Icons.bookmark_rounded, color: AegisColor.textOnAccent),
       ),
       title: Row(
         children: const [
@@ -404,7 +404,7 @@ class _ContactTile extends StatelessWidget {
               danger: !contact.blocked,
               onTap: () => engine.setBlocked(contact.aegisId, !contact.blocked),
             ),
-            const Divider(height: 1, color: Color(0xFF1B1E29)),
+            const Divider(height: 1, color: AegisColor.border),
             _action(
               sheetCtx,
               icon: Icons.delete_outline_rounded,
@@ -551,7 +551,7 @@ class _UpdateBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const amber = Color(0xFFFFC24B);
+    const amber = AegisColor.warning;
     return Material(
       color: amber.withValues(alpha: 0.12),
       child: InkWell(
@@ -645,7 +645,7 @@ Future<void> showUpdateDialog(
         FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: AegisTheme.accent,
-            foregroundColor: const Color(0xFF06110F),
+            foregroundColor: AegisColor.textOnAccent,
           ),
           icon: const Icon(Icons.download_rounded, size: 18),
           label: const Text('Download update'),

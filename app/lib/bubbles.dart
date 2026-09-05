@@ -202,7 +202,8 @@ class _TransferProgress extends StatelessWidget {
     final total = message.transferTotal;
     final have = message.transferHave;
     final fraction = total == 0 ? 0.0 : (have / total).clamp(0.0, 1.0);
-    final fg = mine ? const Color(0xFF06110F) : AegisTheme.textHi;
+    // Both bubble surfaces are dark, so content is primary text on either side.
+    const fg = AegisColor.textPrimary;
     return SizedBox(
       width: 190,
       child: Column(
@@ -238,7 +239,7 @@ class _TransferProgress extends StatelessWidget {
               minHeight: 4,
               backgroundColor: fg.withValues(alpha: 0.18),
               valueColor: AlwaysStoppedAnimation(
-                mine ? const Color(0xFF06110F) : AegisTheme.accent,
+                AegisColor.accent,
               ),
             ),
           ),
@@ -281,7 +282,8 @@ class VoiceNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = mine ? const Color(0xFF06110F) : AegisTheme.textHi;
+    // Both bubble surfaces are dark, so content is primary text on either side.
+    const fg = AegisColor.textPrimary;
     final bars = waveformFor(message.id);
     return ValueListenableBuilder<BigInt?>(
       valueListenable: VoicePlayer.instance.playing,
@@ -375,7 +377,7 @@ class VoiceNote extends StatelessWidget {
                     progress: progress,
                     color: fg.withValues(alpha: 0.35),
                     activeColor:
-                        mine ? const Color(0xFF06110F) : AegisTheme.accent,
+                        AegisColor.accent,
                   ),
                 ),
               ),
@@ -511,7 +513,7 @@ class _ImageAttachmentState extends State<_ImageAttachment> {
               // it arrived on another device).
               ? Icon(Icons.broken_image_rounded,
                   color: widget.mine
-                      ? const Color(0x8806110F)
+                      ? AegisColor.textMuted
                       : AegisTheme.textLo)
               : const SizedBox(
                   width: 18,
@@ -614,7 +616,8 @@ class _FileAttachmentState extends State<_FileAttachment> {
 
   @override
   Widget build(BuildContext context) {
-    final fg = widget.mine ? const Color(0xFF06110F) : AegisTheme.textHi;
+    // Both bubble surfaces are dark, so content is primary text on either side.
+    const fg = AegisColor.textPrimary;
     final name = widget.message.fileName.isEmpty
         ? 'File'
         : widget.message.fileName;
