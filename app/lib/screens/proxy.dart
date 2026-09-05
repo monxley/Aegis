@@ -115,7 +115,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
             ),
           ],
           const SizedBox(height: 22),
-          GradientButton(
+          PrimaryButton(
             label: _busy ? 'Applying…' : 'Save & reconnect',
             icon: Icons.check_rounded,
             onPressed: _busy ? null : _save,

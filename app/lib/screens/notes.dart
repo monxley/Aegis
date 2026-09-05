@@ -278,7 +278,7 @@ class _NotesScreenState extends State<NotesScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          GradientButton(
+          PrimaryButton(
             label: _busy ? 'Unlocking…' : 'Unlock notes',
             icon: Icons.lock_open_rounded,
             onPressed: _busy ? null : _unlock,
@@ -333,7 +333,7 @@ class _NoteBubble extends StatelessWidget {
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
           decoration: BoxDecoration(
-            gradient: AegisTheme.shield,
+            color: AegisColor.accent,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -473,7 +473,7 @@ class _Composer extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: const BoxDecoration(
-                  gradient: AegisTheme.shield,
+                  color: AegisColor.accent,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.add_rounded, color: Color(0xFF06110F)),

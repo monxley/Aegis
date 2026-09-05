@@ -69,7 +69,7 @@ class IdentityScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 16),
-              GradientButton(
+              PrimaryButton(
                 label: 'Copy share code',
                 icon: Icons.copy_rounded,
                 onPressed: () {
