@@ -219,7 +219,7 @@ class _TransferProgress extends StatelessWidget {
                   // The same bar serves both directions: our own message is
                   // being uploaded, a peer's is being received.
                   mine ? 'Sending…' : 'Receiving…',
-                  style: TextStyle(color: fg, fontSize: 13),
+                  style: const TextStyle(color: fg, fontSize: 13),
                 ),
               ),
               Text(
@@ -238,9 +238,7 @@ class _TransferProgress extends StatelessWidget {
               value: fraction,
               minHeight: 4,
               backgroundColor: fg.withValues(alpha: 0.18),
-              valueColor: AlwaysStoppedAnimation(
-                AegisColor.accent,
-              ),
+              valueColor: const AlwaysStoppedAnimation(AegisColor.accent),
             ),
           ),
         ],
@@ -635,14 +633,15 @@ class _FileAttachmentState extends State<_FileAttachment> {
                 color: fg.withValues(alpha: 0.14),
               ),
               child: _opening
-                  ? Padding(
-                      padding: const EdgeInsets.all(10),
+                  ? const Padding(
+                      padding: EdgeInsets.all(10),
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation(fg),
                       ),
                     )
-                  : Icon(Icons.insert_drive_file_rounded, size: 20, color: fg),
+                  : const Icon(Icons.insert_drive_file_rounded,
+                      size: 20, color: fg),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -654,7 +653,7 @@ class _FileAttachmentState extends State<_FileAttachment> {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: fg,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

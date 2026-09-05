@@ -180,7 +180,7 @@ class _SecurityDetailsSheetState extends State<SecurityDetailsSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Security', style: AegisType.title),
+            const Text('Security', style: AegisType.title),
             const SizedBox(height: AegisSpace.s1),
             // The plain-language answer, first and without jargon.
             Text(
@@ -202,7 +202,7 @@ class _SecurityDetailsSheetState extends State<SecurityDetailsSheet> {
             const SizedBox(height: AegisSpace.s5),
 
             if (widget.safetyNumber != null) ...[
-              Text('SAFETY NUMBER', style: AegisType.label),
+              const Text('SAFETY NUMBER', style: AegisType.label),
               const SizedBox(height: AegisSpace.s2),
               Container(
                 width: double.infinity,
@@ -291,7 +291,8 @@ class _TechnicalDisclosure extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: AegisSpace.s2),
               child: Row(
                 children: [
-                  Text('How this is protected', style: AegisType.heading),
+                  const Text('How this is protected',
+                      style: AegisType.heading),
                   const SizedBox(width: AegisSpace.s2),
                   AnimatedRotation(
                     turns: expanded ? 0.5 : 0,
