@@ -269,53 +269,78 @@ class _ContactTile extends StatelessWidget {
         : '${contact.lastFromMe ? 'You: ' : ''}$lastText';
     final hasLast = lastText != null;
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-      leading: ContactAvatar(name: contact.name),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              contact.name,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AegisTheme.textHi,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
+    // The row is laid out by hand rather than with ListTile: the name and the
+    // timestamp sit on one baseline with the time right-aligned, which ListTile
+    // cannot do, and the whole row keeps a predictable height so the list
+    // scrolls without measuring text.
+    return Semantics(
+      button: true,
+      label: '${contact.name}. $preview',
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(engine: engine, contact: contact),
           ),
-          if (contact.pinned) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.push_pin_rounded, size: 13, color: AegisTheme.accent),
-          ],
-          if (contact.blocked) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.block_rounded, size: 13, color: AegisTheme.danger),
-          ],
-        ],
-      ),
-      subtitle: Text(
-        preview,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: AegisTheme.textLo,
-          fontStyle: hasLast ? FontStyle.normal : FontStyle.italic,
+        ),
+        onLongPress: () => _showActions(context),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ContactAvatar(name: contact.name),
+              const SizedBox(width: AegisSpace.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            contact.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: AegisType.heading,
+                          ),
+                        ),
+                        if (contact.pinned) ...[
+                          const SizedBox(width: AegisSpace.s1),
+                          const Icon(Icons.push_pin_rounded,
+                              size: 12, color: AegisColor.textMuted),
+                        ],
+                        if (contact.blocked) ...[
+                          const SizedBox(width: AegisSpace.s1),
+                          const Icon(Icons.block_rounded,
+                              size: 12, color: AegisColor.danger),
+                        ],
+                        const Spacer(),
+                        if (hasLast)
+                          Text(formatListTime(contact.lastTs.toInt()),
+                              style: AegisType.meta),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AegisType.secondary.copyWith(
+                        // An unstarted conversation reads as a prompt, not as a
+                        // message someone actually sent.
+                        color: hasLast
+                            ? AegisColor.textSecondary
+                            : AegisColor.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      trailing: hasLast
-          ? Text(
-              formatListTime(contact.lastTs.toInt()),
-              style: const TextStyle(color: AegisTheme.textLo, fontSize: 12),
-            )
-          : null,
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ChatScreen(engine: engine, contact: contact),
-        ),
-      ),
-      onLongPress: () => _showActions(context),
     );
   }
 
