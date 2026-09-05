@@ -163,10 +163,10 @@ class _NotesScreenState extends State<NotesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          children: const [
+          children: [
             Text('Notes'),
             Text('Local · encrypted · never sent',
                 style: TextStyle(color: AegisTheme.textLo, fontSize: 11)),

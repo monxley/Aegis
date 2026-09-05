@@ -1427,9 +1427,9 @@ class _ChatEmpty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
+      child: const Column(
         mainAxisSize: MainAxisSize.min,
-        children: const [
+        children: [
           Icon(Icons.lock_rounded, size: 40, color: AegisTheme.surfaceHi),
           SizedBox(height: 12),
           Padding(

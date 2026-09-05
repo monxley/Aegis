@@ -285,8 +285,8 @@ class _MyNodesCardState extends State<_MyNodesCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
+          const Row(
+            children: [
               Icon(Icons.dns_rounded, size: 20, color: AegisTheme.accent),
               SizedBox(width: 10),
               Text('My nodes',

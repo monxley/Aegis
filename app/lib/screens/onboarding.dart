@@ -263,9 +263,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onPressed: _busy ? null : _createNetwork,
               ),
               const SizedBox(height: 10),
-              Row(
+              const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
+                children: [
                   Icon(Icons.hub_rounded, size: 14, color: AegisTheme.accent),
                   SizedBox(width: 6),
                   Text('Connects to the anonymous mixnet — no setup',
