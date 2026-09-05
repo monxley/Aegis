@@ -5,8 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
 #
 # It installs a JDK, the Flutter SDK, the Android command-line SDK + NDK, and
-# Rust, then builds an installable debug APK and tells you how to copy it to
-# your phone. FULLY ROOTLESS: everything lands under $HOME, no sudo/apt needed
+# Rust, then builds an installable RELEASE APK (set BUILD=debug for a debug
+# build) and tells you how to copy it to your phone. FULLY ROOTLESS: everything lands under $HOME, no sudo/apt needed
 # (a portable JDK is downloaded if `java` is absent). Only needs git + curl,
 # which you already have if this script was fetched.
 #
@@ -537,16 +537,22 @@ log "cross-compiling the Rust engine for Android (a few minutes)"
 ( cd rust && rm -f Cargo.lock && \
   cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release )
 
-log "building the APK (a few minutes)"
-flutter build apk --debug
+# Release by default: optimised and tree-shaken, so what you install is what
+# the app actually performs like. It is signed with the debug key (the
+# generated Gradle points the release signingConfig at it and there is no
+# release keystore in the repo), so it installs and runs but is not a
+# distributable release build. `BUILD=debug` if you need debug assertions.
+BUILD="${BUILD:-release}"
+log "building the $BUILD APK (a few minutes)"
+flutter build apk --"$BUILD"
 
-APK="$SRC/app/build/app/outputs/flutter-apk/app-debug.apk"
+APK="$SRC/app/build/app/outputs/flutter-apk/app-$BUILD.apk"
 IP="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo YOUR_VPS_IP)"
 echo
 log "Done. APK: $APK"
 echo "Copy it to your phone — easiest from the console:"
 echo "  cd $(dirname "$APK") && python3 -m http.server 8080"
-echo "  then on your phone open:  http://$IP:8080/app-debug.apk"
+echo "  then on your phone open:  http://$IP:8080/app-$BUILD.apk"
 echo "  (open port 8080 in the firewall for that download, then Ctrl-C the server)"
 echo "On Android: allow 'install from unknown sources' and open the APK."
 echo "The seed node is baked in, so it connects with no setup."
