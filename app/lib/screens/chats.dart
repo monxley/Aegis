@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../brand.dart';
+import '../design/states.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -493,32 +493,11 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            BrandGlyph(Brand.shieldLayered, size: 104),
-            SizedBox(height: 18),
-            Text(
-              'No conversations yet',
-              style: TextStyle(
-                color: AegisTheme.textHi,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Tap + to add a contact by their Aegis code, '
-              'then start an encrypted chat.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
-            ),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      icon: Icons.forum_outlined,
+      title: 'No conversations yet',
+      message: 'Add someone by their Aegis code to start an encrypted '
+          'conversation. There are no phone numbers or usernames to look up.',
     );
   }
 }
