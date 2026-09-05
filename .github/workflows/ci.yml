@@ -77,12 +77,18 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
-      - name: Build debug APK (installable, debug-signed)
+      # A release build: optimised, tree-shaken, no debug assertions or
+      # observatory. It is signed with the debug key, because `flutter create`
+      # points the release signingConfig at it and this repository has no
+      # release keystore — so the APK installs and runs, but it is NOT a
+      # distributable release. Publishing needs a real keystore (roadmap 2.3);
+      # until then this is "release build, development signature".
+      - name: Build release APK
         working-directory: app
-        run: flutter build apk --debug
+        run: flutter build apk --release
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aegis-apk
-          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          name: aegis-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
