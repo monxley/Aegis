@@ -718,7 +718,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'Synchronizing… ~$mins min left. Keep node mode on to '
                           'finish verifying; after that it turns on instantly.',
                           style: const TextStyle(
-                              color: AegisTheme.accent2, fontSize: 12, height: 1.4),
+                              color: AegisColor.accent, fontSize: 12, height: 1.4),
                         ),
                       );
                     }
@@ -1204,17 +1204,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   alignment: Alignment.center,
-                  child: ShaderMask(
-                    shaderCallback: (r) => AegisTheme.shield.createShader(r),
-                    child: Icon(icon, size: 18, color: Colors.white),
-                  ),
+                  child: Icon(icon, size: 18, color: AegisColor.accent),
                 ),
                 const SizedBox(width: 12),
-                GradientText(title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    )),
+                Text(title, style: AegisType.heading),
               ],
             ),
           ),
@@ -1230,14 +1223,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _sectionHeader(String label) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
-      child: GradientText(
-        label.toUpperCase(),
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 2,
-        ),
-      ),
+      child: Text(label.toUpperCase(), style: AegisType.label),
     );
   }
 }
@@ -1270,7 +1256,7 @@ class _ProfileCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        GradientButton(
+        PrimaryButton(
           label: 'Copy share code',
           icon: Icons.copy_rounded,
           onPressed: () {

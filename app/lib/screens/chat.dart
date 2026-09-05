@@ -56,6 +56,12 @@ class _ChatScreenState extends State<ChatScreen> {
     widget.engine.markRead(widget.contact.aegisId);
   }
 
+  /// Whether two messages are close enough in time to belong to one run.
+  /// Five minutes: long enough to hold a burst of typing together, short enough
+  /// that picking the conversation back up later reads as a new thought.
+  static bool _closeInTime(ChatMessage a, ChatMessage b) =>
+      (b.timestampMs.toInt() - a.timestampMs.toInt()).abs() <= 5 * 60 * 1000;
+
   void _onScroll() {
     if (!_scroll.hasClients) return;
     final pos = _scroll.position;
@@ -585,9 +591,24 @@ class _ChatScreenState extends State<ChatScreen> {
                         addRepaintBoundaries: true,
                         itemBuilder: (context, i) {
                           final msg = history[i];
-                          final showDay = i == 0 ||
-                              differentDay(history[i - 1].timestampMs.toInt(),
+                          final prev = i > 0 ? history[i - 1] : null;
+                          final next =
+                              i + 1 < history.length ? history[i + 1] : null;
+                          final showDay = prev == null ||
+                              differentDay(prev.timestampMs.toInt(),
                                   msg.timestampMs.toInt());
+                          // A run is consecutive messages from the same side,
+                          // close together in time and not split by a day
+                          // marker. Grouping by sender alone would glue a
+                          // message from this morning onto one from last night.
+                          final firstInGroup = showDay ||
+                              prev!.fromMe != msg.fromMe ||
+                              !_closeInTime(prev, msg);
+                          final lastInGroup = next == null ||
+                              next.fromMe != msg.fromMe ||
+                              !_closeInTime(msg, next) ||
+                              differentDay(msg.timestampMs.toInt(),
+                                  next.timestampMs.toInt());
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -602,6 +623,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                   message: msg,
                                   engine: widget.engine,
                                   aegisId: widget.contact.aegisId,
+                                  firstInGroup: firstInGroup,
+                                  lastInGroup: lastInGroup,
                                   // An attachment retry needs its bytes back from
                                   // storage, a different path than text.
                                   onRetry: () => msg.hasAttachment
@@ -653,11 +676,24 @@ class _Bubble extends StatelessWidget {
   final AegisEngineController engine;
   final String aegisId;
   final VoidCallback? onRetry;
+
+  /// Whether this message opens a run from the same sender, and whether it
+  /// closes one.
+  ///
+  /// Grouping is what stops a conversation reading as a wall of identical
+  /// containers. Within a run the messages sit tight together and only the
+  /// last one carries a timestamp and delivery state, so the metadata appears
+  /// once per thought rather than once per line.
+  final bool firstInGroup;
+  final bool lastInGroup;
+
   const _Bubble({
     required this.message,
     required this.engine,
     required this.aegisId,
     this.onRetry,
+    this.firstInGroup = true,
+    this.lastInGroup = true,
   });
 
   void _copy(BuildContext context) {
@@ -788,8 +824,13 @@ class _Bubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final mine = message.fromMe;
     final failed = mine && message.status == 3;
-    final onBubble = mine ? const Color(0xFF06110F) : AegisTheme.textHi;
+    // Both surfaces are dark now, so message text is the same primary colour on
+    // either side — no more dark-on-gradient special case.
+    const onBubble = AegisColor.textPrimary;
     final isImage = message.kind == MsgKind.image && message.complete;
+    // Metadata belongs to the run, not to every line in it. A failed send is
+    // the exception: that has to be visible on the message it belongs to.
+    final showMeta = lastInGroup || failed || message.edited;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -807,21 +848,42 @@ class _Bubble extends StatelessWidget {
             },
             child: Container(
               constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.76,
+                // Capped by a reading measure as well as a fraction, so on a
+                // tablet or desktop the text doesn't run into long, hard-to-
+                // track lines.
+                maxWidth: (MediaQuery.sizeOf(context).width * 0.78)
+                    .clamp(0.0, AegisLayout.maxMessageWidth),
               ),
-              margin: const EdgeInsets.symmetric(vertical: 4),
-              // An image fills its bubble; everything else keeps the inset.
+              margin: EdgeInsets.only(
+                // Air between runs, near-contact within one.
+                top: firstInGroup ? AegisSpace.s3 : 2,
+                bottom: lastInGroup ? 0 : 0,
+              ),
+              // An image fills its container; everything else keeps the inset.
               padding: isImage
-                  ? const EdgeInsets.all(4)
-                  : const EdgeInsets.fromLTRB(14, 9, 14, 7),
+                  ? const EdgeInsets.all(3)
+                  : const EdgeInsets.fromLTRB(
+                      AegisSpace.s3, AegisSpace.s2, AegisSpace.s3, AegisSpace.s2),
               decoration: BoxDecoration(
-                gradient: mine ? AegisTheme.shield : null,
-                color: mine ? null : AegisTheme.surfaceHi,
+                // Your own messages get a quietly tinted surface; the peer's
+                // get the plain one with a hairline. No gradients: the accent
+                // is reserved for actions and affirmative state, so it keeps
+                // meaning something.
+                color: mine ? AegisColor.surfaceAccent : AegisColor.surface,
+                border: Border.all(
+                  color: mine ? AegisColor.accentMuted : AegisColor.border,
+                ),
+                // The outer corner squares off inside a run, so consecutive
+                // messages read as one column rather than separate cards.
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(18),
-                  topRight: const Radius.circular(18),
-                  bottomLeft: Radius.circular(mine ? 18 : 4),
-                  bottomRight: Radius.circular(mine ? 4 : 18),
+                  topLeft: Radius.circular(
+                      mine || firstInGroup ? AegisRadius.md : AegisRadius.xs),
+                  topRight: Radius.circular(
+                      !mine || firstInGroup ? AegisRadius.md : AegisRadius.xs),
+                  bottomLeft: Radius.circular(
+                      mine || lastInGroup ? AegisRadius.md : AegisRadius.xs),
+                  bottomRight: Radius.circular(
+                      !mine || lastInGroup ? AegisRadius.md : AegisRadius.xs),
                 ),
               ),
               child: Column(
@@ -847,64 +909,43 @@ class _Bubble extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           message.text,
-                          style: TextStyle(
-                              color: onBubble, fontSize: 15, height: 1.3),
+                          style: AegisType.body.copyWith(color: onBubble),
                         ),
                       ),
                     ),
-                  const SizedBox(height: 2),
-                  Padding(
-                    padding: EdgeInsets.only(right: isImage ? 6 : 0),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (failed) ...[
-                          const Icon(Icons.error_outline_rounded,
-                              size: 12, color: AegisTheme.danger),
-                          const SizedBox(width: 3),
-                          const Text(
-                            'Not sent · tap to retry',
-                            style: TextStyle(
-                              color: AegisTheme.danger,
-                              fontSize: 10,
-                              height: 1.0,
-                              fontWeight: FontWeight.w600,
+                  // Metadata is drawn once per run — see `showMeta`.
+                  if (showMeta) ...[
+                    const SizedBox(height: AegisSpace.s1),
+                    Padding(
+                      padding: EdgeInsets.only(right: isImage ? 5 : 0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (failed) ...[
+                            const Icon(Icons.error_outline_rounded,
+                                size: 12, color: AegisColor.danger),
+                            const SizedBox(width: AegisSpace.s1),
+                            Text(
+                              'Not sent · tap to retry',
+                              style: AegisType.meta
+                                  .copyWith(color: AegisColor.danger),
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        if (message.edited) ...[
+                            const SizedBox(width: AegisSpace.s1),
+                          ],
+                          if (message.edited)
+                            Text('Edited · ', style: AegisType.meta),
                           Text(
-                            'edited · ',
-                            style: TextStyle(
-                              color: mine
-                                  ? const Color(0x9906110F)
-                                  : AegisTheme.textLo,
-                              fontSize: 10,
-                              height: 1.0,
-                              fontStyle: FontStyle.italic,
-                            ),
+                            formatClock(message.timestampMs.toInt()),
+                            style: AegisType.meta,
                           ),
+                          if (mine && !failed) ...[
+                            const SizedBox(width: AegisSpace.s1),
+                            _StatusTick(status: message.status),
+                          ],
                         ],
-                        Text(
-                          formatClock(message.timestampMs.toInt()),
-                          style: TextStyle(
-                            // Dimmed: dark-on-gradient for mine, muted grey
-                            // for theirs.
-                            color: mine
-                                ? const Color(0x9906110F)
-                                : AegisTheme.textLo,
-                            fontSize: 10,
-                            height: 1.0,
-                          ),
-                        ),
-                        if (mine && !failed) ...[
-                          const SizedBox(width: 4),
-                          _StatusTick(status: message.status),
-                        ],
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -1016,8 +1057,12 @@ class _BubbleEntranceState extends State<_BubbleEntrance>
   }
 }
 
-/// The delivery indicator on one of our own bubbles:
-/// `✓` sent · `✓✓` delivered · bright `✓✓` read.
+/// Delivery state for one of our own messages.
+///
+/// Three states, each distinguishable by *shape* as well as colour so the
+/// difference survives greyscale and colour-blindness: one tick sent, two ticks
+/// delivered, two accent ticks read. Labelled for screen readers, since a tick
+/// glyph on its own tells an assistive user nothing.
 class _StatusTick extends StatelessWidget {
   final int status;
   const _StatusTick({required this.status});
@@ -1026,11 +1071,13 @@ class _StatusTick extends StatelessWidget {
   Widget build(BuildContext context) {
     final delivered = status >= 1;
     final read = status >= 2;
-    return Icon(
-      delivered ? Icons.done_all_rounded : Icons.check_rounded,
-      size: 13,
-      // On the gradient bubble: dark-dim until read, then bright white.
-      color: read ? Colors.white : const Color(0x9906110F),
+    return Semantics(
+      label: read ? 'Read' : (delivered ? 'Delivered' : 'Sent'),
+      child: Icon(
+        delivered ? Icons.done_all_rounded : Icons.check_rounded,
+        size: 13,
+        color: read ? AegisColor.accent : AegisColor.textMuted,
+      ),
     );
   }
 }
@@ -1045,11 +1092,13 @@ class _DaySeparator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        margin: const EdgeInsets.symmetric(vertical: AegisSpace.s5),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AegisSpace.s2, vertical: 3),
         decoration: BoxDecoration(
-          color: AegisTheme.surface,
-          borderRadius: BorderRadius.circular(10),
+          color: AegisColor.surface,
+          borderRadius: BorderRadius.circular(AegisRadius.xs),
+          border: Border.all(color: AegisColor.border),
         ),
         child: Text(
           formatDayLabel(ms),
@@ -1209,7 +1258,7 @@ class _ComposerState extends State<_Composer> {
                 width: _recording ? 58 : 48,
                 height: _recording ? 58 : 48,
                 decoration: BoxDecoration(
-                  gradient: _cancelling ? null : AegisTheme.shield,
+                  color: _cancelling ? AegisColor.danger : AegisColor.accent,
                   color: _cancelling ? AegisTheme.danger : null,
                   shape: BoxShape.circle,
                   boxShadow: _recording
@@ -1517,7 +1566,7 @@ class _ChatLockState extends State<_ChatLock> {
               ),
             ),
             const SizedBox(height: 14),
-            GradientButton(
+            PrimaryButton(
               label: _busy ? 'Unlocking…' : 'Unlock',
               icon: Icons.lock_open_rounded,
               onPressed: _busy ? null : _unlock,

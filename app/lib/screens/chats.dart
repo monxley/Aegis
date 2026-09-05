@@ -218,7 +218,7 @@ class _NotesTile extends StatelessWidget {
         width: 46,
         height: 46,
         decoration: const BoxDecoration(
-          gradient: AegisTheme.shield,
+          color: AegisColor.accent,
           shape: BoxShape.circle,
         ),
         child: const Icon(Icons.bookmark_rounded, color: Color(0xFF06110F)),

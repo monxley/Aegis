@@ -60,11 +60,6 @@ class _AegisAppState extends State<AegisApp> with WidgetsBindingObserver {
       // One scroll feel everywhere: stretch instead of the Material glow, and
       // the same physics on Android and iOS.
       scrollBehavior: const AegisScrollBehavior(),
-      // Paint the living aurora once, behind every route. Scaffolds are
-      // transparent (see theme) so it shows through the whole app; opaque app
-      // bars, cards and sheets sit on top.
-      builder: (context, child) =>
-          AuroraBackground(child: child ?? const SizedBox.shrink()),
       home: _Bootstrap(engine: widget.engine),
     );
   }
@@ -256,7 +251,7 @@ class _SplashState extends State<_Splash>
               ),
             ),
             const SizedBox(height: 44),
-            FadeTransition(opacity: fade, child: const ShimmerBar()),
+            FadeTransition(opacity: fade, child: const ProgressLine()),
           ],
         ),
       ),

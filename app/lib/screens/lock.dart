@@ -148,7 +148,7 @@ class _LockScreenState extends State<LockScreen>
                 Center(
                   child: AnimatedBuilder(
                     animation: _progress,
-                    builder: (_, __) => UnlockOrb(
+                    builder: (_, __) => UnlockProgress(
                       progress: _progress.value,
                       error: _error,
                     ),
@@ -203,7 +203,7 @@ class _LockScreenState extends State<LockScreen>
                           ),
                         ),
                         const SizedBox(height: 16),
-                        GradientButton(
+                        PrimaryButton(
                           label: _busy ? 'Unlocking…' : 'Unlock',
                           icon: Icons.lock_open_rounded,
                           onPressed: _busy ? null : _unlock,
