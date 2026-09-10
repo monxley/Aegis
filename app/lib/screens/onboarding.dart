@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/states.dart';
 import '../engine.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -19,6 +20,23 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _busy = false;
 
+  // Owned by the State, not by the sheets and dialogs that use them.
+  //
+  // Disposing one where the sheet's future resolves would throw: TransitionRoute
+  // completes that future when the *exit animation starts*, so the TextField is
+  // still mounted and still reading its controller for several more frames.
+  final _nodeCtrl = TextEditingController();
+  final _relayCtrl = TextEditingController();
+  final _phraseCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _nodeCtrl.dispose();
+    _relayCtrl.dispose();
+    _phraseCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _create(
     ConnMode mode, {
     String? relayAddr,
@@ -35,8 +53,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not start: $e')),
+      showFailure(
+        context,
+        message: 'Could not create an identity. Nothing was saved — try again.',
+        details: e,
       );
     }
   }
@@ -53,8 +73,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  Future<String?> _askNode() async {
-    final ctrl = TextEditingController();
+  Future<String?> _askNode() {
+    final ctrl = _nodeCtrl..clear();
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -93,7 +113,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _advanced() async {
-    final relay = TextEditingController();
+    final relay = _relayCtrl..clear();
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AegisColor.surface,
@@ -161,7 +181,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   /// Restore an existing identity from its 24-word recovery phrase.
   Future<void> _restore() async {
-    final ctrl = TextEditingController();
+    final ctrl = _phraseCtrl..clear();
     final phrase = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: AegisColor.surface,
@@ -211,6 +231,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ),
       ),
     );
+    // The 24 words are the identity: drop them from the field as soon as we
+    // have the string, rather than leaving the seed phrase sitting in a live
+    // controller for the rest of the session.
+    ctrl.clear();
     if (phrase == null || phrase.trim().isEmpty || !mounted) return;
     setState(() => _busy = true);
     try {
@@ -222,8 +246,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not restore: $e')),
+      showFailure(
+        context,
+        message: 'Could not restore from that phrase. Check that all 24 words '
+            'are present, in order, and spelled as written.',
+        details: e,
       );
     }
   }

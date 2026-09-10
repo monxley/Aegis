@@ -350,3 +350,55 @@ class NoticeBar extends StatelessWidget {
 
   String get _spoken => detail == null ? label : '$label. $detail';
 }
+
+/// Report a failure the user did not cause and cannot be shown in place.
+///
+/// The message is plain language: what did not happen, and what they can do.
+/// The exception goes behind "Details" — useful in a bug report, never the
+/// first thing a user is handed. `Exception: FormatException: Invalid
+/// argument(s)` tells a person nothing except that the app broke.
+void showFailure(
+  BuildContext context, {
+  required String message,
+  Object? details,
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 6),
+        action: details == null
+            ? null
+            : SnackBarAction(
+                label: 'Details',
+                textColor: AegisColor.accent,
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: AegisColor.surface,
+                    title: const Text('Technical details',
+                        style: AegisType.heading),
+                    content: SingleChildScrollView(
+                      child: SelectableText(
+                        '$details',
+                        style: AegisType.code.copyWith(
+                          fontSize: 12,
+                          color: AegisColor.textSecondary,
+                        ),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Close',
+                            style: TextStyle(color: AegisColor.textSecondary)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+      ),
+    );
+}
