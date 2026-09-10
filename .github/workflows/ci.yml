@@ -48,7 +48,15 @@ jobs:
       - name: Scaffold platforms + generate bindings
         working-directory: app
         run: |
-          flutter create --platforms=android,linux --project-name aegis .
+          # Android only. Scaffolding linux/ as well makes record_linux an
+          # endorsed implementation of the `record` plugin, so its Dart is
+          # compiled into the Android kernel snapshot too -- and record_linux
+          # 0.7.2 does not implement record_platform_interface 1.6.0 (missing
+          # startStream, and hasPermission lost a named argument), which failed
+          # the APK build with errors from a package this app never calls into
+          # on Android. This job builds an APK; it has no reason to pull in a
+          # desktop backend. See README for the Linux desktop caveat.
+          flutter create --platforms=android --project-name aegis .
           flutter pub get
           # codegen canonicalizes this path before creating it, so it has to
           # exist first (deploy/build-apk.sh does the same).
@@ -82,15 +90,50 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
-      # A release build: optimised, tree-shaken, no debug assertions or
-      # observatory. It is signed with the debug key, because `flutter create`
-      # points the release signingConfig at it and this repository has no
-      # release keystore — so the APK installs and runs, but it is NOT a
-      # distributable release. Publishing needs a real keystore (roadmap 2.3);
-      # until then this is "release build, development signature".
+      # Sign the release build with a real key when the repository has one.
+      #
+      # `flutter create` points the release signingConfig at Android's DEBUG
+      # key, which is a published, universally-known key: a build signed with it
+      # proves nothing about who produced it, and anyone can install a modified
+      # "update" straight over it. For a messenger that is not a detail. When
+      # the four secrets below are set the build is signed properly; when they
+      # are not, the step says so in the log rather than quietly shipping a
+      # debug-signed APK that looks like a release.
+      - name: Configure release signing
+        working-directory: app/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          umask 077
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/aegis-release.jks
+            # Written, never echoed: the values are secrets and the log is public.
+            {
+              printf 'storeFile=aegis-release.jks\n'
+              printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+              printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+              printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            } > key.properties
+          fi
+          python3 ../../deploy/apply-release-signing.py .
+      # Optimised, tree-shaken, no debug assertions or observatory.
       - name: Build release APK
         working-directory: app
         run: flutter build apk --release
+      # Say in the log which key actually signed it, read back off the APK
+      # rather than inferred from which secrets were set.
+      - name: Report the APK's signature
+        working-directory: app
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
+          if [ -n "$signer" ]; then
+            "$signer" verify --print-certs "$apk" || true
+          fi
+          ls -l "$apk"
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

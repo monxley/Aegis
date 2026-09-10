@@ -537,11 +537,28 @@ log "cross-compiling the Rust engine for Android (a few minutes)"
 ( cd rust && rm -f Cargo.lock && \
   cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release )
 
+# Sign the release properly if a keystore is available.
+#
+# Set KEYSTORE (path to a .jks), KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD
+# and the release APK is signed with your key. Without them the generated Gradle
+# signs with Android's DEBUG key — a published key that proves nothing about who
+# built the APK — so the build still works for testing but is not something to
+# hand to anyone as a release. The script below says which of the two happened.
+if [ -n "${KEYSTORE:-}" ]; then
+  log "signing the release with $KEYSTORE"
+  install -m 0600 "$KEYSTORE" android/app/aegis-release.jks
+  ( umask 077
+    {
+      printf 'storeFile=aegis-release.jks\n'
+      printf 'storePassword=%s\n' "${KEYSTORE_PASSWORD:?set KEYSTORE_PASSWORD}"
+      printf 'keyAlias=%s\n' "${KEY_ALIAS:?set KEY_ALIAS}"
+      printf 'keyPassword=%s\n' "${KEY_PASSWORD:?set KEY_PASSWORD}"
+    } > android/key.properties )
+fi
+python3 "$SRC/deploy/apply-release-signing.py" android
+
 # Release by default: optimised and tree-shaken, so what you install is what
-# the app actually performs like. It is signed with the debug key (the
-# generated Gradle points the release signingConfig at it and there is no
-# release keystore in the repo), so it installs and runs but is not a
-# distributable release build. `BUILD=debug` if you need debug assertions.
+# the app actually performs like. `BUILD=debug` if you need debug assertions.
 BUILD="${BUILD:-release}"
 log "building the $BUILD APK (a few minutes)"
 flutter build apk --"$BUILD"

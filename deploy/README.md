@@ -38,6 +38,46 @@ It installs Rust if needed, builds `aegis-relay-server`, creates a service user,
 and installs + starts the systemd unit. Open ports 5077 and 5078, then
 `journalctl -u aegis-node -f`.
 
+## Updating a node
+
+The same script. It is written to be re-run: it clones the repo **fresh** every
+time (never a stale checkout lying around on the box), rebuilds the binary,
+overwrites `/usr/local/bin/aegis-relay-server`, and `systemctl restart`s the
+unit — a restart rather than `enable --now`, so a re-run actually picks up the
+new binary instead of silently keeping the running one.
+
+```sh
+# Update a node in place. Pass the same PUBLIC_HOST/BOOTSTRAP you installed with;
+# the unit file is rewritten from them, so anything you omit reverts to default.
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh \
+  | sudo PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 bash
+```
+
+Then confirm it came back on the new code:
+
+```sh
+systemctl status aegis-node --no-pager
+journalctl -u aegis-node -n 50 --no-pager
+```
+
+Two things worth knowing:
+
+- The script builds whatever is on **`main`**. A change that is still on a
+  branch or in an open pull request will not be deployed until it is merged.
+- Data in `/var/lib/aegis` is left alone, so the node keeps its identity and
+  its queued envelopes across an update.
+
+There is nothing to coordinate across nodes: they gossip the directory, so
+updating them one at a time is fine and the network stays up throughout.
+
+To update a **Docker** node instead:
+
+```sh
+git -C /path/to/Aegis pull
+PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 \
+  docker compose -f deploy/docker-compose.yml up -d --build
+```
+
 ## Quick start (Docker)
 
 ```sh
