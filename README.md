@@ -429,14 +429,14 @@ flutter_rust_bridge_codegen generate
 flutter run -d linux
 ```
 
-> **Known issue.** `record_linux` 0.7.2 — the Linux voice-recording backend the
+> **Note on `record`.** `record_linux` 0.7.2 — the Linux voice backend the
 > `record` plugin endorses — has not kept up with `record_platform_interface`
-> 1.6.0: it is missing `startStream` and its `hasPermission` lost a named
-> argument, so the build fails to compile it. Everything except recording a
-> voice note works; playback, files and images do not go through that package.
-> Scaffold `--platforms=android` alone if you only want the phone build (that is
-> what CI and `deploy/build-apk.sh` do), and expect this to clear when `record`
-> ships a matching Linux implementation.
+> 1.6.0, which added `startStream` and a named argument to `hasPermission`.
+> `record` imports it unconditionally, so it is compiled on *every* platform,
+> Android included. `app/pubspec.yaml` therefore holds the interface below 1.6.0
+> with a `dependency_overrides` entry, restoring the set of versions that
+> shipped together. Drop that entry once `record` ships a Linux implementation
+> matching its own interface.
 
 On first launch the app mints an identity locally (no phone number, no email)
 and joins the anonymous mixnet with zero setup (an **Advanced** sheet offers a
