@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme.dart';
+import 'states.dart';
 
 /// How a conversation's cryptographic identity currently stands.
 enum VerificationState {
@@ -20,6 +21,17 @@ enum VerificationState {
 
 /// Whether the app can currently reach the network.
 enum ConnectionState { connected, connecting, offline }
+
+/// Map the engine's evidence — did the last relay poll succeed? — onto the
+/// state the interface shows. `null` means no poll has finished yet, which is
+/// "connecting", not "offline": claiming a failure we haven't observed would be
+/// as misleading as hiding one we have.
+ConnectionState connectionStateFor(bool? relayReachable) =>
+    switch (relayReachable) {
+      null => ConnectionState.connecting,
+      true => ConnectionState.connected,
+      false => ConnectionState.offline,
+    };
 
 /// The algorithms this build actually uses.
 ///
@@ -400,55 +412,34 @@ class ConnectionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Connected is the expected case, and a banner that is always there stops
+    // being read. It appears only when something is actually wrong.
     if (state == ConnectionState.connected) return const SizedBox.shrink();
-    final (label, detail, color) = switch (state) {
+
+    final (icon, label, detail, tone) = switch (state) {
       ConnectionState.connecting => (
+          Icons.sync_rounded,
           'Connecting',
           'Messages you send will go out once the connection is up.',
           AegisColor.textMuted,
         ),
+      // Deliberately "No connection", not "You are offline": all the app knows
+      // is that it did not get an answer from a relay. That could be this
+      // device, the network, or the relay itself.
       ConnectionState.offline => (
-          'Offline',
-          'Messages are saved on this device and sent when you reconnect.',
+          Icons.cloud_off_rounded,
+          'No connection',
+          'Messages are kept on this device and sent when it returns.',
           AegisColor.warning,
         ),
-      ConnectionState.connected => ('', '', AegisColor.textMuted),
+      ConnectionState.connected => (
+          Icons.lock_rounded,
+          '',
+          null,
+          AegisColor.textMuted,
+        ),
     };
 
-    return Semantics(
-      liveRegion: true,
-      label: '$label. $detail',
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-            horizontal: AegisSpace.s4, vertical: AegisSpace.s2),
-        decoration: const BoxDecoration(
-          color: AegisColor.surface,
-          border: Border(bottom: BorderSide(color: AegisColor.border)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: AegisSpace.s2),
-            Text(label,
-                style: AegisType.meta.copyWith(
-                    color: AegisColor.textSecondary,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(width: AegisSpace.s2),
-            Expanded(
-              child: Text(
-                detail,
-                overflow: TextOverflow.ellipsis,
-                style: AegisType.meta,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return NoticeBar(icon: icon, label: label, detail: detail, tone: tone);
   }
 }

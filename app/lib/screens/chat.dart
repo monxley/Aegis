@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../attachments.dart';
 import '../bubbles.dart';
 import '../design/security.dart';
+import '../design/states.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -129,7 +130,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final current = widget.engine.disappearingSecs(widget.contact.aegisId);
     final choice = await showModalBottomSheet<int>(
       context: context,
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -144,7 +145,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Text(
                   'Disappearing messages',
                   style: TextStyle(
-                      color: AegisTheme.textHi,
+                      color: AegisColor.textPrimary,
                       fontSize: 17,
                       fontWeight: FontWeight.w700),
                 ),
@@ -157,16 +158,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Text(
                   'New messages vanish from both devices after the timer. Applies '
                   'to this conversation.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
                 ),
               ),
             ),
             for (final o in options)
               ListTile(
                 title: Text(o == 0 ? 'Off' : _fmtTimer(o),
-                    style: const TextStyle(color: AegisTheme.textHi)),
+                    style: const TextStyle(color: AegisColor.textPrimary)),
                 trailing: o == current
-                    ? const Icon(Icons.check_rounded, color: AegisTheme.accent)
+                    ? const Icon(Icons.check_rounded, color: AegisColor.accent)
                     : null,
                 onTap: () => Navigator.pop(ctx, o),
               ),
@@ -216,22 +217,22 @@ class _ChatScreenState extends State<ChatScreen> {
       final ok = await showDialog<bool>(
         context: context,
         builder: (d) => AlertDialog(
-          backgroundColor: AegisTheme.surface,
+          backgroundColor: AegisColor.surface,
           title: const Text('Remove chat password?',
-              style: TextStyle(color: AegisTheme.textHi)),
+              style: TextStyle(color: AegisColor.textPrimary)),
           content: const Text(
             'This conversation will no longer ask for its own password.',
-            style: TextStyle(color: AegisTheme.textLo),
+            style: TextStyle(color: AegisColor.textSecondary),
           ),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(d, false),
                 child: const Text('Cancel',
-                    style: TextStyle(color: AegisTheme.textLo))),
+                    style: TextStyle(color: AegisColor.textSecondary))),
             TextButton(
                 onPressed: () => Navigator.pop(d, true),
                 child: const Text('Remove',
-                    style: TextStyle(color: AegisTheme.danger))),
+                    style: TextStyle(color: AegisColor.danger))),
           ],
         ),
       );
@@ -242,9 +243,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final pw = await showDialog<String>(
       context: context,
       builder: (d) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Set chat password',
-            style: TextStyle(color: AegisTheme.textHi)),
+            style: TextStyle(color: AegisColor.textPrimary)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -252,7 +253,7 @@ class _ChatScreenState extends State<ChatScreen> {
               controller: controller,
               autofocus: true,
               obscureText: true,
-              style: const TextStyle(color: AegisTheme.textHi),
+              style: const TextStyle(color: AegisColor.textPrimary),
               decoration: const InputDecoration(hintText: 'Password'),
             ),
             const SizedBox(height: 10),
@@ -260,7 +261,7 @@ class _ChatScreenState extends State<ChatScreen> {
               'This chat’s history is sealed under this password. It will ask '
               'for it after the app restarts. There is no recovery if you '
               'forget it.',
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+              style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
             ),
           ],
         ),
@@ -268,11 +269,11 @@ class _ChatScreenState extends State<ChatScreen> {
           TextButton(
               onPressed: () => Navigator.pop(d),
               child: const Text('Cancel',
-                  style: TextStyle(color: AegisTheme.textLo))),
+                  style: TextStyle(color: AegisColor.textSecondary))),
           TextButton(
               onPressed: () => Navigator.pop(d, controller.text),
               child: const Text('Set',
-                  style: TextStyle(color: AegisTheme.accent))),
+                  style: TextStyle(color: AegisColor.accent))),
         ],
       ),
     );
@@ -376,16 +377,16 @@ class _ChatScreenState extends State<ChatScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AegisTheme.accent.withValues(alpha: 0.12),
+          color: AegisColor.accent.withValues(alpha: 0.12),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: AegisTheme.accent, size: 20),
+        child: Icon(icon, color: AegisColor.accent, size: 20),
       ),
       title: Text(title,
           style: const TextStyle(
-              color: AegisTheme.textHi, fontWeight: FontWeight.w600)),
+              color: AegisColor.textPrimary, fontWeight: FontWeight.w600)),
       subtitle: Text(subtitle,
-          style: const TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+          style: const TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
       onTap: () => Navigator.pop(sheet, value),
     );
   }
@@ -500,8 +501,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     ? Icons.lock_rounded
                     : Icons.lock_open_rounded,
                 color: _hasPassword
-                    ? AegisTheme.accent
-                    : AegisTheme.textHi,
+                    ? AegisColor.accent
+                    : AegisColor.textPrimary,
               ),
               onPressed: _chatPasswordAction,
             ),
@@ -511,42 +512,26 @@ class _ChatScreenState extends State<ChatScreen> {
           ? _ChatLock(engine: widget.engine, contact: widget.contact)
           : Column(
         children: [
+          // Notices, most urgent first, all on one component so they read as
+          // one row of status rather than three unrelated bars.
+          ConnectionBanner(state: connectionStateFor(widget.engine.relayReachable)),
           if (_isBlocked)
-            Container(
-              width: double.infinity,
-              color: AegisTheme.surface,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.block_rounded, size: 14, color: AegisTheme.danger),
-                  SizedBox(width: 6),
-                  Text('Blocked — their messages are dropped',
-                      style: TextStyle(color: AegisTheme.danger, fontSize: 12)),
-                ],
-              ),
+            const NoticeBar(
+              icon: Icons.block_rounded,
+              label: 'Blocked',
+              detail: 'Their messages are dropped without being delivered.',
+              tone: AegisColor.danger,
             ),
           if (_disappearingSecs > 0)
-            Container(
-              width: double.infinity,
-              color: AegisTheme.surface,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.timer_rounded, size: 14, color: AegisTheme.accent),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Messages disappear after '
-                    '${_fmtTimer(_disappearingSecs)}',
-                    style: const TextStyle(color: AegisTheme.accent, fontSize: 12),
-                  ),
-                ],
-              ),
+            NoticeBar(
+              icon: Icons.timer_rounded,
+              label: 'Disappearing',
+              detail: 'New messages vanish after ${_fmtTimer(_disappearingSecs)}.',
+              tone: AegisColor.accent,
             ),
           Expanded(
             child: history.isEmpty
-                ? const _ChatEmpty()
+                ? _ChatEmpty(onExplain: _showSecurity)
                 : Stack(
                     children: [
                       ListView.builder(
@@ -705,13 +690,13 @@ class _Bubble extends StatelessWidget {
                 );
               },
             ),
-            const Divider(height: 1, color: AegisTheme.surfaceHi),
+            const Divider(height: 1, color: AegisColor.surfaceElevated),
             if (isText)
               ListTile(
                 leading:
-                    const Icon(Icons.copy_rounded, color: AegisTheme.textHi),
+                    const Icon(Icons.copy_rounded, color: AegisColor.textPrimary),
                 title: const Text('Copy',
-                    style: TextStyle(color: AegisTheme.textHi)),
+                    style: TextStyle(color: AegisColor.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheet);
                   _copy(context);
@@ -720,9 +705,9 @@ class _Bubble extends StatelessWidget {
             if (mine && isText)
               ListTile(
                 leading:
-                    const Icon(Icons.edit_rounded, color: AegisTheme.textHi),
+                    const Icon(Icons.edit_rounded, color: AegisColor.textPrimary),
                 title: const Text('Edit',
-                    style: TextStyle(color: AegisTheme.textHi)),
+                    style: TextStyle(color: AegisColor.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheet);
                   _edit(context);
@@ -730,9 +715,9 @@ class _Bubble extends StatelessWidget {
               ),
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded,
-                  color: AegisTheme.textHi),
+                  color: AegisColor.textPrimary),
               title: const Text('Delete for me',
-                  style: TextStyle(color: AegisTheme.textHi)),
+                  style: TextStyle(color: AegisColor.textPrimary)),
               onTap: () {
                 Navigator.pop(sheet);
                 engine.deleteMessage(aegisId, message.id, forBoth: false);
@@ -741,9 +726,9 @@ class _Bubble extends StatelessWidget {
             if (mine)
               ListTile(
                 leading: const Icon(Icons.delete_forever_rounded,
-                    color: AegisTheme.danger),
+                    color: AegisColor.danger),
                 title: const Text('Delete for everyone',
-                    style: TextStyle(color: AegisTheme.danger)),
+                    style: TextStyle(color: AegisColor.danger)),
                 onTap: () {
                   Navigator.pop(sheet);
                   engine.deleteMessage(aegisId, message.id, forBoth: true);
@@ -760,26 +745,26 @@ class _Bubble extends StatelessWidget {
     final newText = await showDialog<String>(
       context: context,
       builder: (dialog) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Edit message',
-            style: TextStyle(color: AegisTheme.textHi)),
+            style: TextStyle(color: AegisColor.textPrimary)),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLines: null,
-          style: const TextStyle(color: AegisTheme.textHi),
+          style: const TextStyle(color: AegisColor.textPrimary),
           decoration: const InputDecoration(hintText: 'Message'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialog),
             child: const Text('Cancel',
-                style: TextStyle(color: AegisTheme.textLo)),
+                style: TextStyle(color: AegisColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialog, controller.text),
             child: const Text('Save',
-                style: TextStyle(color: AegisTheme.accent)),
+                style: TextStyle(color: AegisColor.accent)),
           ),
         ],
       ),
@@ -962,14 +947,14 @@ class _JumpToLatest extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: AegisTheme.surfaceHi,
+                color: AegisColor.surfaceElevated,
                 shape: BoxShape.circle,
-                border: Border.all(color: AegisTheme.accent.withValues(alpha: 0.35)),
+                border: Border.all(color: AegisColor.accent.withValues(alpha: 0.35)),
                 boxShadow: AegisElevation.raised,
               ),
               child: const Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: AegisTheme.accent,
+                color: AegisColor.accent,
               ),
             ),
           ),
@@ -1072,7 +1057,7 @@ class _DaySeparator extends StatelessWidget {
         child: Text(
           formatDayLabel(ms),
           style: const TextStyle(
-            color: AegisTheme.textLo,
+            color: AegisColor.textSecondary,
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
@@ -1087,6 +1072,13 @@ class _DaySeparator extends StatelessWidget {
 /// The send button becomes a mic when there is nothing typed, so one control
 /// covers both — press-and-hold records, release sends, and sliding away
 /// cancels.
+/// The message composer.
+///
+/// Three states, one row: idle (attach + field + send/record), holding to
+/// record, and hands-free recording. Hold-to-talk is the fast path, but it is
+/// never the *only* path — a press-and-hold gesture is impossible with a switch
+/// control and painful with a tremor, so a plain tap on the microphone starts a
+/// recording that runs hands-free until you send or discard it.
 class _Composer extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
@@ -1103,11 +1095,25 @@ class _Composer extends StatefulWidget {
   State<_Composer> createState() => _ComposerState();
 }
 
+/// What the composer is currently doing.
+enum _ComposerMode {
+  idle,
+
+  /// Recording only for as long as the finger stays down.
+  holding,
+
+  /// Recording hands-free; ends on an explicit send or discard.
+  handsFree,
+}
+
 class _ComposerState extends State<_Composer> {
   final VoiceRecorder _recorder = VoiceRecorder();
-  bool _recording = false;
+  _ComposerMode _mode = _ComposerMode.idle;
   bool _cancelling = false;
   bool _hasText = false;
+  bool _pressed = false;
+
+  bool get _recording => _mode != _ComposerMode.idle;
 
   @override
   void initState() {
@@ -1128,206 +1134,341 @@ class _ComposerState extends State<_Composer> {
     super.dispose();
   }
 
-  Future<void> _startRecording() async {
+  Future<void> _startRecording(_ComposerMode mode) async {
+    if (_recording) return;
     HapticFeedback.mediumImpact();
     final ok = await _recorder.start();
     if (!mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Microphone permission is needed for voice messages'),
-        ),
-      );
+      _notify('Microphone access is off. Turn it on in system settings to '
+          'send voice messages.');
       return;
     }
     setState(() {
-      _recording = true;
+      _mode = mode;
       _cancelling = false;
     });
   }
 
-  Future<void> _finishRecording() async {
+  /// Stop recording and hand the clip to the chat.
+  Future<void> _sendRecording() async {
     if (!_recording) return;
-    final cancelled = _cancelling;
     setState(() {
-      _recording = false;
+      _mode = _ComposerMode.idle;
       _cancelling = false;
     });
-    if (cancelled) {
-      HapticFeedback.heavyImpact();
-      await _recorder.cancel();
-      return;
-    }
     HapticFeedback.mediumImpact();
     final result = await _recorder.stop();
     if (result == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hold to record a voice message')),
-      );
+      _notify('That was too short to send. Hold the microphone, or tap it to '
+          'record hands-free.');
       return;
     }
     await widget.onVoice(result.bytes, result.durationMs);
   }
 
+  /// Stop recording and throw the clip away.
+  Future<void> _discardRecording() async {
+    if (!_recording) return;
+    setState(() {
+      _mode = _ComposerMode.idle;
+      _cancelling = false;
+    });
+    HapticFeedback.heavyImpact();
+    await _recorder.cancel();
+  }
+
+  /// The finger came up during a hold.
+  Future<void> _releaseHold() async {
+    if (_mode != _ComposerMode.holding) return;
+    if (_cancelling) {
+      await _discardRecording();
+    } else {
+      await _sendRecording();
+    }
+  }
+
+  void _setPressed(bool pressed) {
+    if (_pressed != pressed) setState(() => _pressed = pressed);
+  }
+
+  void _notify(String message) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// The primary button's job right now, which drives its icon, its colour and
+  /// — just as importantly — what a screen reader announces.
+  ({IconData icon, String label, Color background, Color foreground})
+      get _primaryAction {
+    if (_cancelling) {
+      return (
+        icon: Icons.delete_outline_rounded,
+        label: 'Release to discard the recording',
+        background: AegisColor.danger,
+        foreground: AegisColor.textPrimary,
+      );
+    }
+    if (_mode == _ComposerMode.handsFree) {
+      return (
+        icon: Icons.arrow_upward_rounded,
+        label: 'Send voice message',
+        background: AegisColor.accent,
+        foreground: AegisColor.textOnAccent,
+      );
+    }
+    if (_mode == _ComposerMode.holding) {
+      return (
+        icon: Icons.mic_rounded,
+        label: 'Recording. Release to send, slide left to discard',
+        background: AegisColor.accent,
+        foreground: AegisColor.textOnAccent,
+      );
+    }
+    if (_hasText) {
+      return (
+        icon: Icons.arrow_upward_rounded,
+        label: 'Send message',
+        background: AegisColor.accent,
+        foreground: AegisColor.textOnAccent,
+      );
+    }
+    return (
+      icon: Icons.mic_rounded,
+      label: 'Record a voice message. Tap to record hands-free, or hold to talk',
+      background: AegisColor.accent,
+      foreground: AegisColor.textOnAccent,
+    );
+  }
+
+  void _onPrimaryTap() {
+    switch (_mode) {
+      case _ComposerMode.handsFree:
+        _sendRecording();
+      case _ComposerMode.holding:
+        // A hold that registered as a tap: too short to be a message.
+        _discardRecording();
+      case _ComposerMode.idle:
+        if (_hasText) {
+          widget.onSend();
+        } else {
+          _startRecording(_ComposerMode.handsFree);
+        }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-        child: Row(
-          children: [
-            if (!_recording) ...[
-              _CircleButton(
-                icon: Icons.add_rounded,
-                onTap: widget.onAttach,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: TextField(
-                  controller: widget.controller,
-                  style: const TextStyle(color: AegisTheme.textHi),
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => widget.onSend(),
-                  decoration: const InputDecoration(
-                    hintText: 'Encrypted message…',
+    final action = _primaryAction;
+    // Growing while recording is the one place the composer changes size, and
+    // it is what tells you the button is now "live".
+    final size = _recording
+        ? AegisLayout.minTouchTarget + AegisSpace.s3
+        : AegisLayout.minTouchTarget;
+
+    return DecoratedBox(
+      // A hairline, not a shadow: the composer is a sibling of the message
+      // list, not something floating over it.
+      decoration: const BoxDecoration(
+        color: AegisColor.background,
+        border: Border(top: BorderSide(color: AegisColor.border)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AegisSpace.s3,
+            AegisSpace.s2,
+            AegisSpace.s3,
+            AegisSpace.s2,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (!_recording) ...[
+                _ComposerIconButton(
+                  icon: Icons.add_rounded,
+                  label: 'Attach a file, photo or document',
+                  onTap: widget.onAttach,
+                ),
+                const SizedBox(width: AegisSpace.s2),
+                Expanded(
+                  child: TextField(
+                    controller: widget.controller,
+                    style: AegisType.body,
+                    minLines: 1,
+                    maxLines: 5,
+                    textCapitalization: TextCapitalization.sentences,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => widget.onSend(),
+                    decoration: const InputDecoration(
+                      // Says what happens, not what the product is called.
+                      // Every message here is encrypted; the placeholder does
+                      // not need to keep announcing it.
+                      hintText: 'Message',
+                    ),
+                  ),
+                ),
+              ] else
+                Expanded(
+                  child: _RecordingBar(
+                    recorder: _recorder,
+                    cancelling: _cancelling,
+                    // The discard control only exists hands-free; during a hold
+                    // the gesture itself is how you cancel.
+                    onDiscard: _mode == _ComposerMode.handsFree
+                        ? _discardRecording
+                        : null,
+                  ),
+                ),
+              const SizedBox(width: AegisSpace.s2),
+              Semantics(
+                button: true,
+                label: action.label,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _onPrimaryTap,
+                  onTapDown: (_) => _setPressed(true),
+                  onTapUp: (_) => _setPressed(false),
+                  onTapCancel: () => _setPressed(false),
+                  onLongPressStart: _mode == _ComposerMode.idle && !_hasText
+                      ? (_) => _startRecording(_ComposerMode.holding)
+                      : null,
+                  onLongPressEnd: (_) => _releaseHold(),
+                  // Dragging away from the button while holding cancels, so a
+                  // recording started by accident is easy to abandon.
+                  onLongPressMoveUpdate: _mode == _ComposerMode.holding
+                      ? (d) {
+                          final cancel = d.localOffsetFromOrigin.dx < -60;
+                          if (cancel != _cancelling) {
+                            setState(() => _cancelling = cancel);
+                            HapticFeedback.selectionClick();
+                          }
+                        }
+                      : null,
+                  child: AnimatedScale(
+                    // Press feedback. GestureDetector gives none for free, and
+                    // a primary action that doesn't acknowledge the touch reads
+                    // as a dropped tap.
+                    scale: _pressed ? 0.92 : 1,
+                    duration: AegisMotion.of(context, AegisMotion.fast),
+                    curve: AegisMotion.enter,
+                    child: AnimatedContainer(
+                      duration: AegisMotion.of(context, AegisMotion.fast),
+                      curve: AegisMotion.enter,
+                      width: size,
+                      height: size,
+                      decoration: BoxDecoration(
+                        color: action.background,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(action.icon, color: action.foreground),
+                    ),
                   ),
                 ),
               ),
-            ] else
-              Expanded(
-                child: _RecordingBar(
-                  recorder: _recorder,
-                  cancelling: _cancelling,
-                ),
-              ),
-            const SizedBox(width: 8),
-            // One button, two jobs: tap to send typed text, hold to record.
-            GestureDetector(
-              onTap: _hasText ? widget.onSend : null,
-              onLongPressStart: _hasText ? null : (_) => _startRecording(),
-              onLongPressEnd: _hasText ? null : (_) => _finishRecording(),
-              // Dragging away from the button while holding cancels, so a
-              // recording started by accident is easy to abandon.
-              onLongPressMoveUpdate: _hasText
-                  ? null
-                  : (d) {
-                      final cancel = d.localOffsetFromOrigin.dx < -60;
-                      if (cancel != _cancelling) {
-                        setState(() => _cancelling = cancel);
-                        HapticFeedback.selectionClick();
-                      }
-                    },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                curve: Curves.easeOut,
-                width: _recording ? 58 : 48,
-                height: _recording ? 58 : 48,
-                decoration: BoxDecoration(
-                  color: _cancelling ? AegisColor.danger : AegisColor.accent,
-                  shape: BoxShape.circle,
-                  boxShadow: _recording
-                      ? [
-                          BoxShadow(
-                            color: (_cancelling
-                                    ? AegisTheme.danger
-                                    : AegisTheme.accent)
-                                .withValues(alpha: 0.45),
-                            blurRadius: 18,
-                            spreadRadius: 2,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Icon(
-                  _recording
-                      ? (_cancelling ? Icons.delete_rounded : Icons.mic_rounded)
-                      : (_hasText
-                          ? Icons.arrow_upward_rounded
-                          : Icons.mic_rounded),
-                  color: _cancelling ? AegisColor.textPrimary : AegisColor.textOnAccent,
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// A round secondary button in the composer row.
-class _CircleButton extends StatelessWidget {
+/// A secondary button in the composer row.
+///
+/// Sized to [AegisLayout.minTouchTarget] and labelled for assistive technology
+/// — a bare icon in a GestureDetector announces nothing at all.
+class _ComposerIconButton extends StatelessWidget {
   final IconData icon;
+  final String label;
   final VoidCallback onTap;
-  const _CircleButton({required this.icon, required this.onTap});
+  const _ComposerIconButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: const BoxDecoration(
-          color: AegisTheme.surfaceHi,
-          shape: BoxShape.circle,
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        // Material rather than a bare GestureDetector: press, hover and
+        // keyboard-focus feedback come from the framework instead of being
+        // reinvented (and forgotten) here.
+        child: Material(
+          color: AegisColor.surfaceElevated,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            child: SizedBox(
+              width: AegisLayout.minTouchTarget,
+              height: AegisLayout.minTouchTarget,
+              child: Icon(icon, color: AegisColor.textPrimary, size: 22),
+            ),
+          ),
         ),
-        child: Icon(icon, color: AegisTheme.textHi, size: 22),
       ),
     );
   }
 }
 
 /// Replaces the text field while recording: elapsed time, a live waveform, and
-/// the slide-to-cancel hint.
+/// either the slide-to-cancel hint or an explicit discard button.
 class _RecordingBar extends StatelessWidget {
   final VoiceRecorder recorder;
   final bool cancelling;
-  const _RecordingBar({required this.recorder, required this.cancelling});
+
+  /// Present only when recording hands-free, where the gesture can't cancel.
+  final VoidCallback? onDiscard;
+
+  const _RecordingBar({
+    required this.recorder,
+    required this.cancelling,
+    this.onDiscard,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      // Matches the enlarged record button so the row stays on one baseline.
+      height: AegisLayout.minTouchTarget + AegisSpace.s3,
+      padding: const EdgeInsets.only(left: AegisSpace.s3),
       decoration: BoxDecoration(
-        color: AegisTheme.surfaceHi,
-        borderRadius: BorderRadius.circular(24),
+        color: AegisColor.surfaceElevated,
+        borderRadius: BorderRadius.circular(AegisRadius.md),
+        border: Border.all(
+          color: cancelling ? AegisColor.danger : AegisColor.border,
+        ),
       ),
       child: Row(
         children: [
-          // A pulsing dot, so it's obvious recording is live.
           const _RecordingDot(),
-          const SizedBox(width: 10),
+          const SizedBox(width: AegisSpace.s2),
           ValueListenableBuilder<Duration>(
             valueListenable: recorder.elapsed,
             builder: (context, d, _) => Text(
               formatDuration(d),
-              style: const TextStyle(
-                color: AegisTheme.textHi,
-                fontSize: 13,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
+              style: AegisType.meta.copyWith(color: AegisColor.textSecondary),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AegisSpace.s3),
           Expanded(
             child: cancelling
-                ? const Text(
-                    'Release to cancel',
+                ? Text(
+                    'Release to discard',
                     textAlign: TextAlign.right,
-                    style: TextStyle(
-                      color: AegisTheme.danger,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: AegisType.meta.copyWith(color: AegisColor.danger),
                   )
                 : ValueListenableBuilder<List<double>>(
                     valueListenable: recorder.waveform,
@@ -1339,13 +1480,19 @@ class _RecordingBar extends StatelessWidget {
                     ),
                   ),
           ),
-          if (!cancelling) ...[
-            const SizedBox(width: 8),
+          if (onDiscard != null)
+            _ComposerIconButton(
+              icon: Icons.delete_outline_rounded,
+              label: 'Discard recording',
+              onTap: onDiscard!,
+            )
+          else if (!cancelling) ...[
+            const SizedBox(width: AegisSpace.s2),
             const Icon(Icons.keyboard_arrow_left_rounded,
-                size: 16, color: AegisTheme.textLo),
-            const Text(
-              'slide to cancel',
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 11),
+                size: 16, color: AegisColor.textMuted),
+            const Padding(
+              padding: EdgeInsets.only(right: AegisSpace.s3),
+              child: Text('slide to discard', style: AegisType.meta),
             ),
           ],
         ],
@@ -1354,7 +1501,13 @@ class _RecordingBar extends StatelessWidget {
   }
 }
 
-/// The blinking "recording" indicator.
+/// The "recording is live" indicator.
+///
+/// It blinks, because a static dot is easy to mistake for a decoration — but
+/// only when the user hasn't asked for reduced motion. A repeating pulse is
+/// exactly the kind of thing that setting exists to stop, and the recording
+/// state is already carried by the elapsed timer and the waveform, so dropping
+/// the blink costs no information.
 class _RecordingDot extends StatefulWidget {
   const _RecordingDot();
 
@@ -1367,7 +1520,18 @@ class _RecordingDotState extends State<_RecordingDot>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 850),
-  )..repeat(reverse: true);
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AegisMotion.reduced(context)) {
+      _c.stop();
+      _c.value = 1;
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
+  }
 
   @override
   void dispose() {
@@ -1379,12 +1543,14 @@ class _RecordingDotState extends State<_RecordingDot>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: Tween(begin: 0.35, end: 1.0).animate(_c),
-      child: Container(
+      child: const SizedBox(
         width: 9,
         height: 9,
-        decoration: const BoxDecoration(
-          color: AegisTheme.danger,
-          shape: BoxShape.circle,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: AegisColor.danger,
+            shape: BoxShape.circle,
+          ),
         ),
       ),
     );
@@ -1403,7 +1569,7 @@ class _LiveWavePainter extends CustomPainter {
     final count = (size.width / slot).floor().clamp(1, levels.length);
     final shown = levels.sublist(levels.length - count);
     final paint = Paint()
-      ..color = AegisTheme.accent
+      ..color = AegisColor.accent
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 2;
     for (var i = 0; i < shown.length; i++) {
@@ -1423,27 +1589,24 @@ class _LiveWavePainter extends CustomPainter {
 }
 
 class _ChatEmpty extends StatelessWidget {
-  const _ChatEmpty();
+  /// Opens the security details sheet, so the claim in the copy is one tap from
+  /// the primitives that back it.
+  final VoidCallback onExplain;
+  const _ChatEmpty({required this.onExplain});
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.lock_rounded, size: 40, color: AegisTheme.surfaceHi),
-          SizedBox(height: 12),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 48),
-            child: Text(
-              'Messages are end-to-end encrypted with post-quantum '
-              'cryptography. Not even the relay can read them.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
-            ),
-          ),
-        ],
-      ),
+    return EmptyState(
+      icon: Icons.lock_outline_rounded,
+      title: 'No messages yet',
+      // Deliberately narrow claims: the relay can't read message contents, and
+      // it can't work out who is talking to whom. It does see that *some*
+      // traffic exists. Overstating that is how a privacy tool loses trust.
+      message: 'Messages in this conversation are end-to-end encrypted. The '
+          'relay carries them without being able to read them or tell who they '
+          'are between.',
+      actionLabel: 'How this is protected',
+      onAction: onExplain,
     );
   }
 }
@@ -1499,13 +1662,13 @@ class _ChatLockState extends State<_ChatLock> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.lock_rounded, size: 56, color: AegisTheme.accent),
+            const Icon(Icons.lock_rounded, size: 56, color: AegisColor.accent),
             const SizedBox(height: 16),
             const Text(
               'This chat is locked',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: AegisTheme.textHi,
+                color: AegisColor.textPrimary,
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
               ),
@@ -1515,7 +1678,7 @@ class _ChatLockState extends State<_ChatLock> {
               'Enter this conversation’s password to open it. Its history stays '
               'sealed until you do.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+              style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 20),
             TextField(
@@ -1523,13 +1686,13 @@ class _ChatLockState extends State<_ChatLock> {
               autofocus: true,
               obscureText: true,
               enabled: !_busy,
-              style: const TextStyle(color: AegisTheme.textHi),
+              style: const TextStyle(color: AegisColor.textPrimary),
               textInputAction: TextInputAction.go,
               onSubmitted: (_) => _unlock(),
               decoration: InputDecoration(
                 hintText: 'Password',
                 prefixIcon:
-                    const Icon(Icons.lock_rounded, color: AegisTheme.textLo),
+                    const Icon(Icons.lock_rounded, color: AegisColor.textSecondary),
                 errorText: _error,
               ),
             ),

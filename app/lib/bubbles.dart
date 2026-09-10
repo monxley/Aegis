@@ -56,12 +56,12 @@ class ReactionChips extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: r.fromMe
-                      ? AegisTheme.accent.withValues(alpha: 0.18)
-                      : AegisTheme.surfaceHi,
+                      ? AegisColor.accent.withValues(alpha: 0.18)
+                      : AegisColor.surfaceElevated,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: r.fromMe
-                        ? AegisTheme.accent.withValues(alpha: 0.55)
+                        ? AegisColor.accent.withValues(alpha: 0.55)
                         : Colors.transparent,
                   ),
                 ),
@@ -137,7 +137,7 @@ class _ReactionButtonState extends State<_ReactionButton> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: widget.selected
-                ? AegisTheme.accent.withValues(alpha: 0.18)
+                ? AegisColor.accent.withValues(alpha: 0.18)
                 : Colors.transparent,
           ),
           child: Text(widget.emoji, style: const TextStyle(fontSize: 24)),
@@ -512,7 +512,7 @@ class _ImageAttachmentState extends State<_ImageAttachment> {
               ? Icon(Icons.broken_image_rounded,
                   color: widget.mine
                       ? AegisColor.textMuted
-                      : AegisTheme.textLo)
+                      : AegisColor.textSecondary)
               : const SizedBox(
                   width: 18,
                   height: 18,

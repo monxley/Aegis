@@ -213,3 +213,140 @@ class _ErrorStateViewState extends State<ErrorStateView> {
     );
   }
 }
+
+/// A one-line notice pinned above content: connection state, a blocked contact,
+/// a disappearing-message timer, an available update, a device that looks
+/// compromised.
+///
+/// One component, because these were five hand-rolled bars with five different
+/// paddings, four type sizes and four ideas of what "quiet" means. A notice
+/// states the fact and, where there is one, its consequence — and it never uses
+/// colour alone to carry meaning, so the icon and the words still work in
+/// greyscale.
+///
+/// [emphasis] is for the small number of notices a user must not scroll past
+/// (their device looks compromised; their client is about to stop working). If
+/// everything is emphasised, nothing is.
+class NoticeBar extends StatelessWidget {
+  /// A glyph from the app's single icon set.
+  final IconData icon;
+
+  /// The state, in one or two words.
+  final String label;
+
+  /// What it means for the user.
+  final String? detail;
+
+  /// The tone the icon and label take. Defaults to neutral.
+  final Color tone;
+
+  /// Tint the whole bar in [tone] and let the detail wrap. Reserve it for
+  /// notices that carry a real consequence.
+  final bool emphasis;
+
+  /// Makes the whole bar a button — used when there is exactly one obvious
+  /// thing to do about it.
+  final VoidCallback? onTap;
+
+  /// Adds a dismiss control. Only for notices the user is allowed to ignore.
+  final VoidCallback? onDismiss;
+
+  const NoticeBar({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.detail,
+    this.tone = AegisColor.textSecondary,
+    this.emphasis = false,
+    this.onTap,
+    this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The text of the bar. Wrapped in ExcludeSemantics because the whole bar
+    // already carries one composed label — without this a screen reader reads
+    // the icon, the label and the detail as three separate nodes.
+    final content = ExcludeSemantics(
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: tone),
+          const SizedBox(width: AegisSpace.s2),
+          Text(
+            label,
+            style: AegisType.meta
+                .copyWith(color: tone, fontWeight: FontWeight.w600),
+          ),
+          if (detail != null) ...[
+            const SizedBox(width: AegisSpace.s2),
+            Expanded(
+              child: Text(
+                detail!,
+                // An emphasised notice is allowed the room to be understood;
+                // a quiet one stays exactly one line tall.
+                maxLines: emphasis ? 3 : 1,
+                overflow: TextOverflow.ellipsis,
+                style: AegisType.meta.copyWith(
+                  color: emphasis ? tone : AegisColor.textMuted,
+                  height: emphasis ? 1.35 : null,
+                ),
+              ),
+            ),
+          ] else
+            const Spacer(),
+        ],
+      ),
+    );
+
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AegisSpace.s4,
+        vertical: AegisSpace.s2,
+      ),
+      child: Row(
+        children: [
+          // Semantics(label:) sits on the bar itself, so the content is the
+          // labelled thing and the dismiss button stays a separate target.
+          Expanded(
+            child: Semantics(
+              label: _spoken,
+              button: onTap != null,
+              child: content,
+            ),
+          ),
+          if (onDismiss != null)
+            IconButton(
+              tooltip: 'Dismiss',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.close_rounded, size: 16, color: tone),
+              onPressed: onDismiss,
+            )
+          else if (onTap != null)
+            ExcludeSemantics(
+              child: Icon(Icons.chevron_right_rounded, size: 16, color: tone),
+            ),
+        ],
+      ),
+    );
+
+    return Semantics(
+      // Announced when it appears: a connection dropping is exactly the kind of
+      // change a screen-reader user otherwise never learns about.
+      liveRegion: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: emphasis ? tone.withValues(alpha: 0.12) : AegisColor.surface,
+          border: const Border(bottom: BorderSide(color: AegisColor.border)),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: onTap == null
+              ? row
+              : InkWell(onTap: onTap, child: row),
+        ),
+      ),
+    );
+  }
+
+  String get _spoken => detail == null ? label : '$label. $detail';
+}

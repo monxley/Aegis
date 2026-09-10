@@ -1459,12 +1459,30 @@ class AegisEngineController extends ChangeNotifier {
   /// that arrives while a poll is still running is simply skipped.
   bool _polling = false;
 
+  /// Whether the last completed poll reached a relay. `null` until the first
+  /// one finishes.
+  ///
+  /// Until now an unreachable relay was entirely silent: the poll swallowed the
+  /// error and the user watched messages sit there with no explanation. This is
+  /// the one honest fact the app has about connectivity — it says nothing about
+  /// whether the *network* is up, only whether we got an answer — and the
+  /// interface reports exactly that and no more.
+  bool? _relayReachable;
+  bool? get relayReachable => _relayReachable;
+
+  void _setRelayReachable(bool reachable) {
+    if (_relayReachable == reachable) return;
+    _relayReachable = reachable;
+    notifyListeners();
+  }
+
   Future<void> _poll() async {
     final engine = _engine;
     if (engine == null || _polling) return;
     _polling = true;
     try {
       final res = await engine.poll();
+      _setRelayReachable(true);
       // A finished transfer only lives in engine memory — write it to disk
       // (sealed) before anything else, so it survives even if we're killed.
       await _drainAttachments(engine);
@@ -1484,7 +1502,10 @@ class AegisEngineController extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      // Relay unreachable — stay quiet; the next tick retries.
+      // The next tick retries by itself, and retry_failed() in the engine
+      // re-sends anything that failed once we're back — but the user is told,
+      // rather than left to guess why nothing is moving.
+      _setRelayReachable(false);
       debugPrint('poll failed: $e');
     } finally {
       _polling = false;

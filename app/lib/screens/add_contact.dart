@@ -65,11 +65,11 @@ class _AddContactScreenState extends State<AddContactScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 8),
-              const Text('Name', style: TextStyle(color: AegisTheme.textLo)),
+              const Text('Name', style: TextStyle(color: AegisColor.textSecondary)),
               const SizedBox(height: 8),
               TextField(
                 controller: _name,
-                style: const TextStyle(color: AegisTheme.textHi),
+                style: const TextStyle(color: AegisColor.textPrimary),
                 decoration: const InputDecoration(hintText: 'e.g. Alice'),
               ),
               const SizedBox(height: 20),
@@ -77,13 +77,13 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Aegis code',
-                      style: TextStyle(color: AegisTheme.textLo)),
+                      style: TextStyle(color: AegisColor.textSecondary)),
                   TextButton.icon(
                     onPressed: _paste,
                     icon: const Icon(Icons.content_paste_rounded, size: 18),
                     label: const Text('Paste'),
                     style: TextButton.styleFrom(
-                      foregroundColor: AegisTheme.accent,
+                      foregroundColor: AegisColor.accent,
                     ),
                   ),
                 ],
@@ -92,7 +92,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
               TextField(
                 controller: _code,
                 style: const TextStyle(
-                  color: AegisTheme.textHi,
+                  color: AegisColor.textPrimary,
                   fontFamily: 'monospace',
                   fontSize: 13,
                 ),
@@ -106,7 +106,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 const SizedBox(height: 12),
                 Text(
                   _error!,
-                  style: const TextStyle(color: AegisTheme.danger),
+                  style: const TextStyle(color: AegisColor.danger),
                 ),
               ],
               const Spacer(),
