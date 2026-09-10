@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../attachments.dart';
 import '../bubbles.dart';
+import '../design/responsive.dart';
 import '../design/security.dart';
 import '../design/states.dart';
 import '../engine.dart';
@@ -510,119 +511,124 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: locked
           ? _ChatLock(engine: widget.engine, contact: widget.contact)
-          : Column(
-        children: [
-          // Notices, most urgent first, all on one component so they read as
-          // one row of status rather than three unrelated bars.
-          ConnectionBanner(state: connectionStateFor(widget.engine.relayReachable)),
-          if (_isBlocked)
-            const NoticeBar(
-              icon: Icons.block_rounded,
-              label: 'Blocked',
-              detail: 'Their messages are dropped without being delivered.',
-              tone: AegisColor.danger,
-            ),
-          if (_disappearingSecs > 0)
-            NoticeBar(
-              icon: Icons.timer_rounded,
-              label: 'Disappearing',
-              detail: 'New messages vanish after ${_fmtTimer(_disappearingSecs)}.',
-              tone: AegisColor.accent,
-            ),
-          Expanded(
-            child: history.isEmpty
-                ? _ChatEmpty(onExplain: _showSecurity)
-                : Stack(
-                    children: [
-                      ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
-                        itemCount: history.length,
-                        // Keep a screen of messages laid out either side of the
-                        // viewport so a fast flick doesn't build rows mid-scroll.
-                        scrollCacheExtent: const ScrollCacheExtent.pixels(600),
-                        // Nothing in a bubble holds scroll state worth keeping, so
-                        // don't pay to keep off-screen rows alive.
-                        addAutomaticKeepAlives: false,
-                        addRepaintBoundaries: true,
-                        itemBuilder: (context, i) {
-                          final msg = history[i];
-                          final prev = i > 0 ? history[i - 1] : null;
-                          final next =
-                              i + 1 < history.length ? history[i + 1] : null;
-                          final showDay = prev == null ||
-                              differentDay(prev.timestampMs.toInt(),
-                                  msg.timestampMs.toInt());
-                          // A run is consecutive messages from the same side,
-                          // close together in time and not split by a day
-                          // marker. Grouping by sender alone would glue a
-                          // message from this morning onto one from last night.
-                          final firstInGroup = showDay ||
-                              prev.fromMe != msg.fromMe ||
-                              !_closeInTime(prev, msg);
-                          final lastInGroup = next == null ||
-                              next.fromMe != msg.fromMe ||
-                              !_closeInTime(msg, next) ||
-                              differentDay(msg.timestampMs.toInt(),
-                                  next.timestampMs.toInt());
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+          // Held to a readable measure: the bubbles already cap themselves, but
+          // without this the composer and the notices would stretch the full
+          // width of a desktop window.
+          : ReadingColumn(
+              child: Column(
+                children: [
+                  // Notices, most urgent first, all on one component so they read as
+                  // one row of status rather than three unrelated bars.
+                  ConnectionBanner(state: connectionStateFor(widget.engine.relayReachable)),
+                  if (_isBlocked)
+                    const NoticeBar(
+                      icon: Icons.block_rounded,
+                      label: 'Blocked',
+                      detail: 'Their messages are dropped without being delivered.',
+                      tone: AegisColor.danger,
+                    ),
+                  if (_disappearingSecs > 0)
+                    NoticeBar(
+                      icon: Icons.timer_rounded,
+                      label: 'Disappearing',
+                      detail: 'New messages vanish after ${_fmtTimer(_disappearingSecs)}.',
+                      tone: AegisColor.accent,
+                    ),
+                  Expanded(
+                    child: history.isEmpty
+                        ? _ChatEmpty(onExplain: _showSecurity)
+                        : Stack(
                             children: [
-                              if (showDay)
-                                _DaySeparator(ms: msg.timestampMs.toInt()),
-                              _BubbleEntrance(
-                                // Keyed by message id so the animation runs once,
-                                // when the message first appears — not again on
-                                // every rebuild or receipt tick.
-                                key: ValueKey(msg.id),
-                                child: _Bubble(
-                                  message: msg,
-                                  engine: widget.engine,
-                                  aegisId: widget.contact.aegisId,
-                                  firstInGroup: firstInGroup,
-                                  lastInGroup: lastInGroup,
-                                  // An attachment retry needs its bytes back from
-                                  // storage, a different path than text.
-                                  onRetry: () => msg.hasAttachment
-                                      ? widget.engine.resendAttachment(
-                                          widget.contact.aegisId, msg)
-                                      : widget.engine.resend(
+                              ListView.builder(
+                                controller: _scroll,
+                                padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
+                                itemCount: history.length,
+                                // Keep a screen of messages laid out either side of the
+                                // viewport so a fast flick doesn't build rows mid-scroll.
+                                scrollCacheExtent: const ScrollCacheExtent.pixels(600),
+                                // Nothing in a bubble holds scroll state worth keeping, so
+                                // don't pay to keep off-screen rows alive.
+                                addAutomaticKeepAlives: false,
+                                addRepaintBoundaries: true,
+                                itemBuilder: (context, i) {
+                                  final msg = history[i];
+                                  final prev = i > 0 ? history[i - 1] : null;
+                                  final next =
+                                      i + 1 < history.length ? history[i + 1] : null;
+                                  final showDay = prev == null ||
+                                      differentDay(prev.timestampMs.toInt(),
+                                          msg.timestampMs.toInt());
+                                  // A run is consecutive messages from the same side,
+                                  // close together in time and not split by a day
+                                  // marker. Grouping by sender alone would glue a
+                                  // message from this morning onto one from last night.
+                                  final firstInGroup = showDay ||
+                                      prev.fromMe != msg.fromMe ||
+                                      !_closeInTime(prev, msg);
+                                  final lastInGroup = next == null ||
+                                      next.fromMe != msg.fromMe ||
+                                      !_closeInTime(msg, next) ||
+                                      differentDay(msg.timestampMs.toInt(),
+                                          next.timestampMs.toInt());
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (showDay)
+                                        _DaySeparator(ms: msg.timestampMs.toInt()),
+                                      _BubbleEntrance(
+                                        // Keyed by message id so the animation runs once,
+                                        // when the message first appears — not again on
+                                        // every rebuild or receipt tick.
+                                        key: ValueKey(msg.id),
+                                        child: _Bubble(
+                                          message: msg,
+                                          engine: widget.engine,
                                           aegisId: widget.contact.aegisId,
-                                          id: msg.id,
+                                          firstInGroup: firstInGroup,
+                                          lastInGroup: lastInGroup,
+                                          // An attachment retry needs its bytes back from
+                                          // storage, a different path than text.
+                                          onRetry: () => msg.hasAttachment
+                                              ? widget.engine.resendAttachment(
+                                                  widget.contact.aegisId, msg)
+                                              : widget.engine.resend(
+                                                  aegisId: widget.contact.aegisId,
+                                                  id: msg.id,
+                                                ),
                                         ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                              // Scrolled up far enough that new messages land
+                              // off-screen: offer a way straight back to the latest.
+                              Positioned(
+                                right: 12,
+                                bottom: 12,
+                                child: _JumpToLatest(
+                                  visible: _showJumpToEnd,
+                                  onTap: () => _scrollToEnd(force: true),
                                 ),
                               ),
                             ],
-                          );
-                        },
-                      ),
-                      // Scrolled up far enough that new messages land
-                      // off-screen: offer a way straight back to the latest.
-                      Positioned(
-                        right: 12,
-                        bottom: 12,
-                        child: _JumpToLatest(
-                          visible: _showJumpToEnd,
-                          onTap: () => _scrollToEnd(force: true),
-                        ),
-                      ),
-                    ],
+                          ),
                   ),
-          ),
-          _Composer(
-            controller: _input,
-            onSend: _send,
-            onAttach: _showAttachSheet,
-            onVoice: (bytes, durationMs) => _sendAttachment(
-              kind: MsgKind.voice,
-              name: 'voice-message.m4a',
-              mime: 'audio/mp4',
-              bytes: bytes,
-              durationMs: durationMs,
+                  _Composer(
+                    controller: _input,
+                    onSend: _send,
+                    onAttach: _showAttachSheet,
+                    onVoice: (bytes, durationMs) => _sendAttachment(
+                      kind: MsgKind.voice,
+                      name: 'voice-message.m4a',
+                      mime: 'audio/mp4',
+                      bytes: bytes,
+                      durationMs: durationMs,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
     );
   }
 }
