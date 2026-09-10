@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'brand.dart';
+import 'design/states.dart';
 import 'engine.dart';
 import 'screens/chats.dart';
 import 'screens/lock.dart';
@@ -261,6 +262,13 @@ class _SplashState extends State<_Splash>
 
 /// Shown if [AegisEngineController.boot] throws — most likely the Rust library
 /// failed to load. Readable beats a frozen logo, and Retry re-runs boot.
+///
+/// Built on ErrorStateView, which is the component this screen was hand-rolling
+/// badly: it printed the raw exception as the headline. "Aegis failed to start"
+/// followed by `Invalid argument(s): Failed to load dynamic library` tells a
+/// user nothing they can act on, and buries the one fact that actually matters
+/// here — nothing was lost. The exception is still one tap away, where it
+/// belongs in a bug report.
 class _StartupError extends StatelessWidget {
   final Object error;
   final VoidCallback onRetry;
@@ -269,35 +277,15 @@ class _StartupError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.error_outline,
-                  color: AegisColor.danger, size: 48),
-              const SizedBox(height: 16),
-              const Text(
-                'Aegis failed to start',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: AegisColor.textPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '$error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(onPressed: onRetry, child: const Text('Retry')),
-            ],
-          ),
-        ),
+      body: ErrorStateView(
+        title: 'Aegis could not start',
+        message: 'Nothing has been lost: your identity and messages are on '
+            'this device, encrypted, and a failed start does not touch them. '
+            'Retrying usually works. Reinstalling erases local data — your '
+            'recovery phrase brings the identity back, but not past messages.',
+        details: error,
+        actionLabel: 'Retry',
+        onAction: onRetry,
       ),
     );
   }
