@@ -261,7 +261,7 @@ class _NotesScreenState extends State<NotesScreen> {
             'Enter your notes password. It’s separate from the app password and '
             'never leaves this device.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+            style: AegisType.secondary,
           ),
           const SizedBox(height: 24),
           TextField(
