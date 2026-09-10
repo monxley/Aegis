@@ -1649,18 +1649,25 @@ impl AegisApp {
         // other engine call (including the UI's) until it finished. Instead the
         // payload is queued and the caller pumps it a batch at a time, so the
         // lock is released between batches and progress is observable.
-        self.outgoing_attachments.insert(
-            id,
-            OutgoingAttachment {
-                aegis_id: aegis_id.clone(),
-                peer,
-                bundle,
-                ttl,
-                bytes: bytes.clone(),
-                next: 0,
-                total: total as usize,
-            },
-        );
+        //
+        // Only if the opening frame actually landed, though: without it the
+        // peer has nothing to attach the chunks to, so pumping them would be
+        // pure waste. The bytes still go into `attachments` below, so the UI
+        // persists them and `resend_attachment` can retry the whole transfer.
+        if ok {
+            self.outgoing_attachments.insert(
+                id,
+                OutgoingAttachment {
+                    aegis_id: aegis_id.clone(),
+                    peer,
+                    bundle,
+                    ttl,
+                    bytes: bytes.clone(),
+                    next: 0,
+                    total: total as usize,
+                },
+            );
+        }
         self.attachments.insert(id, bytes);
         self.history.entry(aegis_id).or_default().push(msg);
         Ok(id)
@@ -1703,7 +1710,14 @@ impl AegisApp {
                 }
             }
         }
-        if next >= total {
+        // A batch that could not be delivered means the relay is unreachable,
+        // and `next` has already moved past those chunks — so continuing would
+        // grind through the rest of an 8 MiB payload one doomed batch at a time
+        // and still end up FAILED, having skipped the chunks it lost. Stop
+        // here instead. Nothing is lost: `resend_attachment` re-queues the
+        // whole payload from `next: 0`, which is the only thing that could
+        // have repaired the gap anyway.
+        if !ok || next >= total {
             self.outgoing_attachments.remove(&id);
             return None;
         }
@@ -1756,14 +1770,17 @@ impl AegisApp {
         meta.extend_from_slice(&duration_ms.to_le_bytes());
         push_short_str(&mut meta, &name);
         push_short_str(&mut meta, &mime);
-        let ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
-        if ok {
-            if let Some(msgs) = self.history.get_mut(&aegis_id) {
-                if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
-                    m.status = STATUS_SENT;
-                    m.transfer_have = 0;
-                    m.transfer_total = total;
-                }
+        if !self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta)) {
+            // The peer never learned an attachment is coming, so its chunks
+            // would arrive with nothing to attach them to. Leave the message
+            // FAILED and queue nothing — the retry is still there to press.
+            return Ok(());
+        }
+        if let Some(msgs) = self.history.get_mut(&aegis_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
+                m.status = STATUS_SENT;
+                m.transfer_have = 0;
+                m.transfer_total = total;
             }
         }
         // Queue the payload rather than pushing it here, for the same reason as
@@ -3027,6 +3044,119 @@ mod tests {
         assert_eq!(got.file_name, "report.pdf");
         let sealed = bob.take_attachment(id).expect("bytes reassembled");
         assert_eq!(bob.open_attachment(sealed).unwrap(), payload);
+    }
+
+    /// An attachment whose opening frame cannot be delivered is not queued,
+    /// and one whose chunks stop being deliverable stops pumping.
+    ///
+    /// A contact whose prekey bundle will not decode is the reachable stand-in
+    /// for "no route to the peer": `deliver` has no session and no usable
+    /// bundle, so every send fails exactly as it would with the relay down.
+    ///
+    /// Without this the app ground through the remaining chunks of an 8 MiB
+    /// payload one doomed batch at a time -- thousands of failing sends, ending
+    /// FAILED anyway, having already skipped past the chunks it lost.
+    #[test]
+    fn an_undeliverable_attachment_stops_instead_of_grinding() {
+        let mut alice = AegisApp::create_in_memory(vec![15u8; 32]).unwrap();
+        let bob = AegisApp::create_in_memory(vec![16u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        // Break the route the way a dropped relay would. add_contact validates
+        // the bundle, so it has to be corrupted after the fact: with no session
+        // and no decodable bundle, `deliver` has nowhere to send.
+        for c in alice.contacts.iter_mut() {
+            c.bundle = vec![0u8; 8];
+        }
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH + 5) + 17)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let id = alice
+            .send_attachment(
+                bob.my_aegis_id(),
+                KIND_FILE,
+                "big.bin".into(),
+                "application/octet-stream".into(),
+                0,
+                payload.clone(),
+            )
+            .unwrap();
+
+        let msg = alice.history(bob.my_aegis_id())[0].clone();
+        assert_eq!(msg.status, STATUS_FAILED, "the opening frame did not land");
+        assert!(
+            alice.pump_attachment(id).is_none(),
+            "nothing is queued when the peer never learned a transfer is coming"
+        );
+
+        // The bytes are still held, so the UI can persist them and offer a
+        // retry rather than losing the file the user picked.
+        let sealed = alice.take_attachment(id).expect("bytes kept for a retry");
+        assert_eq!(alice.open_attachment(sealed).unwrap(), payload);
+    }
+
+    /// A transfer that starts fine but loses the peer mid-flight abandons the
+    /// rest of the payload rather than pumping it into the void.
+    #[test]
+    fn a_transfer_that_breaks_mid_flight_abandons_the_rest() {
+        let mut alice = AegisApp::create_in_memory(vec![17u8; 32]).unwrap();
+        let mut bob = AegisApp::create_in_memory(vec![18u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_aegis_id(), alice.my_bundle())
+            .unwrap();
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH * 4) + 3)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let id = alice
+            .send_attachment(
+                bob.my_aegis_id(),
+                KIND_FILE,
+                "big.bin".into(),
+                "application/octet-stream".into(),
+                0,
+                payload,
+            )
+            .unwrap();
+        assert!(
+            alice.pump_attachment(id).is_some(),
+            "the first batch goes out normally"
+        );
+
+        // Break the route the way a dropped relay would, which takes both
+        // halves of what `deliver` can fall back on: a fresh client has no
+        // session, and the bundle captured with the queued transfer no longer
+        // decodes, so start_conversation cannot rescue it either.
+        alice.client = aegis_client::AegisClient::from_master_seed([15u8; 32]);
+        for out in alice.outgoing_attachments.values_mut() {
+            out.bundle = vec![0u8; 8];
+        }
+
+        let mut pumps = 0;
+        while alice.pump_attachment(id).is_some() {
+            pumps += 1;
+            assert!(pumps < 100, "pump must terminate");
+        }
+
+        let msg = alice.history(bob.my_aegis_id())[0].clone();
+        assert_eq!(
+            msg.status, STATUS_FAILED,
+            "the message says so, with a retry available"
+        );
+        // The claim under test, stated without depending on the batch size:
+        // it gave up partway rather than marching the counter to the end over
+        // a route it already knew was dead.
+        assert!(
+            msg.transfer_have < msg.transfer_total,
+            "abandoned the rest of the payload ({} of {} chunks) instead of \
+             pumping every remaining batch into the void",
+            msg.transfer_have,
+            msg.transfer_total,
+        );
     }
 
     /// Delivery is idempotent: a message id already present is not appended
