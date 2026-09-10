@@ -96,26 +96,6 @@ jobs:
       # API (names, named arguments, sync vs async). `flutter analyze` catches
       # this too, but only after codegen and a full toolchain install — this
       # runs in a second and names the mismatch directly.
-      # TEMPORARY. record_linux does not compile against any 1.x of
-      # record_platform_interface I have tried, and pub.dev is unreachable from
-      # where this branch is being developed, so the package sources are printed
-      # here to be read rather than guessed at again.
-      - name: Show the record plugin's resolved sources
-        continue-on-error: true
-        run: |
-          cache="${PUB_CACHE:-$HOME/.pub-cache}/hosted/pub.dev"
-          for p in record record_linux record_platform_interface record_android; do
-            d=$(ls -d "$cache"/$p-* 2>/dev/null | head -1)
-            echo "===== $p -> ${d:-NOT FOUND} ====="
-            [ -n "$d" ] && sed -n '1,60p' "$d/pubspec.yaml"
-          done
-          d=$(ls -d "$cache"/record_platform_interface-* 2>/dev/null | head -1)
-          echo "===== record_platform_interface.dart ====="
-          [ -n "$d" ] && sed -n '1,120p' "$d/lib/src/record_platform_interface.dart"
-          d=$(ls -d "$cache"/record_linux-* 2>/dev/null | head -1)
-          echo "===== record_linux.dart ====="
-          [ -n "$d" ] && cat "$d/lib/record_linux.dart"
-
       - name: Check the Dart/Rust bridge boundary
         working-directory: app
         run: python3 tool/check_bridge.py
@@ -187,3 +167,26 @@ jobs:
           name: aegis-release-apk
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+
+      # TEMPORARY, and last on purpose: the run log can only be read from the
+      # tail here, and pub.dev is unreachable from where this is developed, so
+      # the package sources have to come out at the end or not at all.
+      # if: always() -- it has to run precisely when the build failed.
+      - name: Show the record plugin's resolved sources
+        if: always()
+        continue-on-error: true
+        run: |
+          cache="${PUB_CACHE:-$HOME/.pub-cache}/hosted/pub.dev"
+          for p in record record_linux record_platform_interface record_android; do
+            d=$(ls -d "$cache"/$p-* 2>/dev/null | head -1)
+            echo "===== $p -> $(basename "${d:-NOT-FOUND}") ====="
+            [ -n "$d" ] && sed -n '/^dependencies:/,/^[a-z]/p' "$d/pubspec.yaml"
+          done
+          d=$(ls -d "$cache"/record_platform_interface-* 2>/dev/null | head -1)
+          echo "===== platform interface: abstract members ====="
+          [ -n "$d" ] && grep -n "abstract\|Future\|class \|Stream" \
+            "$d/lib/src/record_platform_interface.dart" | head -60
+          d=$(ls -d "$cache"/record_linux-* 2>/dev/null | head -1)
+          echo "===== record_linux.dart ====="
+          [ -n "$d" ] && cat "$d/lib/record_linux.dart"
+          echo "===== end of record diagnostics ====="
