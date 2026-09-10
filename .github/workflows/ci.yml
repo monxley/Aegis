@@ -48,14 +48,10 @@ jobs:
       - name: Scaffold platforms + generate bindings
         working-directory: app
         run: |
-          # Android only. Scaffolding linux/ as well makes record_linux an
-          # endorsed implementation of the `record` plugin, so its Dart is
-          # compiled into the Android kernel snapshot too -- and record_linux
-          # 0.7.2 does not implement record_platform_interface 1.6.0 (missing
-          # startStream, and hasPermission lost a named argument), which failed
-          # the APK build with errors from a package this app never calls into
-          # on Android. This job builds an APK; it has no reason to pull in a
-          # desktop backend. See README for the Linux desktop caveat.
+          # Android only: this job builds an APK and has no reason to scaffold a
+          # desktop platform. (It does not change which packages are compiled —
+          # `record` imports its Linux backend unconditionally, which is why
+          # app/pubspec.yaml has to pin record_platform_interface.)
           flutter create --platforms=android --project-name aegis .
           flutter pub get
           # codegen canonicalizes this path before creating it, so it has to
