@@ -143,15 +143,24 @@ jobs:
         run: flutter build apk --release
       # Say in the log which key actually signed it, read back off the APK
       # rather than inferred from which secrets were set.
+      # Never fails the job: this only reports, and losing the artifact because
+      # a diagnostic could not find apksigner would be absurd.
       - name: Report the APK's signature
         working-directory: app
+        continue-on-error: true
         run: |
           apk=build/app/outputs/flutter-apk/app-release.apk
-          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
-          if [ -n "$signer" ]; then
-            "$signer" verify --print-certs "$apk" || true
-          fi
           ls -l "$apk"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          signer=""
+          if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
+            signer=$(find "$sdk/build-tools" -name apksigner 2>/dev/null | sort | tail -1)
+          fi
+          if [ -n "$signer" ]; then
+            "$signer" verify --print-certs "$apk"
+          else
+            echo "apksigner not found; cannot report which key signed this APK."
+          fi
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
