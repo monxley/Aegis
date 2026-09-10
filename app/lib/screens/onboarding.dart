@@ -67,7 +67,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const Text(
               "No node is built in. Enter a node's mix address to join the "
               'network — you learn the rest automatically.',
-              style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+              style: AegisType.secondary,
             ),
             const SizedBox(height: 12),
             TextField(

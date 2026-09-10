@@ -267,7 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : 'Encrypt your identity on this device with a password. '
                           'Without it the key can’t be decrypted, so nothing — '
                           'not even a bypass of this screen — can reach it.',
-                  style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -377,7 +377,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       'Unlock with your fingerprint or face instead of typing the '
                       'password. The key is held in the device keystore. Under '
                       'coercion, use the duress password instead.',
-                      style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                      style: AegisType.secondary,
                     ),
                   ),
                   Switch(
@@ -400,7 +400,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text(
                     'Re-lock the app after inactivity, or the moment it goes to '
                     'the background. The app password re-opens it.',
-                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                    style: AegisType.secondary,
                   ),
                   const SizedBox(height: 12),
                   const Text('Lock after',
@@ -444,7 +444,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text(
                     'Erase everything after this many wrong password attempts — '
                     'protects a lost or seized phone from brute-force.',
-                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                    style: AegisType.secondary,
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -474,7 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   '24 words that back up your identity. Write them down and keep '
                   'them offline — anyone who has them can restore your account, '
                   'and there is no other way to recover it.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
@@ -502,7 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Text(
                     'Alert me when a message arrives. The alert never shows the '
                     'message text — only that something came in.',
-                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                    style: AegisType.secondary,
                   ),
                 ),
                 Switch(
@@ -536,7 +536,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             'possible while the app is open. On by default.'
                         : 'Stop screenshots and screen recording, and hide the '
                             'app in the recent-apps switcher. On by default.',
-                    style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                    style: AegisType.secondary,
                   ),
                 ),
                 Switch(
@@ -565,7 +565,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Keep receiving messages 24/7 while the app is in the '
                     'background, with a quiet ongoing notification. On by '
                     'default — turn off to save battery.',
-                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                    style: AegisType.secondary,
                   ),
                 ),
                 Switch(
@@ -600,7 +600,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _ => 'Off · connecting directly. Route through Tor or a '
                         'SOCKS5 proxy to hide your IP from the nodes.',
                   },
-                  style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
@@ -634,7 +634,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'decoy icon and name to blend in.'
                       : 'Disguised as “${_disguiseLabel(e.disguise)}”. The home-'
                           'screen icon and name are hidden.',
-                  style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
@@ -671,7 +671,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Help carry the network. Your device relays others’ '
                   'onion traffic — it never sees who or what. Best on an '
                   'always-on machine; on a phone, use Wi-Fi + power.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -746,7 +746,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Instantly erase everything on this device — key, contacts, '
                   'and history — and return to a blank slate. Hold the button to '
                   'fire. This cannot be undone.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 HoldToWipeButton(
@@ -768,7 +768,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Forget this identity and start fresh: a new key, and all '
                     'contacts and history erased. Use this if you want a clean '
                     'account. This cannot be undone.',
-                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                    style: AegisType.secondary,
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
@@ -786,6 +786,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+          _sectionHeader('About'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.groups_rounded,
@@ -794,8 +795,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Follow Aegis for news and releases.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  'News and releases. These open Telegram and Instagram — '
+                  'ordinary services with ordinary tracking, outside anything '
+                  'Aegis protects.',
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -831,7 +834,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          _sectionHeader('About'),
           const SizedBox(height: 14),
           _card(
             icon: Icons.system_update_rounded,
@@ -848,7 +850,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Aegis is sideloaded, so it updates from GitHub releases. Keep '
                   'it current — an out-of-date app can stop sending or receiving '
                   'when the network changes.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  style: AegisType.secondary,
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(

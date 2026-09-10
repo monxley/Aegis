@@ -300,7 +300,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
           const Text(
             'Add a node by host:port to bootstrap through it. Turn on “only my '
             'nodes” to route exclusively through the nodes you add.',
-            style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+            style: AegisType.secondary,
           ),
           const SizedBox(height: 12),
           Row(
