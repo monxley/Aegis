@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../design/responsive.dart';
 import '../design/states.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
@@ -119,34 +120,37 @@ class _ChatsScreenState extends State<ChatsScreen> {
           final update = engine.availableUpdate;
           final integrity = engine.deviceIntegrity;
           final contacts = engine.contacts();
-          return Column(
-            children: [
-              if (integrity != null &&
-                  integrity.flagged &&
-                  !_securityDismissed)
-                _SecurityBanner(
-                  reason: integrity.reason,
-                  onDismiss: () => setState(() => _securityDismissed = true),
-                ),
-              if (update != null) _UpdateBanner(engine: engine, update: update),
-              _NotesTile(engine: engine),
-              const Divider(height: 1, indent: 72, color: AegisColor.border),
-              Expanded(
-                child: contacts.isEmpty
-                    ? const _EmptyState()
-                    : ListView.separated(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: contacts.length,
-                        separatorBuilder: (_, __) => const Divider(
-                          height: 1,
-                          indent: 72,
-                          color: AegisColor.border,
+          return ReadingColumn(
+            child: Column(
+              children: [
+                if (integrity != null &&
+                    integrity.flagged &&
+                    !_securityDismissed)
+                  _SecurityBanner(
+                    reason: integrity.reason,
+                    onDismiss: () => setState(() => _securityDismissed = true),
+                  ),
+                if (update != null)
+                  _UpdateBanner(engine: engine, update: update),
+                _NotesTile(engine: engine),
+                const Divider(height: 1, indent: 72, color: AegisColor.border),
+                Expanded(
+                  child: contacts.isEmpty
+                      ? const _EmptyState()
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: contacts.length,
+                          separatorBuilder: (_, __) => const Divider(
+                            height: 1,
+                            indent: 72,
+                            color: AegisColor.border,
+                          ),
+                          itemBuilder: (context, i) =>
+                              _ContactTile(engine: engine, contact: contacts[i]),
                         ),
-                        itemBuilder: (context, i) =>
-                            _ContactTile(engine: engine, contact: contacts[i]),
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           );
         },
       ),
