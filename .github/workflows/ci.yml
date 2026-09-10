@@ -5,6 +5,15 @@ on:
     branches: ["**"]
   pull_request:
 
+# One run per branch. Pushing three commits in quick succession used to leave
+# three full builds competing for runners, so the run for the newest commit --
+# the only one anyone is waiting on -- finished last. Superseded runs are
+# cancelled; a run on the default branch is not, since those are the ones whose
+# results are worth keeping.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
 
