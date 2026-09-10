@@ -61,17 +61,23 @@ class _ChatsScreenState extends State<ChatsScreen> {
         title: Row(
           children: [
             const ShieldMark(size: 30),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 2),
-                  child: AegisWordmark(height: 18),
-                ),
-                _ConnectionStatus(engine: engine),
-              ],
+            const SizedBox(width: AegisSpace.s2),
+            // Expanded, not a bare Column: a Row hands its non-flex children
+            // unbounded width, and the status line below flexes its label so a
+            // long transport name ellipsizes instead of overflowing. Flex
+            // inside unbounded constraints is an assertion, not a layout.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 2),
+                    child: AegisWordmark(height: 18),
+                  ),
+                  _ConnectionStatus(engine: engine),
+                ],
+              ),
             ),
           ],
         ),
