@@ -41,19 +41,22 @@ dependencies:
   open_filex: ^4.5.0
 
 dependency_overrides:
-  # record_linux 0.7.2 — the Linux backend `record: ^5.1.2` endorses — was
-  # written against record_platform_interface 1.5.x. Interface 1.6.0 moved
-  # RecordPlatform onto RecordMethodChannelPlatformInterface, which added
-  # startStream and a named argument to hasPermission, and record_linux never
-  # caught up. `record` imports it unconditionally, so it is compiled into the
-  # kernel snapshot on *every* platform — the Android release build fails on a
-  # package the phone never calls into.
+  # record_linux 0.7.2 — the Linux backend `record: ^5.1.2` endorses — does not
+  # compile against the interface it resolves against: it is missing
+  # `startStream`, and its `hasPermission` lost a named argument. Pinning the
+  # interface below 1.6.0 was tried and did not help; 1.5.0 fails identically,
+  # so the break is older than that.
   #
-  # Holding the interface below 1.6.0 puts back the three-package set that
-  # shipped together (record 5.2.x, record_android 1.5.x, record_linux 0.7.x).
-  # Remove this the moment `record` ships a Linux implementation that matches
-  # its own interface.
-  record_platform_interface: ">=1.0.0 <1.6.0"
+  # This would be a Linux-only problem except that `record` imports its Linux
+  # backend *unconditionally*, so the broken file lands in the Android kernel
+  # snapshot too and the release APK cannot be built at all.
+  #
+  # third_party/record_linux is a local stand-in that satisfies the interface
+  # through noSuchMethod and throws on use. See its source for why that shape
+  # was chosen. Delete both this entry and that package when `record` ships a
+  # Linux implementation matching its own interface.
+  record_linux:
+    path: third_party/record_linux
 
 dev_dependencies:
   flutter_lints: ^4.0.0
