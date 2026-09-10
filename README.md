@@ -430,13 +430,19 @@ flutter run -d linux
 ```
 
 > **Note on `record`.** `record_linux` 0.7.2 — the Linux voice backend the
-> `record` plugin endorses — has not kept up with `record_platform_interface`
-> 1.6.0, which added `startStream` and a named argument to `hasPermission`.
-> `record` imports it unconditionally, so it is compiled on *every* platform,
-> Android included. `app/pubspec.yaml` therefore holds the interface below 1.6.0
-> with a `dependency_overrides` entry, restoring the set of versions that
-> shipped together. Drop that entry once `record` ships a Linux implementation
-> matching its own interface.
+> `record` plugin endorses — does not compile against the interface it resolves
+> against: it is missing `startStream`, and its `hasPermission` lost a named
+> argument. `record` imports it *unconditionally*, so the broken file is
+> compiled on every platform, Android included, and the release APK could not be
+> built at all.
+>
+> `app/third_party/record_linux` is a local stand-in, wired in through
+> `dependency_overrides`. It satisfies the interface via `noSuchMethod` — so it
+> cannot break again when that interface gains a member — and **throws** on use
+> rather than pretending to record. Voice notes therefore do not work on Linux
+> desktop; everything else, playback included, does. Delete the package and the
+> override once `record` ships a Linux implementation matching its own
+> interface.
 
 On first launch the app mints an identity locally (no phone number, no email)
 and joins the anonymous mixnet with zero setup (an **Advanced** sheet offers a
