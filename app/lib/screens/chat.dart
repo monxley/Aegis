@@ -1,6 +1,8 @@
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+// ScrollCacheExtent lives in the rendering layer; material.dart doesn't re-export it.
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
