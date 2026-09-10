@@ -277,13 +277,13 @@ class _StartupError extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Icon(Icons.error_outline,
-                  color: AegisTheme.danger, size: 48),
+                  color: AegisColor.danger, size: 48),
               const SizedBox(height: 16),
               const Text(
                 'Aegis failed to start',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: AegisTheme.textHi,
+                    color: AegisColor.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.w700),
               ),
@@ -291,7 +291,7 @@ class _StartupError extends StatelessWidget {
               Text(
                 '$error',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AegisTheme.textLo, fontSize: 13),
+                style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13),
               ),
               const SizedBox(height: 24),
               FilledButton(onPressed: onRetry, child: const Text('Retry')),

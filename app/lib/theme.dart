@@ -14,18 +14,12 @@ export 'design/tokens.dart';
 class AegisTheme {
   const AegisTheme._();
 
-  // Semantic aliases onto the tokens, so screens read in product terms.
-  static const Color bg = AegisColor.background;
-  static const Color surface = AegisColor.surface;
-  static const Color surfaceHi = AegisColor.surfaceElevated;
-  static const Color accent = AegisColor.accent;
-  static const Color textHi = AegisColor.textPrimary;
-  static const Color textLo = AegisColor.textSecondary;
-  static const Color textMuted = AegisColor.textMuted;
-  static const Color border = AegisColor.border;
-  static const Color danger = AegisColor.danger;
-  static const Color warning = AegisColor.warning;
-  static const Color success = AegisColor.success;
+  // There used to be a block of colour aliases here (`AegisTheme.textHi` and
+  // friends) forwarding to the tokens. It meant the app had two names for every
+  // colour and 300-odd call sites split between them, which is exactly how a
+  // design system stops governing the code it is supposed to govern. The
+  // aliases are gone: `AegisColor` is the only vocabulary, and this file
+  // re-exports it so importing the theme is enough.
 
   /// The shape every bottom sheet uses.
   static const RoundedRectangleBorder sheetShape = RoundedRectangleBorder(

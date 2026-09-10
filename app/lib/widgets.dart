@@ -206,7 +206,7 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
             height: 48,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AegisTheme.danger),
+              border: Border.all(color: AegisColor.danger),
             ),
             clipBehavior: Clip.antiAlias,
             child: Stack(
@@ -217,18 +217,18 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
                   widthFactor: t,
                   heightFactor: 1,
                   alignment: Alignment.centerLeft,
-                  child: Container(color: AegisTheme.danger.withValues(alpha: 0.25)),
+                  child: Container(color: AegisColor.danger.withValues(alpha: 0.25)),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(Icons.local_fire_department_rounded,
-                        size: 18, color: AegisTheme.danger),
+                        size: 18, color: AegisColor.danger),
                     const SizedBox(width: 8),
                     Text(
                       t > 0 && t < 1 ? 'Keep holding…' : widget.idleLabel,
                       style: const TextStyle(
-                        color: AegisTheme.danger,
+                        color: AegisColor.danger,
                         fontWeight: FontWeight.w700,
                         fontSize: 15,
                       ),
@@ -249,32 +249,44 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
 class ContactAvatar extends StatelessWidget {
   final String name;
   final double size;
-  const ContactAvatar({super.key, required this.name, this.size = 46});
+  const ContactAvatar({super.key, required this.name, this.size = 44});
+
+  /// FNV-1a over the name's code units.
+  ///
+  /// Deliberately not `String.hashCode`: Dart only guarantees that within a
+  /// single run, and a contact's colour is a (weak) recognition cue — one that
+  /// quietly changed between launches would be worse than no cue at all. This
+  /// is fixed for a given name, forever, on every platform.
+  static int _stableHash(String s) {
+    var h = 0x811c9dc5;
+    for (final unit in s.codeUnits) {
+      h = (h ^ unit) * 0x01000193 & 0xFFFFFFFF;
+    }
+    return h;
+  }
 
   @override
   Widget build(BuildContext context) {
     final letter = name.isEmpty ? '?' : name.characters.first.toUpperCase();
-    final hue = (name.hashCode % 360).abs().toDouble();
-    final c1 = HSLColor.fromAHSL(1, hue, 0.55, 0.55).toColor();
-    final c2 = HSLColor.fromAHSL(1, (hue + 40) % 360, 0.55, 0.42).toColor();
+    final hue = (_stableHash(name) % 360).toDouble();
+    // Flat, not a gradient — the same reasoning as everywhere else in the app:
+    // decoration that carries no information is noise. The hue identifies the
+    // contact; the fixed lightness pair is what guarantees the initial stays
+    // readable (roughly 7:1) at every hue, rather than hoping white lands well
+    // on whatever colour a hash produced.
+    final fill = HSLColor.fromAHSL(1, hue, 0.32, 0.22).toColor();
+    final ink = HSLColor.fromAHSL(1, hue, 0.55, 0.78).toColor();
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [c1, c2],
-        ),
-      ),
+      decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
       alignment: Alignment.center,
       child: Text(
         letter,
         style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.42,
-          fontWeight: FontWeight.w700,
+          color: ink,
+          fontSize: size * 0.4,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

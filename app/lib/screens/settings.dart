@@ -69,7 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final current = widget.engine.disguise;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -83,7 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 alignment: Alignment.centerLeft,
                 child: Text('Appearance on the home screen',
                     style: TextStyle(
-                        color: AegisTheme.textHi,
+                        color: AegisColor.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.w700)),
               ),
@@ -95,17 +95,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Text(
                   'Changes the launcher icon and name. Aegis still opens '
                   'normally — you just tap the decoy.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
                 ),
               ),
             ),
             for (final d in _disguises)
               ListTile(
                 leading: Icon(d.$3,
-                    color: d.$1 == current ? AegisTheme.accent : AegisTheme.textHi),
-                title: Text(d.$2, style: const TextStyle(color: AegisTheme.textHi)),
+                    color: d.$1 == current ? AegisColor.accent : AegisColor.textPrimary),
+                title: Text(d.$2, style: const TextStyle(color: AegisColor.textPrimary)),
                 trailing: d.$1 == current
-                    ? const Icon(Icons.check_rounded, color: AegisTheme.accent)
+                    ? const Icon(Icons.check_rounded, color: AegisColor.accent)
                     : null,
                 onTap: () {
                   Navigator.pop(sheetCtx);
@@ -193,21 +193,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// A small selectable pill for the auto-lock / wipe choice rows.
   Widget _pill(String label, bool selected, VoidCallback onTap,
       {bool danger = false}) {
-    final c = danger ? AegisTheme.danger : AegisTheme.accent;
+    final c = danger ? AegisColor.danger : AegisColor.accent;
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: _busy ? null : onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? c.withValues(alpha: 0.15) : AegisTheme.surfaceHi,
+          color: selected ? c.withValues(alpha: 0.15) : AegisColor.surfaceElevated,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? c : AegisTheme.surfaceHi),
+          border: Border.all(color: selected ? c : AegisColor.surfaceElevated),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? c : AegisTheme.textHi,
+            color: selected ? c : AegisColor.textPrimary,
             fontSize: 13,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
           ),
@@ -267,7 +267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : 'Encrypt your identity on this device with a password. '
                           'Without it the key can’t be decrypted, so nothing — '
                           'not even a bypass of this screen — can reach it.',
-                  style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -279,8 +279,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : Icons.lock_outline_rounded),
                         label: Text(e.hasPassword ? 'Change' : 'Set password'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AegisTheme.textHi,
-                          side: const BorderSide(color: AegisTheme.surfaceHi),
+                          foregroundColor: AegisColor.textPrimary,
+                          side: const BorderSide(color: AegisColor.surfaceElevated),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: _busy ? null : _setOrChangePassword,
@@ -293,8 +293,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: const Icon(Icons.lock_open_rounded),
                           label: const Text('Remove'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AegisTheme.danger,
-                            side: const BorderSide(color: AegisTheme.danger),
+                            foregroundColor: AegisColor.danger,
+                            side: const BorderSide(color: AegisColor.danger),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: _busy ? null : _removePassword,
@@ -324,7 +324,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             'history — while your real account stays hidden. Make '
                             'it different from your real password.',
                     style: const TextStyle(
-                        color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                        color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -336,8 +336,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               : Icons.theater_comedy_outlined),
                           label: Text(e.hasDuress ? 'Change' : 'Set duress password'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AegisTheme.textHi,
-                            side: const BorderSide(color: AegisTheme.surfaceHi),
+                            foregroundColor: AegisColor.textPrimary,
+                            side: const BorderSide(color: AegisColor.surfaceElevated),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: _busy ? null : _setOrChangeDuress,
@@ -350,8 +350,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: const Icon(Icons.close_rounded),
                             label: const Text('Remove'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: AegisTheme.danger,
-                              side: const BorderSide(color: AegisTheme.danger),
+                              foregroundColor: AegisColor.danger,
+                              side: const BorderSide(color: AegisColor.danger),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                             onPressed: _busy ? null : _removeDuress,
@@ -377,13 +377,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       'Unlock with your fingerprint or face instead of typing the '
                       'password. The key is held in the device keystore. Under '
                       'coercion, use the duress password instead.',
-                      style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                      style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                     ),
                   ),
                   Switch(
                     value: _bioEnabled,
                     onChanged: _busy ? null : _toggleBiometric,
-                    activeThumbColor: AegisTheme.accent,
+                    activeThumbColor: AegisColor.accent,
                   ),
                 ],
               ),
@@ -400,11 +400,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text(
                     'Re-lock the app after inactivity, or the moment it goes to '
                     'the background. The app password re-opens it.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 12),
                   const Text('Lock after',
-                      style: TextStyle(color: AegisTheme.textHi, fontSize: 13)),
+                      style: TextStyle(color: AegisColor.textPrimary, fontSize: 13)),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -420,11 +420,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       const Expanded(
                         child: Text('Lock when app goes to background',
-                            style: TextStyle(color: AegisTheme.textHi, fontSize: 14)),
+                            style: TextStyle(color: AegisColor.textPrimary, fontSize: 14)),
                       ),
                       Switch(
                         value: e.lockOnBackground,
-                        activeThumbColor: AegisTheme.accent,
+                        activeThumbColor: AegisColor.accent,
                         onChanged: _busy
                             ? null
                             : (v) => _apply(() => widget.engine.setLockOnBackground(v)),
@@ -444,7 +444,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text(
                     'Erase everything after this many wrong password attempts — '
                     'protects a lost or seized phone from brute-force.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -474,15 +474,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   '24 words that back up your identity. Write them down and keep '
                   'them offline — anyone who has them can restore your account, '
                   'and there is no other way to recover it.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.visibility_rounded, size: 18),
                   label: const Text('Reveal recovery phrase'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AegisTheme.textHi,
-                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    foregroundColor: AegisColor.textPrimary,
+                    side: const BorderSide(color: AegisColor.surfaceElevated),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     minimumSize: const Size.fromHeight(0),
                   ),
@@ -502,7 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Text(
                     'Alert me when a message arrives. The alert never shows the '
                     'message text — only that something came in.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                 ),
                 Switch(
@@ -514,7 +514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setNotificationsEnabled(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeThumbColor: AegisTheme.accent,
+                  activeThumbColor: AegisColor.accent,
                 ),
               ],
             ),
@@ -536,7 +536,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             'possible while the app is open. On by default.'
                         : 'Stop screenshots and screen recording, and hide the '
                             'app in the recent-apps switcher. On by default.',
-                    style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                 ),
                 Switch(
@@ -548,7 +548,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setScreenshotsBlocked(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeThumbColor: AegisTheme.accent,
+                  activeThumbColor: AegisColor.accent,
                 ),
               ],
             ),
@@ -565,7 +565,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Keep receiving messages 24/7 while the app is in the '
                     'background, with a quiet ongoing notification. On by '
                     'default — turn off to save battery.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                 ),
                 Switch(
@@ -577,7 +577,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           await widget.engine.setBackgroundEnabled(v);
                           if (mounted) setState(() => _busy = false);
                         },
-                  activeThumbColor: AegisTheme.accent,
+                  activeThumbColor: AegisColor.accent,
                 ),
               ],
             ),
@@ -600,15 +600,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _ => 'Off · connecting directly. Route through Tor or a '
                         'SOCKS5 proxy to hide your IP from the nodes.',
                   },
-                  style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.tune_rounded, size: 18),
                   label: const Text('Configure proxy'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AegisTheme.textHi,
-                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    foregroundColor: AegisColor.textPrimary,
+                    side: const BorderSide(color: AegisColor.surfaceElevated),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     minimumSize: const Size.fromHeight(0),
                   ),
@@ -634,15 +634,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           'decoy icon and name to blend in.'
                       : 'Disguised as “${_disguiseLabel(e.disguise)}”. The home-'
                           'screen icon and name are hidden.',
-                  style: const TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: const TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   icon: Icon(_disguiseIcon(e.disguise), size: 18),
                   label: Text('Appearance: ${_disguiseLabel(e.disguise)}'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AegisTheme.textHi,
-                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    foregroundColor: AegisColor.textPrimary,
+                    side: const BorderSide(color: AegisColor.surfaceElevated),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     minimumSize: const Size.fromHeight(0),
                   ),
@@ -657,7 +657,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Connection',
             child: Text(
               e.connectionLabel,
-              style: const TextStyle(color: AegisTheme.textLo),
+              style: const TextStyle(color: AegisColor.textSecondary),
             ),
           ),
           const SizedBox(height: 14),
@@ -671,18 +671,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Help carry the network. Your device relays others’ '
                   'onion traffic — it never sees who or what. Best on an '
                   'always-on machine; on a phone, use Wi-Fi + power.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Node mode',
-                        style: TextStyle(color: AegisTheme.textHi, fontSize: 15)),
+                        style: TextStyle(color: AegisColor.textPrimary, fontSize: 15)),
                     Switch(
                       value: e.nodeEnabled,
                       onChanged: _busy ? null : _toggleNode,
-                      activeThumbColor: AegisTheme.accent,
+                      activeThumbColor: AegisColor.accent,
                     ),
                   ],
                 ),
@@ -691,7 +691,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Text(
                     'Running · id ${e.node!.nodeId.substring(0, 8)}…  ·  ${e.node!.address}',
                     style: const TextStyle(
-                      color: AegisTheme.accent,
+                      color: AegisColor.accent,
                       fontSize: 12,
                       fontFamily: 'monospace',
                     ),
@@ -701,7 +701,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 6),
                   const Text(
                     'Running · receiving anonymously through the mixnet',
-                    style: TextStyle(color: AegisTheme.accent, fontSize: 12),
+                    style: TextStyle(color: AegisColor.accent, fontSize: 12),
                   ),
                 ],
                 // Live sync/verify status.
@@ -725,7 +725,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return const Padding(
                         padding: EdgeInsets.only(top: 8),
                         child: Text('Verified — node mode toggles instantly.',
-                            style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+                            style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
                       );
                     }
                     return const SizedBox.shrink();
@@ -746,7 +746,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Instantly erase everything on this device — key, contacts, '
                   'and history — and return to a blank slate. Hold the button to '
                   'fire. This cannot be undone.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 HoldToWipeButton(
@@ -768,15 +768,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Forget this identity and start fresh: a new key, and all '
                     'contacts and history erased. Use this if you want a clean '
                     'account. This cannot be undone.',
-                    style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                    style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.delete_forever_rounded, size: 18),
                     label: const Text('Reset identity'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AegisTheme.danger,
-                      side: const BorderSide(color: AegisTheme.danger),
+                      foregroundColor: AegisColor.danger,
+                      side: const BorderSide(color: AegisColor.danger),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       minimumSize: const Size.fromHeight(0),
                     ),
@@ -795,7 +795,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const Text(
                   'Follow Aegis for news and releases.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -805,8 +805,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: const Icon(Icons.send_rounded, size: 18),
                         label: const Text('Telegram'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AegisTheme.textHi,
-                          side: const BorderSide(color: AegisTheme.surfaceHi),
+                          foregroundColor: AegisColor.textPrimary,
+                          side: const BorderSide(color: AegisColor.surfaceElevated),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: () => _openUrl('https://t.me/aegis_private'),
@@ -818,8 +818,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: const Icon(Icons.camera_alt_rounded, size: 18),
                         label: const Text('Instagram'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AegisTheme.textHi,
-                          side: const BorderSide(color: AegisTheme.surfaceHi),
+                          foregroundColor: AegisColor.textPrimary,
+                          side: const BorderSide(color: AegisColor.surfaceElevated),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         onPressed: () =>
@@ -841,22 +841,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   _version.isEmpty ? 'Aegis' : 'Aegis $_version',
-                  style: const TextStyle(color: AegisTheme.textHi, fontSize: 15),
+                  style: const TextStyle(color: AegisColor.textPrimary, fontSize: 15),
                 ),
                 const SizedBox(height: 6),
                 const Text(
                   'Aegis is sideloaded, so it updates from GitHub releases. Keep '
                   'it current — an out-of-date app can stop sending or receiving '
                   'when the network changes.',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.refresh_rounded, size: 18),
                   label: const Text('Check for updates'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AegisTheme.textHi,
-                    side: const BorderSide(color: AegisTheme.surfaceHi),
+                    foregroundColor: AegisColor.textPrimary,
+                    side: const BorderSide(color: AegisColor.surfaceElevated),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     minimumSize: const Size.fromHeight(0),
                   ),
@@ -871,7 +871,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'All cryptography runs on this device. Aegis never sees your '
               'messages, keys, or contacts.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+              style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
             ),
           ),
         ],
@@ -895,9 +895,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Recovery phrase',
-            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -906,7 +906,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Text(
                 'Write these 24 words down in order. Keep them offline; don’t '
                 'screenshot or send them.',
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -918,12 +918,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       padding:
                           const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                       decoration: BoxDecoration(
-                        color: AegisTheme.surfaceHi,
+                        color: AegisColor.surfaceElevated,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text('${i + 1}. ${words[i]}',
                           style: const TextStyle(
-                              color: AegisTheme.textHi,
+                              color: AegisColor.textPrimary,
                               fontFamily: 'monospace',
                               fontSize: 13)),
                     ),
@@ -940,12 +940,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SnackBar(content: Text('Recovery phrase copied')),
               );
             },
-            icon: const Icon(Icons.copy_rounded, size: 18, color: AegisTheme.accent),
-            label: const Text('Copy', style: TextStyle(color: AegisTheme.accent)),
+            icon: const Icon(Icons.copy_rounded, size: 18, color: AegisColor.accent),
+            label: const Text('Copy', style: TextStyle(color: AegisColor.accent)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done', style: TextStyle(color: AegisTheme.textLo)),
+            child: const Text('Done', style: TextStyle(color: AegisColor.textSecondary)),
           ),
         ],
       ),
@@ -976,22 +976,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Remove password?',
-            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
         content: const Text(
           'The app will no longer ask for a password, and your identity key '
           'will be stored unencrypted on this device.',
-          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: AegisTheme.danger)),
+            child: const Text('Remove', style: TextStyle(color: AegisColor.danger)),
           ),
         ],
       ),
@@ -1037,22 +1037,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Remove duress password?',
-            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
         content: const Text(
           'The decoy account and its data will be discarded, and only your real '
           'password will unlock the app.',
-          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: AegisTheme.danger)),
+            child: const Text('Remove', style: TextStyle(color: AegisColor.danger)),
           ),
         ],
       ),
@@ -1091,11 +1091,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         String? err;
         return StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            backgroundColor: AegisTheme.surface,
+            backgroundColor: AegisColor.surface,
             title: Text(
               title ??
                   (widget.engine.hasPassword ? 'Change password' : 'Set password'),
-              style: const TextStyle(color: AegisTheme.textHi, fontSize: 18),
+              style: const TextStyle(color: AegisColor.textPrimary, fontSize: 18),
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1104,14 +1104,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: a,
                   obscureText: true,
                   autofocus: true,
-                  style: const TextStyle(color: AegisTheme.textHi),
+                  style: const TextStyle(color: AegisColor.textPrimary),
                   decoration: const InputDecoration(hintText: 'New password'),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: b,
                   obscureText: true,
-                  style: const TextStyle(color: AegisTheme.textHi),
+                  style: const TextStyle(color: AegisColor.textPrimary),
                   decoration: InputDecoration(hintText: 'Repeat', errorText: err),
                 ),
               ],
@@ -1119,7 +1119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, null),
-                child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+                child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
               ),
               TextButton(
                 onPressed: () {
@@ -1133,7 +1133,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }
                   Navigator.pop(ctx, a.text);
                 },
-                child: const Text('Save', style: TextStyle(color: AegisTheme.accent)),
+                child: const Text('Save', style: TextStyle(color: AegisColor.accent)),
               ),
             ],
           ),
@@ -1146,22 +1146,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Reset identity?',
-            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
         content: const Text(
           'Your key, contacts, and message history on this device will be '
           'erased and a new identity created. This cannot be undone.',
-          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reset', style: TextStyle(color: AegisTheme.danger)),
+            child: const Text('Reset', style: TextStyle(color: AegisColor.danger)),
           ),
         ],
       ),
@@ -1183,9 +1183,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: AegisTheme.surface,
+        color: AegisColor.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AegisTheme.surfaceHi),
+        border: Border.all(color: AegisColor.surfaceElevated),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -1199,7 +1199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: AegisTheme.surfaceHi,
+                    color: AegisColor.surfaceElevated,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   alignment: Alignment.center,
@@ -1210,7 +1210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
-          const Divider(height: 1, color: AegisTheme.surfaceHi),
+          const Divider(height: 1, color: AegisColor.surfaceElevated),
           Padding(padding: const EdgeInsets.all(16), child: child),
         ],
       ),
@@ -1243,12 +1243,12 @@ class _ProfileCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Your Aegis ID',
-            style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+            style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
         const SizedBox(height: 4),
         SelectableText(
           shortId(aegisId),
           style: const TextStyle(
-            color: AegisTheme.textHi,
+            color: AegisColor.textPrimary,
             fontSize: 16,
             fontWeight: FontWeight.w700,
             fontFamily: 'monospace',
@@ -1273,8 +1273,8 @@ class _ProfileCard extends StatelessWidget {
                 icon: const Icon(Icons.tag_rounded, size: 18),
                 label: const Text('Copy ID only'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AegisTheme.textHi,
-                  side: const BorderSide(color: AegisTheme.surfaceHi),
+                  foregroundColor: AegisColor.textPrimary,
+                  side: const BorderSide(color: AegisColor.surfaceElevated),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: () {
@@ -1291,8 +1291,8 @@ class _ProfileCard extends StatelessWidget {
                 icon: const Icon(Icons.open_in_full_rounded, size: 18),
                 label: const Text('Full code'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AegisTheme.textHi,
-                  side: const BorderSide(color: AegisTheme.surfaceHi),
+                  foregroundColor: AegisColor.textPrimary,
+                  side: const BorderSide(color: AegisColor.surfaceElevated),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: () => Navigator.of(context).push(
@@ -1308,7 +1308,7 @@ class _ProfileCard extends StatelessWidget {
         const Text(
           'Send your share code to a friend over any channel. They paste it in '
           '“Add contact” to message you. Your keys never leave this device.',
-          style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+          style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
         ),
       ],
     );

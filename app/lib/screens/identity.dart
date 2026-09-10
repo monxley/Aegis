@@ -31,7 +31,7 @@ class IdentityScreen extends StatelessWidget {
               const Center(
                 child: Text(
                   'Your Aegis ID',
-                  style: TextStyle(color: AegisTheme.textLo, fontSize: 13),
+                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 13),
                 ),
               ),
               const SizedBox(height: 6),
@@ -39,7 +39,7 @@ class IdentityScreen extends StatelessWidget {
                 child: Text(
                   shortId(aegisId),
                   style: const TextStyle(
-                    color: AegisTheme.textHi,
+                    color: AegisColor.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'monospace',
@@ -49,19 +49,19 @@ class IdentityScreen extends StatelessWidget {
               const SizedBox(height: 28),
               const Text(
                 'Share code',
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 13),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 13),
               ),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AegisTheme.surface,
+                  color: AegisColor.surface,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: SelectableText(
                   code,
                   style: const TextStyle(
-                    color: AegisTheme.textHi,
+                    color: AegisColor.textPrimary,
                     fontFamily: 'monospace',
                     fontSize: 12,
                     height: 1.4,
@@ -85,7 +85,7 @@ class IdentityScreen extends StatelessWidget {
                 'add you; from then on, only your two devices can read the '
                 'conversation.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
               ),
               const SizedBox(height: 24),
             ],

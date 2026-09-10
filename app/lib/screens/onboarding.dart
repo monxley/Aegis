@@ -58,22 +58,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisTheme.surface,
+        backgroundColor: AegisColor.surface,
         title: const Text('Add a mixnet node',
-            style: TextStyle(color: AegisTheme.textHi, fontSize: 18)),
+            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
               "No node is built in. Enter a node's mix address to join the "
               'network — you learn the rest automatically.',
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.4),
+              style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: ctrl,
               autofocus: true,
-              style: const TextStyle(color: AegisTheme.textHi),
+              style: const TextStyle(color: AegisColor.textPrimary),
               decoration: const InputDecoration(hintText: 'node.example:5078'),
             ),
           ],
@@ -81,11 +81,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: AegisTheme.textLo)),
+            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Join', style: TextStyle(color: AegisTheme.accent)),
+            child: const Text('Join', style: TextStyle(color: AegisColor.accent)),
           ),
         ],
       ),
@@ -96,7 +96,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final relay = TextEditingController();
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -114,7 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           children: [
             const Text('Advanced',
                 style: TextStyle(
-                  color: AegisTheme.textHi,
+                  color: AegisColor.textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                 )),
@@ -122,15 +122,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const Text(
               'Most people should use the anonymous mixnet. These are for '
               'running against your own server or trying it offline.',
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+              style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: relay,
-              style: const TextStyle(color: AegisTheme.textHi),
+              style: const TextStyle(color: AegisColor.textPrimary),
               decoration: const InputDecoration(
                 hintText: 'your relay  ·  relay.example:5077',
-                prefixIcon: Icon(Icons.dns_rounded, color: AegisTheme.textLo),
+                prefixIcon: Icon(Icons.dns_rounded, color: AegisColor.textSecondary),
               ),
             ),
             const SizedBox(height: 12),
@@ -151,7 +151,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 _create(ConnMode.memory);
               },
               child: const Text('Try offline (in-memory, no delivery)',
-                  style: TextStyle(color: AegisTheme.textLo)),
+                  style: TextStyle(color: AegisColor.textSecondary)),
             ),
           ],
         ),
@@ -164,7 +164,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final ctrl = TextEditingController();
     final phrase = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -182,14 +182,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           children: [
             const Text('Restore from recovery phrase',
                 style: TextStyle(
-                    color: AegisTheme.textHi,
+                    color: AegisColor.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             const Text(
               'Enter your 24 words in order, separated by spaces. This brings '
               'back your identity; past messages aren’t restored.',
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+              style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -198,7 +198,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               minLines: 3,
               maxLines: 5,
               style: const TextStyle(
-                  color: AegisTheme.textHi, fontFamily: 'monospace', fontSize: 14),
+                  color: AegisColor.textPrimary, fontFamily: 'monospace', fontSize: 14),
               decoration: const InputDecoration(hintText: 'word1 word2 word3 …'),
             ),
             const SizedBox(height: 12),
@@ -246,7 +246,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.w800,
-                  color: AegisTheme.textHi,
+                  color: AegisColor.textPrimary,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -254,7 +254,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const Text(
                 'A message you cannot intercept —\nand if you do, cannot read.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, height: 1.4, color: AegisTheme.textLo),
+                style: TextStyle(fontSize: 15, height: 1.4, color: AegisColor.textSecondary),
               ),
               const Spacer(),
               PrimaryButton(
@@ -266,10 +266,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.hub_rounded, size: 14, color: AegisTheme.accent),
+                  Icon(Icons.hub_rounded, size: 14, color: AegisColor.accent),
                   SizedBox(width: 6),
                   Text('Connects to the anonymous mixnet — no setup',
-                      style: TextStyle(color: AegisTheme.textLo, fontSize: 12)),
+                      style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
                 ],
               ),
               const SizedBox(height: 6),
@@ -279,13 +279,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   TextButton(
                     onPressed: _busy ? null : _restore,
                     child: const Text('I have a recovery phrase',
-                        style: TextStyle(color: AegisTheme.accent)),
+                        style: TextStyle(color: AegisColor.accent)),
                   ),
-                  const Text('·', style: TextStyle(color: AegisTheme.textLo)),
+                  const Text('·', style: TextStyle(color: AegisColor.textSecondary)),
                   TextButton(
                     onPressed: _busy ? null : _advanced,
                     child: const Text('Advanced',
-                        style: TextStyle(color: AegisTheme.textLo)),
+                        style: TextStyle(color: AegisColor.textSecondary)),
                   ),
                 ],
               ),
@@ -294,7 +294,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 'No phone number, no email. Your identity is a key that never '
                 'leaves this device.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 12, height: 1.4),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
               ),
               const SizedBox(height: 28),
             ],
