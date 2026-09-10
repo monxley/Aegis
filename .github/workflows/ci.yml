@@ -41,10 +41,23 @@ jobs:
       # codegen turns the Rust API in app/rust into the Dart bindings under
       # app/lib/src/rust; cargo-ndk cross-compiles the engine for Android so the
       # native library is actually bundled in the APK.
+      # Both are compiled from source, which took two to nine minutes of every
+      # run for binaries that never change between runs. The key carries the
+      # exact versions, so a bump installs fresh rather than reusing a stale
+      # binary -- which is also why cargo-ndk is pinned now instead of floating.
+      - name: Cache the codegen and cross-compile tools
+        id: cargo-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/flutter_rust_bridge_codegen
+            ~/.cargo/bin/cargo-ndk
+          key: cargo-tools-${{ runner.os }}-frb-2.0.0-ndk-3.5.4
       - name: Install tooling
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
         run: |
           cargo install flutter_rust_bridge_codegen --version 2.0.0 --locked
-          cargo install cargo-ndk
+          cargo install cargo-ndk --version 3.5.4 --locked
       - name: Scaffold platforms + generate bindings
         working-directory: app
         run: |
