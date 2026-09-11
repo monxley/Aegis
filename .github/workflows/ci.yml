@@ -117,12 +117,14 @@ jobs:
       # the four secrets below are set the build is signed properly; when they
       # are not, the step says so in the log rather than quietly shipping a
       # debug-signed APK that looks like a release.
-      # flutter_local_notifications declares in its AAR metadata that the app
-      # must enable core library desugaring; `flutter create` does not, so the
-      # release build fails at checkReleaseAarMetadata.
-      - name: Enable core library desugaring
+      # Two things `flutter create` leaves the build unable to do, both of
+      # which surface as AAR metadata failures rather than as anything to do
+      # with this app's own code.
+      - name: Prepare the generated Gradle build
         working-directory: app/android
-        run: python3 ../../deploy/enable-core-library-desugaring.py .
+        run: |
+          python3 ../../deploy/enable-core-library-desugaring.py .
+          python3 ../../deploy/align-plugin-compile-sdk.py .
       - name: Configure release signing
         working-directory: app/android
         env:
