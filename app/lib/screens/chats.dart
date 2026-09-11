@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../brand.dart';
+import '../design/responsive.dart';
+import '../design/states.dart';
 import '../engine.dart';
 import '../src/rust/api/aegis.dart';
 import '../theme.dart';
@@ -60,24 +61,30 @@ class _ChatsScreenState extends State<ChatsScreen> {
         title: Row(
           children: [
             const ShieldMark(size: 30),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 2),
-                  child: AegisWordmark(height: 18),
-                ),
-                _ConnectionStatus(engine: engine),
-              ],
+            const SizedBox(width: AegisSpace.s2),
+            // Expanded, not a bare Column: a Row hands its non-flex children
+            // unbounded width, and the status line below flexes its label so a
+            // long transport name ellipsizes instead of overflowing. Flex
+            // inside unbounded constraints is an assertion, not a layout.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 2),
+                    child: AegisWordmark(height: 18),
+                  ),
+                  _ConnectionStatus(engine: engine),
+                ],
+              ),
             ),
           ],
         ),
         actions: [
           IconButton(
             tooltip: 'Search',
-            icon: const Icon(Icons.search_rounded, color: AegisTheme.textHi),
+            icon: const Icon(Icons.search_rounded, color: AegisColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SearchScreen(engine: engine),
@@ -86,7 +93,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
           IconButton(
             tooltip: 'My identity',
-            icon: const Icon(Icons.badge_rounded, color: AegisTheme.textHi),
+            icon: const Icon(Icons.badge_rounded, color: AegisColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => IdentityScreen(engine: engine),
@@ -95,7 +102,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
           IconButton(
             tooltip: 'Network nodes',
-            icon: const Icon(Icons.hub_rounded, color: AegisTheme.textHi),
+            icon: const Icon(Icons.hub_rounded, color: AegisColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => NodesScreen(engine: engine),
@@ -104,7 +111,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
           IconButton(
             tooltip: 'Settings',
-            icon: const Icon(Icons.settings_rounded, color: AegisTheme.textHi),
+            icon: const Icon(Icons.settings_rounded, color: AegisColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SettingsScreen(engine: engine),
@@ -119,40 +126,43 @@ class _ChatsScreenState extends State<ChatsScreen> {
           final update = engine.availableUpdate;
           final integrity = engine.deviceIntegrity;
           final contacts = engine.contacts();
-          return Column(
-            children: [
-              if (integrity != null &&
-                  integrity.flagged &&
-                  !_securityDismissed)
-                _SecurityBanner(
-                  reason: integrity.reason,
-                  onDismiss: () => setState(() => _securityDismissed = true),
-                ),
-              if (update != null) _UpdateBanner(engine: engine, update: update),
-              _NotesTile(engine: engine),
-              const Divider(height: 1, indent: 82, color: Color(0xFF1B1E29)),
-              Expanded(
-                child: contacts.isEmpty
-                    ? const _EmptyState()
-                    : ListView.separated(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: contacts.length,
-                        separatorBuilder: (_, __) => const Divider(
-                          height: 1,
-                          indent: 82,
-                          color: Color(0xFF1B1E29),
+          return ReadingColumn(
+            child: Column(
+              children: [
+                if (integrity != null &&
+                    integrity.flagged &&
+                    !_securityDismissed)
+                  _SecurityBanner(
+                    reason: integrity.reason,
+                    onDismiss: () => setState(() => _securityDismissed = true),
+                  ),
+                if (update != null)
+                  _UpdateBanner(engine: engine, update: update),
+                _NotesTile(engine: engine),
+                const Divider(height: 1, indent: 72, color: AegisColor.border),
+                Expanded(
+                  child: contacts.isEmpty
+                      ? const _EmptyState()
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: contacts.length,
+                          separatorBuilder: (_, __) => const Divider(
+                            height: 1,
+                            indent: 72,
+                            color: AegisColor.border,
+                          ),
+                          itemBuilder: (context, i) =>
+                              _ContactTile(engine: engine, contact: contacts[i]),
                         ),
-                        itemBuilder: (context, i) =>
-                            _ContactTile(engine: engine, contact: contacts[i]),
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           );
         },
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: AegisTheme.accent,
-        foregroundColor: const Color(0xFF06110F),
+        backgroundColor: AegisColor.accent,
+        foregroundColor: AegisColor.textOnAccent,
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => AddContactScreen(engine: engine)),
         ),
@@ -162,9 +172,15 @@ class _ChatsScreenState extends State<ChatsScreen> {
   }
 }
 
-/// A small dot + label under the "Aegis" title showing how this device is
-/// connected: cyan for the anonymous mixnet, amber for a plain relay, grey when
-/// offline. Rebuilds with the engine so toggling node mode updates it live.
+/// The line under the wordmark: which transport this device is using, and
+/// whether it is actually working.
+///
+/// These are two different facts and the old version showed only the first, so
+/// the header could read "Mixnet · anonymous send + receive" while nothing had
+/// reached a node in ten minutes. The transport chooses the icon (mixnet, plain
+/// relay, or no network at all); reachability — the only connectivity evidence
+/// the app really has — chooses the colour *and* a word, so it survives
+/// greyscale and colour-blindness.
 class _ConnectionStatus extends StatelessWidget {
   final AegisEngineController engine;
   const _ConnectionStatus({required this.engine});
@@ -175,25 +191,61 @@ class _ConnectionStatus extends StatelessWidget {
       animation: engine,
       builder: (context, _) {
         final label = engine.connectionLabel;
-        final color = label.startsWith('Mixnet')
-            ? AegisTheme.accent
-            : label.startsWith('Relay')
-                ? const Color(0xFFFFC24B)
-                : AegisTheme.textLo;
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        // In-memory mode never talks to a relay, so "unreachable" would be
+        // meaningless there — the label already says the app is offline.
+        final networked = !label.startsWith('Offline');
+        final (icon, tone, text) = switch ((networked, engine.relayReachable)) {
+          (false, _) => (Icons.cloud_off_rounded, AegisColor.textMuted, label),
+          (true, null) => (
+              Icons.sync_rounded,
+              AegisColor.textMuted,
+              '$label · connecting',
             ),
-            const SizedBox(width: 6),
-            Text(
+          (true, false) => (
+              Icons.cloud_off_rounded,
+              AegisColor.warning,
+              '$label · no connection',
+            ),
+          (true, true) => (
+              label.startsWith('Mixnet')
+                  ? Icons.hub_rounded
+                  : Icons.dns_rounded,
+              label.startsWith('Mixnet')
+                  ? AegisColor.accent
+                  // A plain relay works, but it sees more than a mix path does.
+                  // Amber is the honest colour for "connected, less private".
+                  : AegisColor.warning,
               label,
-              style: const TextStyle(color: AegisTheme.textLo, fontSize: 11),
             ),
-          ],
+        };
+
+        return Semantics(
+          button: true,
+          label: 'Network: $text',
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => NodesScreen(engine: engine)),
+            ),
+            borderRadius: BorderRadius.circular(AegisRadius.xs),
+            child: Padding(
+              padding: const EdgeInsets.only(right: AegisSpace.s1, top: 1),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 11, color: tone),
+                  const SizedBox(width: AegisSpace.s1),
+                  Flexible(
+                    child: Text(
+                      text,
+                      overflow: TextOverflow.ellipsis,
+                      style: AegisType.meta.copyWith(color: tone),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
       },
     );
@@ -212,43 +264,67 @@ class _NotesTile extends StatelessWidget {
     final last = notes.isNotEmpty ? notes.last : null;
     final preview =
         last?.text ?? 'Private, encrypted — only on this device.';
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-      leading: Container(
-        width: 46,
-        height: 46,
-        decoration: const BoxDecoration(
-          gradient: AegisTheme.shield,
-          shape: BoxShape.circle,
+    // Laid out like a contact row rather than with ListTile, so Notes sits on
+    // the same grid as the conversations under it instead of nearly-but-not-
+    // quite matching them.
+    return Semantics(
+      button: true,
+      label: 'Notes. $preview',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => NotesScreen(engine: engine)),
         ),
-        child: const Icon(Icons.bookmark_rounded, color: Color(0xFF06110F)),
-      ),
-      title: Row(
-        children: const [
-          Text('Notes',
-              style: TextStyle(
-                  color: AegisTheme.textHi,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16)),
-          SizedBox(width: 6),
-          Icon(Icons.lock_rounded, size: 13, color: AegisTheme.accent),
-        ],
-      ),
-      subtitle: Text(
-        preview,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: AegisTheme.textLo,
-          fontStyle: last == null ? FontStyle.italic : FontStyle.normal,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  color: AegisColor.accentMuted,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.bookmark_border_rounded,
+                    size: 20, color: AegisColor.accent),
+              ),
+              const SizedBox(width: AegisSpace.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Text('Notes', style: AegisType.heading),
+                        const SizedBox(width: AegisSpace.s1),
+                        const Icon(Icons.lock_outline_rounded,
+                            size: 12, color: AegisColor.textMuted),
+                        const Spacer(),
+                        if (last != null)
+                          Text(formatListTime(last.timestampMs.toInt()),
+                              style: AegisType.meta),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AegisType.secondary.copyWith(
+                        color: last == null
+                            ? AegisColor.textMuted
+                            : AegisColor.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      trailing: last == null
-          ? null
-          : Text(formatListTime(last.timestampMs.toInt()),
-              style: const TextStyle(color: AegisTheme.textLo, fontSize: 12)),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => NotesScreen(engine: engine)),
       ),
     );
   }
@@ -269,53 +345,78 @@ class _ContactTile extends StatelessWidget {
         : '${contact.lastFromMe ? 'You: ' : ''}$lastText';
     final hasLast = lastText != null;
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-      leading: ContactAvatar(name: contact.name),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              contact.name,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AegisTheme.textHi,
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
-            ),
+    // The row is laid out by hand rather than with ListTile: the name and the
+    // timestamp sit on one baseline with the time right-aligned, which ListTile
+    // cannot do, and the whole row keeps a predictable height so the list
+    // scrolls without measuring text.
+    return Semantics(
+      button: true,
+      label: '${contact.name}. $preview',
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(engine: engine, contact: contact),
           ),
-          if (contact.pinned) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.push_pin_rounded, size: 13, color: AegisTheme.accent),
-          ],
-          if (contact.blocked) ...[
-            const SizedBox(width: 6),
-            const Icon(Icons.block_rounded, size: 13, color: AegisTheme.danger),
-          ],
-        ],
-      ),
-      subtitle: Text(
-        preview,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: AegisTheme.textLo,
-          fontStyle: hasLast ? FontStyle.normal : FontStyle.italic,
+        ),
+        onLongPress: () => _showActions(context),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ContactAvatar(name: contact.name),
+              const SizedBox(width: AegisSpace.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            contact.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: AegisType.heading,
+                          ),
+                        ),
+                        if (contact.pinned) ...[
+                          const SizedBox(width: AegisSpace.s1),
+                          const Icon(Icons.push_pin_rounded,
+                              size: 12, color: AegisColor.textMuted),
+                        ],
+                        if (contact.blocked) ...[
+                          const SizedBox(width: AegisSpace.s1),
+                          const Icon(Icons.block_rounded,
+                              size: 12, color: AegisColor.danger),
+                        ],
+                        const Spacer(),
+                        if (hasLast)
+                          Text(formatListTime(contact.lastTs.toInt()),
+                              style: AegisType.meta),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AegisType.secondary.copyWith(
+                        // An unstarted conversation reads as a prompt, not as a
+                        // message someone actually sent.
+                        color: hasLast
+                            ? AegisColor.textSecondary
+                            : AegisColor.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      trailing: hasLast
-          ? Text(
-              formatListTime(contact.lastTs.toInt()),
-              style: const TextStyle(color: AegisTheme.textLo, fontSize: 12),
-            )
-          : null,
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ChatScreen(engine: engine, contact: contact),
-        ),
-      ),
-      onLongPress: () => _showActions(context),
     );
   }
 
@@ -323,7 +424,7 @@ class _ContactTile extends StatelessWidget {
     HapticFeedback.mediumImpact();
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -341,7 +442,7 @@ class _ContactTile extends StatelessWidget {
                     child: Text(
                       contact.name,
                       style: const TextStyle(
-                        color: AegisTheme.textHi,
+                        color: AegisColor.textPrimary,
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
                       ),
@@ -379,7 +480,7 @@ class _ContactTile extends StatelessWidget {
               danger: !contact.blocked,
               onTap: () => engine.setBlocked(contact.aegisId, !contact.blocked),
             ),
-            const Divider(height: 1, color: Color(0xFF1B1E29)),
+            const Divider(height: 1, color: AegisColor.border),
             _action(
               sheetCtx,
               icon: Icons.delete_outline_rounded,
@@ -401,7 +502,7 @@ class _ContactTile extends StatelessWidget {
     required VoidCallback onTap,
     bool danger = false,
   }) {
-    final color = danger ? AegisTheme.danger : AegisTheme.textHi;
+    final color = danger ? AegisColor.danger : AegisColor.textPrimary;
     return ListTile(
       leading: Icon(icon, color: color, size: 22),
       title: Text(label, style: TextStyle(color: color, fontSize: 15)),
@@ -415,7 +516,7 @@ class _ContactTile extends StatelessWidget {
   void _confirmDelete(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -428,7 +529,7 @@ class _ContactTile extends StatelessWidget {
               child: Text(
                 'Delete this chat?',
                 style: TextStyle(
-                  color: AegisTheme.textHi,
+                  color: AegisColor.textPrimary,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
@@ -438,7 +539,7 @@ class _ContactTile extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
               child: Text(
                 'This cannot be undone.',
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 13),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 13),
               ),
             ),
             _action(
@@ -468,40 +569,19 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            BrandGlyph(Brand.shieldLayered, size: 104),
-            SizedBox(height: 18),
-            Text(
-              'No conversations yet',
-              style: TextStyle(
-                color: AegisTheme.textHi,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Tap + to add a contact by their Aegis code, '
-              'then start an encrypted chat.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: AegisTheme.textLo, height: 1.4),
-            ),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      icon: Icons.forum_outlined,
+      title: 'No conversations yet',
+      message: 'Add someone by their Aegis code to start an encrypted '
+          'conversation. There are no phone numbers or usernames to look up.',
     );
   }
 }
 
-/// A persistent strip at the top of the chat list when a newer release exists.
-/// Tapping it opens the update dialog. Amber, because ignoring it can break
-/// A dismissible warning shown when the app looks like it's running on a rooted
-/// device or an emulator — a device-hardening hint (§1.4), not a guarantee.
+/// Shown when the app looks like it's running on a rooted device or an
+/// emulator. A hardening *hint*, not a guarantee — root detection is defeatable
+/// and the copy says only what the check actually establishes. Dismissible,
+/// because the user may well know exactly why their device looks like that.
 class _SecurityBanner extends StatelessWidget {
   final String reason;
   final VoidCallback onDismiss;
@@ -509,37 +589,21 @@ class _SecurityBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AegisTheme.danger.withOpacity(0.12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            const Icon(Icons.gpp_maybe_rounded,
-                color: AegisTheme.danger, size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                '$reason On a compromised device your keys and messages can be '
-                'read while unlocked — treat this device as untrusted.',
-                style: const TextStyle(
-                    color: AegisTheme.danger, fontSize: 12.5, height: 1.3),
-              ),
-            ),
-            IconButton(
-              tooltip: 'Dismiss',
-              icon: const Icon(Icons.close_rounded,
-                  color: AegisTheme.danger, size: 18),
-              onPressed: onDismiss,
-            ),
-          ],
-        ),
-      ),
+    return NoticeBar(
+      icon: Icons.gpp_maybe_rounded,
+      label: 'Device check failed',
+      detail: '$reason On a compromised device your keys and messages can be '
+          'read while unlocked — treat this device as untrusted.',
+      tone: AegisColor.danger,
+      emphasis: true,
+      onDismiss: onDismiss,
     );
   }
 }
 
-/// messaging.
+/// A newer release exists. Worth a banner rather than only a dialog: the
+/// protocol can move between versions, and a client that falls behind stops
+/// being able to send or receive at all.
 class _UpdateBanner extends StatelessWidget {
   final AegisEngineController engine;
   final UpdateInfo update;
@@ -547,29 +611,13 @@ class _UpdateBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const amber = Color(0xFFFFC24B);
-    return Material(
-      color: amber.withOpacity(0.12),
-      child: InkWell(
-        onTap: () => showUpdateDialog(context, engine, update),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              const Icon(Icons.system_update_rounded, color: amber, size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Update available (${update.version}). Older versions may '
-                  'stop working — tap to update.',
-                  style: const TextStyle(color: amber, fontSize: 12.5, height: 1.3),
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: amber, size: 20),
-            ],
-          ),
-        ),
-      ),
+    return NoticeBar(
+      icon: Icons.system_update_rounded,
+      label: 'Update ${update.version}',
+      detail: 'Older versions may stop working. Tap to update.',
+      tone: AegisColor.warning,
+      emphasis: true,
+      onTap: () => showUpdateDialog(context, engine, update),
     );
   }
 }
@@ -584,15 +632,15 @@ Future<void> showUpdateDialog(
   return showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: AegisTheme.surface,
+      backgroundColor: AegisColor.surface,
       title: Row(
         children: [
-          const Icon(Icons.system_update_rounded, color: AegisTheme.accent),
+          const Icon(Icons.system_update_rounded, color: AegisColor.accent),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Update ${update.version}',
-              style: const TextStyle(color: AegisTheme.textHi, fontSize: 18),
+              style: const TextStyle(color: AegisColor.textPrimary, fontSize: 18),
             ),
           ),
         ],
@@ -607,27 +655,27 @@ Future<void> showUpdateDialog(
               'protocol and network can change between versions, and an '
               'out-of-date app may fail to send or receive — or stop working '
               'entirely.',
-              style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.45),
+              style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.45),
             ),
             if (update.notes.isNotEmpty) ...[
               const SizedBox(height: 14),
               const Text("What's new",
                   style: TextStyle(
-                      color: AegisTheme.textHi,
+                      color: AegisColor.textPrimary,
                       fontWeight: FontWeight.w700,
                       fontSize: 13)),
               const SizedBox(height: 6),
               Text(
                 update.notes,
                 style: const TextStyle(
-                    color: AegisTheme.textLo, fontSize: 12.5, height: 1.4),
+                    color: AegisColor.textSecondary, fontSize: 12.5, height: 1.4),
               ),
             ],
             if (!update.hasApk) ...[
               const SizedBox(height: 12),
               const Text(
                 'Opens the release page — download the APK there and install it.',
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 11, height: 1.4),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 11, height: 1.4),
               ),
             ],
           ],
@@ -636,12 +684,12 @@ Future<void> showUpdateDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Later', style: TextStyle(color: AegisTheme.textLo)),
+          child: const Text('Later', style: TextStyle(color: AegisColor.textSecondary)),
         ),
         FilledButton.icon(
           style: FilledButton.styleFrom(
-            backgroundColor: AegisTheme.accent,
-            foregroundColor: const Color(0xFF06110F),
+            backgroundColor: AegisColor.accent,
+            foregroundColor: AegisColor.textOnAccent,
           ),
           icon: const Icon(Icons.download_rounded, size: 18),
           label: const Text('Download update'),

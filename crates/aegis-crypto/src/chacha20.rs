@@ -24,12 +24,12 @@ fn quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) 
 pub fn block(key: &[u8; KEY_LEN], counter: u32, nonce: &[u8; NONCE_LEN]) -> [u8; BLOCK_LEN] {
     let mut state = [0u32; 16];
     state[..4].copy_from_slice(&SIGMA);
-    for (i, chunk) in key.chunks_exact(4).enumerate() {
-        state[4 + i] = u32::from_le_bytes(chunk.try_into().unwrap());
+    for (i, chunk) in key.as_chunks::<4>().0.iter().enumerate() {
+        state[4 + i] = u32::from_le_bytes(*chunk);
     }
     state[12] = counter;
-    for (i, chunk) in nonce.chunks_exact(4).enumerate() {
-        state[13 + i] = u32::from_le_bytes(chunk.try_into().unwrap());
+    for (i, chunk) in nonce.as_chunks::<4>().0.iter().enumerate() {
+        state[13 + i] = u32::from_le_bytes(*chunk);
     }
 
     let mut working = state;

@@ -329,8 +329,8 @@ pub fn safety_number(a: &AegisId, b: &AegisId) -> String {
     let h = sha256(&input);
     // 8 groups of 5 digits (each 4 hash bytes → u32 mod 100000).
     let mut groups = Vec::with_capacity(8);
-    for chunk in h.chunks_exact(4).take(8) {
-        let n = u32::from_be_bytes(chunk.try_into().unwrap()) % 100_000;
+    for chunk in h.as_chunks::<4>().0.iter().take(8) {
+        let n = u32::from_be_bytes(*chunk) % 100_000;
         groups.push(format!("{n:05}"));
     }
     groups.join(" ")

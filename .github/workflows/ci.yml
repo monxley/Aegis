@@ -5,6 +5,15 @@ on:
     branches: ["**"]
   pull_request:
 
+# One run per branch. Pushing three commits in quick succession used to leave
+# three full builds competing for runners, so the run for the newest commit --
+# the only one anyone is waiting on -- finished last. Superseded runs are
+# cancelled; a run on the default branch is not, since those are the ones whose
+# results are worth keeping.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -41,16 +50,56 @@ jobs:
       # codegen turns the Rust API in app/rust into the Dart bindings under
       # app/lib/src/rust; cargo-ndk cross-compiles the engine for Android so the
       # native library is actually bundled in the APK.
+      # Both are compiled from source, which took two to nine minutes of every
+      # run for binaries that never change between runs. The key carries the
+      # exact versions, so a bump installs fresh rather than reusing a stale
+      # binary -- which is also why cargo-ndk is pinned now instead of floating.
+      - name: Cache the codegen and cross-compile tools
+        id: cargo-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/flutter_rust_bridge_codegen
+            ~/.cargo/bin/cargo-ndk
+          key: cargo-tools-${{ runner.os }}-frb-2.0.0-ndk-3.5.4
       - name: Install tooling
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
         run: |
           cargo install flutter_rust_bridge_codegen --version 2.0.0 --locked
-          cargo install cargo-ndk
+          cargo install cargo-ndk --version 3.5.4 --locked
       - name: Scaffold platforms + generate bindings
         working-directory: app
         run: |
-          flutter create --platforms=android,linux --project-name aegis .
+          # Android only: this job builds an APK and has no reason to scaffold a
+          # desktop platform. (It does not change which packages are compiled —
+          # `record` imports its Linux backend unconditionally, which is why
+          # app/pubspec.yaml has to pin record_platform_interface.)
+          flutter create --platforms=android --project-name aegis .
           flutter pub get
+          # codegen canonicalizes this path before creating it, so it has to
+          # exist first (deploy/build-apk.sh does the same).
+          mkdir -p lib/src/rust
+          # `flutter create` drops a placeholder widget test that references a
+          # `MyApp` this project does not have, and imports flutter_test, which
+          # is not a dependency. It is scaffold noise, not a test we wrote, and
+          # it is the only thing in the tree with hard analyzer errors.
+          rm -f test/widget_test.dart
           flutter_rust_bridge_codegen generate
+          # codegen writes rust/src/frb_generated.rs but does not declare it in
+          # the crate root, so without this the glue is never compiled and the
+          # library loads with "undefined symbol: frb_get_rust_content_hash".
+          # Same fix the build scripts apply.
+          if [ -f rust/src/frb_generated.rs ] && ! grep -qE '^\s*(pub\s+)?mod frb_generated;' rust/src/lib.rs; then
+            printf '\nmod frb_generated;\n' >> rust/src/lib.rs
+          fi
+      # A fast pre-check that the Dart call sites still match the Rust bridge
+      # API (names, named arguments, sync vs async). `flutter analyze` catches
+      # this too, but only after codegen and a full toolchain install — this
+      # runs in a second and names the mismatch directly.
+      - name: Check the Dart/Rust bridge boundary
+        working-directory: app
+        run: python3 tool/check_bridge.py
+
       - name: Analyze (compiles the Dart + generated bindings)
         working-directory: app
         run: flutter analyze
@@ -59,12 +108,70 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
         run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
-      - name: Build debug APK (installable, debug-signed)
+      # Sign the release build with a real key when the repository has one.
+      #
+      # `flutter create` points the release signingConfig at Android's DEBUG
+      # key, which is a published, universally-known key: a build signed with it
+      # proves nothing about who produced it, and anyone can install a modified
+      # "update" straight over it. For a messenger that is not a detail. When
+      # the four secrets below are set the build is signed properly; when they
+      # are not, the step says so in the log rather than quietly shipping a
+      # debug-signed APK that looks like a release.
+      # Two things `flutter create` leaves the build unable to do, both of
+      # which surface as AAR metadata failures rather than as anything to do
+      # with this app's own code.
+      - name: Prepare the generated Gradle build
+        working-directory: app/android
+        run: |
+          python3 ../../deploy/enable-core-library-desugaring.py .
+          python3 ../../deploy/align-plugin-compile-sdk.py .
+      - name: Configure release signing
+        working-directory: app/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          umask 077
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/aegis-release.jks
+            # Written, never echoed: the values are secrets and the log is public.
+            {
+              printf 'storeFile=aegis-release.jks\n'
+              printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+              printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+              printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            } > key.properties
+          fi
+          python3 ../../deploy/apply-release-signing.py .
+      # Optimised, tree-shaken, no debug assertions or observatory.
+      - name: Build release APK
         working-directory: app
-        run: flutter build apk --debug
+        run: flutter build apk --release
+      # Say in the log which key actually signed it, read back off the APK
+      # rather than inferred from which secrets were set.
+      # Never fails the job: this only reports, and losing the artifact because
+      # a diagnostic could not find apksigner would be absurd.
+      - name: Report the APK's signature
+        working-directory: app
+        continue-on-error: true
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          ls -l "$apk"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          signer=""
+          if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
+            signer=$(find "$sdk/build-tools" -name apksigner 2>/dev/null | sort | tail -1)
+          fi
+          if [ -n "$signer" ]; then
+            "$signer" verify --print-certs "$apk"
+          else
+            echo "apksigner not found; cannot report which key signed this APK."
+          fi
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aegis-apk
-          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          name: aegis-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error

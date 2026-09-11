@@ -1,0 +1,21 @@
+name: record_linux
+description: >-
+  Local stand-in for the record plugin's Linux backend, which does not compile
+  against the interface its own package resolves.
+version: 0.7.2
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.3.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  record_platform_interface: any
+
+flutter:
+  plugin:
+    platforms:
+      linux:
+        dartPluginClass: RecordLinux
