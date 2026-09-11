@@ -30,11 +30,57 @@ if [ ! -d android ]; then
   exit 1
 fi
 
+# The app's own identity: its name in the installer and launcher, and the
+# package name Android installs it under.
+#
+# `flutter create --project-name aegis` leaves BOTH wrong, and nothing has ever
+# corrected them:
+#
+#   * android:label="aegis" on <application>. This is what the package installer
+#     and the app-info screen show -- the launcher aliases carry "Aegis", but
+#     the installer never looks at those.
+#   * applicationId "com.example.aegis". com.example is the reserved example
+#     namespace: Play rejects it outright, and several vendor installers refuse
+#     it too, which shows up as a bare "app not installed" with no reason given.
+#
+# Only applicationId changes, not namespace. applicationId is the package
+# Android installs under; namespace is what the Kotlin sources and the generated
+# R class use, and the manifest's ".MainActivity" resolves against it. Changing
+# namespace without moving every source file would leave the manifest pointing
+# at a class that does not exist.
+#
+# Override with AEGIS_APPLICATION_ID if you publish under your own domain.
+APP_ID="${AEGIS_APPLICATION_ID:-io.github.monxley.aegis}"
+python3 - "$APP_ID" <<'PY' || log "warning: could not set the app's name and id"
+import re
+import sys
+
+app_id = sys.argv[1]
+
+manifest = "android/app/src/main/AndroidManifest.xml"
+s = open(manifest).read()
+new = re.sub(r'android:label="[^"]*"', 'android:label="Aegis"', s, count=1)
+if new != s:
+    open(manifest, "w").write(new)
+    print('set android:label="Aegis"')
+
+gradle = "android/app/build.gradle.kts"
+s = open(gradle).read()
+new, n = re.subn(
+    r'applicationId\s*=\s*"[^"]*"', f'applicationId = "{app_id}"', s, count=1
+)
+if n and new != s:
+    open(gradle, "w").write(new)
+    print(f"set applicationId = {app_id}")
+elif not n:
+    raise SystemExit("could not find applicationId in " + gradle)
+PY
+
 # Generate the Aegis launcher icon (all densities + adaptive) from the bundled
 # source PNG, per the flutter_launcher_icons config in pubspec.yaml. Best-effort:
 # if it fails, the default Flutter icon remains rather than breaking the build.
 log "generating launcher icon"
-dart run flutter_launcher_icons >/dev/null 2>&1 || log "warning: launcher-icon generation failed (keeping default)"
+dart run flutter_launcher_icons || log "warning: launcher-icon generation FAILED -- the build keeps the default Flutter icon"
 
 # Flutter's generated MAIN manifest has no INTERNET permission — it ships only
 # in the debug/profile manifests, so a release build would have no network at
@@ -239,6 +285,11 @@ class MainActivity : FlutterFragmentActivity() {
 
     // Enable the chosen launcher alias and disable the others, so the app shows
     // a single disguised (or real) icon + name. DONT_KILL_APP keeps us running.
+    // Where the launcher aliases actually live: the namespace the manifest
+    // expanded ".LauncherDefault" against, which is this class's own package.
+    private val aliasPackage: String
+        get() = javaClass.name.substringBeforeLast('.')
+
     private fun applyDisguise(which: String) {
         val target = if (disguiseAliases.containsKey(which)) which else "default"
         for ((key, cls) in disguiseAliases) {
@@ -248,7 +299,12 @@ class MainActivity : FlutterFragmentActivity() {
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED
             }
             packageManager.setComponentEnabledSetting(
-                ComponentName(packageName, packageName + cls),
+                // The class lives in the namespace, which is NOT necessarily
+                // packageName: packageName is the applicationId, and the two
+                // differ as soon as the app ships under a real package name.
+                // Derived from this class rather than hardcoded, so it stays
+                // right whatever either of them is set to.
+                ComponentName(packageName, aliasPackage + cls),
                 state,
                 PackageManager.DONT_KILL_APP
             )
