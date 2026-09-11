@@ -31,33 +31,40 @@ from pathlib import Path
 
 MARKER = "// aegis: plugin compileSdk aligned by deploy/align-plugin-compile-sdk.py"
 
-# The Gradle snippet reaches AGP's extension by reflection rather than by type.
-# That is deliberate: the root build file has no AGP types on its own classpath
-# (Flutter's template declares plugins in settings.gradle.kts), so naming
-# `com.android.build.gradle.BaseExtension` here would simply not compile. The
-# property name is stable across AGP 8, and when it is absent the build says so
-# and carries on to fail with the original, more informative error rather than
-# silently doing nothing.
-BLOCK = """
-{marker}
-subprojects {{
-    afterEvaluate {{
-        val androidExtension = extensions.findByName("android")
-        if (androidExtension != null) {{
-            val setter = androidExtension.javaClass.methods.firstOrNull {{
-                it.name == "setCompileSdk" && it.parameterCount == 1
-            }}
-            if (setter == null) {{
-                logger.lifecycle(
-                    "aegis: ${{project.name}} has no setCompileSdk; leaving its " +
-                        "compileSdk alone"
-                )
-            }} else {{
-                setter.invoke(androidExtension, {sdk})
-            }}
-        }}
+# Prepended, not appended -- see the comment inside the block for why.
+BLOCK = """{marker}
+//
+// Declared at the TOP of this file on purpose. Flutter's template ends with
+// `subprojects {{ project.evaluationDependsOn(":app") }}`, which evaluates the
+// subprojects — so the same block appended below it throws "Cannot run
+// Project.afterEvaluate(Action) when the project is already evaluated". The
+// state check is belt-and-braces for the same hazard.
+//
+// The extension is reached by reflection rather than by type: this file has no
+// AGP types on its own classpath (Flutter declares plugins in
+// settings.gradle.kts), so naming BaseExtension here would simply not compile.
+// When the property is absent the build says so and carries on to fail with the
+// original, more informative error rather than silently doing nothing.
+fun Project.aegisAlignCompileSdk(sdk: Int) {{
+    val androidExtension = extensions.findByName("android") ?: return
+    val setter = androidExtension.javaClass.methods.firstOrNull {{
+        it.name == "setCompileSdk" && it.parameterCount == 1
+    }}
+    if (setter == null) {{
+        logger.lifecycle("aegis: $name has no setCompileSdk; compileSdk unchanged")
+    }} else {{
+        setter.invoke(androidExtension, sdk)
     }}
 }}
+
+subprojects {{
+    if (state.executed) {{
+        aegisAlignCompileSdk({sdk})
+    }} else {{
+        afterEvaluate {{ aegisAlignCompileSdk({sdk}) }}
+    }}
+}}
+
 """
 
 
@@ -78,9 +85,7 @@ def main(argv: list[str]) -> int:
         print("plugin compileSdk already aligned")
         return 0
 
-    gradle.write_text(
-        source.rstrip("\n") + "\n" + BLOCK.format(marker=MARKER, sdk=sdk)
-    )
+    gradle.write_text(BLOCK.format(marker=MARKER, sdk=sdk) + source)
     print(f"plugin compileSdk aligned to {sdk}")
     return 0
 
