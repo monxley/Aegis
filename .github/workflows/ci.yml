@@ -84,6 +84,12 @@ jobs:
           # is not a dependency. It is scaffold noise, not a test we wrote, and
           # it is the only thing in the tree with hard analyzer errors.
           rm -f test/widget_test.dart
+          # Everything that turns the generated project into Aegis: INTERNET and
+          # the other permissions, the background service, launcher aliases,
+          # FLAG_SECURE + FlutterFragmentActivity, minSdk, the launcher icon.
+          # Shared with deploy/build-apk.sh. Without it CI produced an APK that
+          # installed and then could not reach the network at all.
+          bash ../deploy/prepare-android-project.sh
           flutter_rust_bridge_codegen generate
           # codegen writes rust/src/frb_generated.rs but does not declare it in
           # the crate root, so without this the glue is never compiled and the
