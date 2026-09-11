@@ -555,6 +555,9 @@ if [ -n "${KEYSTORE:-}" ]; then
       printf 'keyPassword=%s\n' "${KEY_PASSWORD:?set KEY_PASSWORD}"
     } > android/key.properties )
 fi
+# flutter_local_notifications requires core library desugaring; the generated
+# Gradle does not enable it, so the release build fails on AAR metadata.
+python3 "$SRC/deploy/enable-core-library-desugaring.py" android
 python3 "$SRC/deploy/apply-release-signing.py" android
 
 # Release by default: optimised and tree-shaken, so what you install is what
