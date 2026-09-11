@@ -237,8 +237,7 @@ const NET_TIMEOUT: Duration = Duration::from_secs(10);
 fn connect_bounded(addr: impl ToSocketAddrs) -> io::Result<TcpStream> {
     let addrs = addr.to_socket_addrs()?;
     let chain = socks5::current_chain();
-    let mut last_err =
-        io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to");
+    let mut last_err = io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to");
     for a in addrs {
         // Through the SOCKS5 chain (incl. Tor) when one is set, else direct.
         let result = if chain.is_empty() {
@@ -338,7 +337,10 @@ pub struct MailboxDeliver<S: MailboxStore + Send>(pub Arc<Mutex<S>>);
 impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
     fn deliver(&self, payload: Vec<u8>) {
         let Some(envelope) = Envelope::from_bytes(&payload) else {
-            eprintln!("aegis: delivery dropped — undecodable envelope ({} bytes)", payload.len());
+            eprintln!(
+                "aegis: delivery dropped — undecodable envelope ({} bytes)",
+                payload.len()
+            );
             return;
         };
         match self.0.lock() {
@@ -348,8 +350,10 @@ impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
             // arrive" with a healthy-looking node.
             Ok(mut store) => {
                 if let Err(e) = store.put(envelope) {
-                    eprintln!("aegis: DELIVERY FAILED — mailbox put error: {e} \
-                        (is the data disk full or read-only?)");
+                    eprintln!(
+                        "aegis: DELIVERY FAILED — mailbox put error: {e} \
+                        (is the data disk full or read-only?)"
+                    );
                 }
             }
             Err(_) => eprintln!("aegis: delivery dropped — mailbox lock poisoned"),

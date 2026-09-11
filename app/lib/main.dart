@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'brand.dart';
+import 'design/states.dart';
 import 'engine.dart';
 import 'screens/chats.dart';
 import 'screens/lock.dart';
@@ -18,10 +19,38 @@ void main() {
   runApp(AegisApp(engine: AegisEngineController()));
 }
 
-class AegisApp extends StatelessWidget {
+class AegisApp extends StatefulWidget {
   final AegisEngineController engine;
 
   const AegisApp({super.key, required this.engine});
+
+  @override
+  State<AegisApp> createState() => _AegisAppState();
+}
+
+class _AegisAppState extends State<AegisApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Saves are debounced, so leaving the foreground is the moment to make sure
+    // the pending one actually lands — the process may not come back.
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(widget.engine.flushPendingSave());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,12 +58,10 @@ class AegisApp extends StatelessWidget {
       title: 'Aegis',
       debugShowCheckedModeBanner: false,
       theme: AegisTheme.dark,
-      // Paint the living aurora once, behind every route. Scaffolds are
-      // transparent (see theme) so it shows through the whole app; opaque app
-      // bars, cards and sheets sit on top.
-      builder: (context, child) =>
-          AuroraBackground(child: child ?? const SizedBox.shrink()),
-      home: _Bootstrap(engine: engine),
+      // One scroll feel everywhere: stretch instead of the Material glow, and
+      // the same physics on Android and iOS.
+      scrollBehavior: const AegisScrollBehavior(),
+      home: _Bootstrap(engine: widget.engine),
     );
   }
 }
@@ -225,7 +252,7 @@ class _SplashState extends State<_Splash>
               ),
             ),
             const SizedBox(height: 44),
-            FadeTransition(opacity: fade, child: const ShimmerBar()),
+            FadeTransition(opacity: fade, child: const ProgressLine()),
           ],
         ),
       ),
@@ -235,6 +262,13 @@ class _SplashState extends State<_Splash>
 
 /// Shown if [AegisEngineController.boot] throws — most likely the Rust library
 /// failed to load. Readable beats a frozen logo, and Retry re-runs boot.
+///
+/// Built on ErrorStateView, which is the component this screen was hand-rolling
+/// badly: it printed the raw exception as the headline. "Aegis failed to start"
+/// followed by `Invalid argument(s): Failed to load dynamic library` tells a
+/// user nothing they can act on, and buries the one fact that actually matters
+/// here — nothing was lost. The exception is still one tap away, where it
+/// belongs in a bug report.
 class _StartupError extends StatelessWidget {
   final Object error;
   final VoidCallback onRetry;
@@ -243,35 +277,15 @@ class _StartupError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(Icons.error_outline,
-                  color: AegisTheme.danger, size: 48),
-              const SizedBox(height: 16),
-              const Text(
-                'Aegis failed to start',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: AegisTheme.textHi,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                '$error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AegisTheme.textLo, fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(onPressed: onRetry, child: const Text('Retry')),
-            ],
-          ),
-        ),
+      body: ErrorStateView(
+        title: 'Aegis could not start',
+        message: 'Nothing has been lost: your identity and messages are on '
+            'this device, encrypted, and a failed start does not touch them. '
+            'Retrying usually works. Reinstalling erases local data — your '
+            'recovery phrase brings the identity back, but not past messages.',
+        details: error,
+        actionLabel: 'Retry',
+        onAction: onRetry,
       ),
     );
   }

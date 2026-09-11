@@ -374,6 +374,36 @@ flutter build apk --release
 # → build/app/outputs/flutter-apk/app-release.apk
 ```
 
+**Signing.** Out of the box `flutter create` points the release build at
+Android's **debug** key. That key is public, so a debug-signed APK proves
+nothing about who built it and anyone can install a modified "update" over it.
+It is fine for testing, and not fine to hand to anyone as a release.
+
+Make a keystore once:
+
+```sh
+keytool -genkeypair -v -keystore aegis-release.jks -alias aegis \
+        -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Keep it (and its passwords) outside the repository — `.gitignore` already
+refuses `*.jks` and `key.properties` — and back it up: Android identifies an app
+by its signing key, so losing it means users cannot update, only reinstall from
+scratch. Then build with it:
+
+```sh
+KEYSTORE=/path/to/aegis-release.jks KEYSTORE_PASSWORD=… \
+KEY_ALIAS=aegis KEY_PASSWORD=… \
+  deploy/build-apk.sh
+```
+
+CI does the same from four repository secrets — `ANDROID_KEYSTORE_BASE64`
+(`base64 -w0 aegis-release.jks`), `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. With them set, the
+`aegis-release-apk` artifact is a properly signed release; without them the job
+still builds, and both the log and `deploy/apply-release-signing.py` say plainly
+that the result is debug-signed.
+
 **Releases & auto-update.** The app checks the GitHub **releases** of this repo
 on launch and shows a prominent prompt when a newer one exists (an out-of-date
 client can stop working when the protocol/network moves, so the prompt warns
@@ -398,6 +428,21 @@ flutter create --platforms=linux .     # first time only
 flutter_rust_bridge_codegen generate
 flutter run -d linux
 ```
+
+> **Note on `record`.** `record_linux` 0.7.2 — the Linux voice backend the
+> `record` plugin endorses — does not compile against the interface it resolves
+> against: it is missing `startStream`, and its `hasPermission` lost a named
+> argument. `record` imports it *unconditionally*, so the broken file is
+> compiled on every platform, Android included, and the release APK could not be
+> built at all.
+>
+> `app/third_party/record_linux` is a local stand-in, wired in through
+> `dependency_overrides`. It satisfies the interface via `noSuchMethod` — so it
+> cannot break again when that interface gains a member — and **throws** on use
+> rather than pretending to record. Voice notes therefore do not work on Linux
+> desktop; everything else, playback included, does. Delete the package and the
+> override once `record` ships a Linux implementation matching its own
+> interface.
 
 On first launch the app mints an identity locally (no phone number, no email)
 and joins the anonymous mixnet with zero setup (an **Advanced** sheet offers a

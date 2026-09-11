@@ -1,2 +1,8 @@
 /target
 **/*.rs.bk
+
+# Android release signing. The keystore and its passwords live on the build
+# machine (or in CI secrets), never in the repository.
+key.properties
+*.jks
+*.keystore

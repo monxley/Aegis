@@ -77,7 +77,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
             'both honour it. Tor routes over the Tor network (via Orbot); SOCKS5 '
             'uses any proxy you run. If the proxy isn’t reachable, the app can’t '
             'connect until it is.',
-            style: TextStyle(color: AegisTheme.textLo, fontSize: 13, height: 1.45),
+            style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.45),
           ),
           const SizedBox(height: 16),
           _option('off', 'Off', 'Connect directly (no proxy).'),
@@ -102,20 +102,20 @@ class _ProxyScreenState extends State<ProxyScreen> {
               contentPadding: EdgeInsets.zero,
               value: _torFirst,
               onChanged: _busy ? null : (v) => setState(() => _torFirst = v),
-              activeColor: AegisTheme.accent,
+              activeThumbColor: AegisColor.accent,
               title: Text(
                 _torFirst ? 'Order: app → Tor → SOCKS5' : 'Order: app → SOCKS5 → Tor',
-                style: const TextStyle(color: AegisTheme.textHi, fontSize: 14),
+                style: const TextStyle(color: AegisColor.textPrimary, fontSize: 14),
               ),
               subtitle: const Text(
                 'If Tor is Orbot on this phone, put Tor first — a remote SOCKS5 '
                 'can’t reach your local Tor.',
-                style: TextStyle(color: AegisTheme.textLo, fontSize: 11.5, height: 1.35),
+                style: TextStyle(color: AegisColor.textSecondary, fontSize: 11.5, height: 1.35),
               ),
             ),
           ],
           const SizedBox(height: 22),
-          GradientButton(
+          PrimaryButton(
             label: _busy ? 'Applying…' : 'Save & reconnect',
             icon: Icons.check_rounded,
             onPressed: _busy ? null : _save,
@@ -136,10 +136,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AegisTheme.surface,
+          color: AegisColor.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected ? AegisTheme.accent : AegisTheme.surfaceHi,
+            color: selected ? AegisColor.accent : AegisColor.surfaceElevated,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -148,7 +148,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
           children: [
             Icon(
               selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-              color: selected ? AegisTheme.accent : AegisTheme.textLo,
+              color: selected ? AegisColor.accent : AegisColor.textSecondary,
               size: 22,
             ),
             const SizedBox(width: 12),
@@ -158,13 +158,13 @@ class _ProxyScreenState extends State<ProxyScreen> {
                 children: [
                   Text(title,
                       style: const TextStyle(
-                          color: AegisTheme.textHi,
+                          color: AegisColor.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 3),
                   Text(subtitle,
                       style: const TextStyle(
-                          color: AegisTheme.textLo, fontSize: 12.5, height: 1.35)),
+                          color: AegisColor.textSecondary, fontSize: 12.5, height: 1.35)),
                 ],
               ),
             ),
@@ -180,7 +180,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
       controller: c,
       enabled: !_busy,
       obscureText: obscure,
-      style: const TextStyle(color: AegisTheme.textHi, fontSize: 14),
+      style: const TextStyle(color: AegisColor.textPrimary, fontSize: 14),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,

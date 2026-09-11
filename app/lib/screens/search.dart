@@ -80,7 +80,7 @@ class _SearchScreenState extends State<SearchScreen> {
         title: TextField(
           controller: _controller,
           autofocus: true,
-          style: const TextStyle(color: AegisTheme.textHi, fontSize: 16),
+          style: const TextStyle(color: AegisColor.textPrimary, fontSize: 16),
           textInputAction: TextInputAction.search,
           onChanged: (v) => setState(() => _query = v),
           decoration: const InputDecoration(
@@ -94,7 +94,7 @@ class _SearchScreenState extends State<SearchScreen> {
         actions: [
           if (_query.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.close_rounded, color: AegisTheme.textLo),
+              icon: const Icon(Icons.close_rounded, color: AegisColor.textSecondary),
               onPressed: () {
                 _controller.clear();
                 setState(() => _query = '');
@@ -114,10 +114,10 @@ class _SearchScreenState extends State<SearchScreen> {
                             leading: ContactAvatar(name: c.name),
                             title: Text(c.name,
                                 style:
-                                    const TextStyle(color: AegisTheme.textHi)),
+                                    const TextStyle(color: AegisColor.textPrimary)),
                             subtitle: Text(shortId(c.aegisId),
                                 style: const TextStyle(
-                                    color: AegisTheme.textLo, fontSize: 12)),
+                                    color: AegisColor.textSecondary, fontSize: 12)),
                             onTap: () => _open(c),
                           )),
                     ],
@@ -130,13 +130,13 @@ class _SearchScreenState extends State<SearchScreen> {
                                 Expanded(
                                   child: Text(h.contact.name,
                                       style: const TextStyle(
-                                          color: AegisTheme.textHi,
+                                          color: AegisColor.textPrimary,
                                           fontWeight: FontWeight.w600)),
                                 ),
                                 Text(
                                   formatListTime(h.message.timestampMs.toInt()),
                                   style: const TextStyle(
-                                      color: AegisTheme.textLo, fontSize: 11),
+                                      color: AegisColor.textSecondary, fontSize: 11),
                                 ),
                               ],
                             ),
@@ -162,7 +162,7 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         text.toUpperCase(),
         style: const TextStyle(
-          color: AegisTheme.accent,
+          color: AegisColor.accent,
           fontSize: 12,
           fontWeight: FontWeight.w800,
           letterSpacing: 1.5,
@@ -182,7 +182,7 @@ class _Snippet extends StatelessWidget {
   Widget build(BuildContext context) {
     final lower = text.toLowerCase();
     final i = lower.indexOf(query);
-    const base = TextStyle(color: AegisTheme.textLo, fontSize: 13);
+    const base = TextStyle(color: AegisColor.textSecondary, fontSize: 13);
     if (i < 0 || query.isEmpty) {
       return Text(text,
           maxLines: 1, overflow: TextOverflow.ellipsis, style: base);
@@ -198,7 +198,7 @@ class _Snippet extends StatelessWidget {
           TextSpan(
             text: text.substring(i, i + query.length),
             style: const TextStyle(
-                color: AegisTheme.accent, fontWeight: FontWeight.w700),
+                color: AegisColor.accent, fontWeight: FontWeight.w700),
           ),
           TextSpan(text: text.substring(i + query.length)),
         ],
@@ -221,7 +221,7 @@ class _Hint extends StatelessWidget {
           'Search your conversations and contacts. Everything stays on this '
           'device — nothing is sent anywhere.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: AegisTheme.textLo, height: 1.4),
+          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
         ),
       ),
     );
@@ -240,7 +240,7 @@ class _NoResults extends StatelessWidget {
         child: Text(
           'No matches for “$query”.',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: AegisTheme.textLo),
+          style: const TextStyle(color: AegisColor.textSecondary),
         ),
       ),
     );
