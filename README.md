@@ -419,21 +419,25 @@ KEY_ALIAS=aegis KEY_PASSWORD=… \
 changing it makes a *different* app as far as Android is concerned, so existing
 installs stay put rather than updating.
 
-**Releases & auto-update.** The app checks the GitHub **releases** of this repo
-on launch and shows a prominent prompt when a newer one exists (an out-of-date
-client can stop working when the protocol/network moves, so the prompt warns
-about that). It compares the running `versionName` (from `app/pubspec.yaml`'s
-`version:`) against the release **tag**, so to ship an update:
+**Releases & auto-update.** Tagging `v*` runs `.github/workflows/release.yml`,
+which builds a signed APK and attaches it — with its SHA-256 — to a GitHub
+Release. The app checks those releases on launch and prompts when a newer one
+exists, comparing its own `versionName` against the tag, so bump `version:` in
+`app/pubspec.yaml` to match before tagging:
 
-1. bump `version:` in `app/pubspec.yaml` (e.g. `0.1.0+1` → `0.1.1+2`),
-2. build the APK, and
-3. publish a GitHub Release tagged to match (e.g. `v0.1.1`), attaching the
-   `.apk` as a release asset.
+```sh
+# after bumping version: in app/pubspec.yaml
+git tag v0.1.1 && git push origin v0.1.1
+```
 
-Clients on the older build then see the update prompt; "Download update" opens
-the APK asset (or the release page) to install. Tags may include a leading `v`
-and are compared numerically (`1.10.0` > `1.9.0`); pre-release/build suffixes
-are ignored.
+The release workflow **refuses to publish a debug-signed APK**, before building
+rather than after. CI may fall back to the debug key — a broken build is worth
+looking at either way — but a release signed with Android's public debug key
+cannot be installed over the previous version and would strand everyone who
+took it. Set the four signing secrets first.
+
+Tags may include a leading `v` and are compared numerically (`1.10.0` > `1.9.0`);
+pre-release/build suffixes are ignored.
 
 **Linux desktop** (same engine, no Android tooling needed):
 
