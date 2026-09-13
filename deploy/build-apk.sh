@@ -160,7 +160,10 @@ python3 "$SRC/deploy/apply-release-signing.py" android
 # the app actually performs like. `BUILD=debug` if you need debug assertions.
 BUILD="${BUILD:-release}"
 log "building the $BUILD APK (a few minutes)"
-flutter build apk --"$BUILD"
+# versionCode, so a later build is always newer than the one already on the
+# phone. Minutes since the epoch: monotonic, no git history needed, and the
+# same rule CI uses so builds from either path stay ordered.
+flutter build apk --"$BUILD" --build-number="$(( $(date -u +%s) / 60 ))"
 
 APK="$SRC/app/build/app/outputs/flutter-apk/app-$BUILD.apk"
 IP="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo YOUR_VPS_IP)"
