@@ -374,22 +374,39 @@ flutter build apk --release
 # → build/app/outputs/flutter-apk/app-release.apk
 ```
 
-**Signing.** Out of the box `flutter create` points the release build at
-Android's **debug** key. That key is public, so a debug-signed APK proves
-nothing about who built it and anyone can install a modified "update" over it.
-It is fine for testing, and not fine to hand to anyone as a release.
+**Signing — do this once, before sharing a build with anyone.**
 
-Make a keystore once:
+Android identifies an app by its signing key: two APKs with the same package
+name but different keys are, to Android, different apps that refuse to replace
+one another. On the phone that appears as a bare **"App not installed"** with no
+reason given.
+
+Without a key of its own, Gradle falls back to `~/.android/debug.keystore` — and
+a fresh CI runner has no such file, so Gradle **generates a new random one every
+run**. Every CI build is therefore signed by a different key than the last, and
+none can be installed over its predecessor. That is permanent until the project
+has a stable key; rebuilding will not help.
 
 ```sh
-keytool -genkeypair -v -keystore aegis-release.jks -alias aegis \
-        -keyalg RSA -keysize 4096 -validity 10000
+deploy/make-release-key.sh
 ```
 
-Keep it (and its passwords) outside the repository — `.gitignore` already
-refuses `*.jks` and `key.properties` — and back it up: Android identifies an app
-by its signing key, so losing it means users cannot update, only reinstall from
-scratch. Then build with it:
+It writes `aegis-release.jks`, prints its SHA-256 fingerprint and a random
+passphrase, and gives you the four `gh secret set` commands to run. **Back the
+keystore up** — losing it strands every installed user on the version they have,
+with no way to update.
+
+`.gitignore` already refuses `*.jks` and `key.properties`, and the CI step writes
+`key.properties` without echoing it, so neither the key nor its passphrase can
+reach the repository or the public build log.
+
+Until those secrets exist, CI still builds — but it names the artifact
+`aegis-apk-DEBUG-SIGNED-cannot-update-in-place` rather than `aegis-release-apk`,
+and the last step of the job prints the certificate that actually signed it. A
+debug-signed APK installs on a clean device and runs; it just cannot update, and
+it is evidence of nothing about who built it, since the debug key is public.
+
+To build locally with the same key:
 
 ```sh
 KEYSTORE=/path/to/aegis-release.jks KEYSTORE_PASSWORD=… \
@@ -397,12 +414,10 @@ KEY_ALIAS=aegis KEY_PASSWORD=… \
   deploy/build-apk.sh
 ```
 
-CI does the same from four repository secrets — `ANDROID_KEYSTORE_BASE64`
-(`base64 -w0 aegis-release.jks`), `ANDROID_KEYSTORE_PASSWORD`,
-`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. With them set, the
-`aegis-release-apk` artifact is a properly signed release; without them the job
-still builds, and both the log and `deploy/apply-release-signing.py` say plainly
-that the result is debug-signed.
+**Package name.** The app installs as `io.github.monxley.aegis`. Override with
+`AEGIS_APPLICATION_ID` if you publish under your own domain — but note that
+changing it makes a *different* app as far as Android is concerned, so existing
+installs stay put rather than updating.
 
 **Releases & auto-update.** The app checks the GitHub **releases** of this repo
 on launch and shows a prominent prompt when a newer one exists (an out-of-date

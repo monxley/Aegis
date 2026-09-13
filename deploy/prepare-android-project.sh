@@ -77,10 +77,25 @@ elif not n:
 PY
 
 # Generate the Aegis launcher icon (all densities + adaptive) from the bundled
-# source PNG, per the flutter_launcher_icons config in pubspec.yaml. Best-effort:
-# if it fails, the default Flutter icon remains rather than breaking the build.
+# source PNG, per the flutter_launcher_icons config in pubspec.yaml.
+#
+# Verified, not hoped for. This used to be `>/dev/null 2>&1 || log warning`, so
+# when it silently did nothing the build shipped the stock Flutter logo and said
+# nothing about it -- which is exactly what happened. The icons `flutter create`
+# just wrote are hashed first; if they are unchanged afterwards the tool did not
+# do its job, and the build stops rather than producing an APK wearing someone
+# else's mark.
 log "generating launcher icon"
-dart run flutter_launcher_icons || log "warning: launcher-icon generation FAILED -- the build keeps the default Flutter icon"
+ICON_BEFORE="$(cat android/app/src/main/res/mipmap-*/ic_launcher.png 2>/dev/null | sha256sum | cut -d' ' -f1)"
+dart run flutter_launcher_icons
+ICON_AFTER="$(cat android/app/src/main/res/mipmap-*/ic_launcher.png 2>/dev/null | sha256sum | cut -d' ' -f1)"
+if [ "$ICON_BEFORE" = "$ICON_AFTER" ]; then
+  echo "launcher icons are byte-identical to the ones flutter create wrote:" >&2
+  echo "flutter_launcher_icons ran but changed nothing. Fix it rather than" >&2
+  echo "shipping the stock Flutter logo as this app's identity." >&2
+  exit 1
+fi
+log "launcher icon generated (mipmaps changed)"
 
 # Flutter's generated MAIN manifest has no INTERNET permission — it ships only
 # in the debug/profile manifests, so a release build would have no network at
