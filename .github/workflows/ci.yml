@@ -132,6 +132,7 @@ jobs:
           python3 ../../deploy/enable-core-library-desugaring.py .
           python3 ../../deploy/align-plugin-compile-sdk.py .
       - name: Configure release signing
+        id: signing
         working-directory: app/android
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -151,6 +152,13 @@ jobs:
             } > key.properties
           fi
           python3 ../../deploy/apply-release-signing.py .
+          # Say which of the two builds this is, so later steps -- and the
+          # artifact's own name -- cannot misrepresent it.
+          if [ -f key.properties ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
       # Optimised, tree-shaken, no debug assertions or observatory.
       - name: Build release APK
         working-directory: app
@@ -175,9 +183,53 @@ jobs:
           else
             echo "apksigner not found; cannot report which key signed this APK."
           fi
+      # The artifact's name states what it actually is. Without a signing key
+      # Gradle falls back to ~/.android/debug.keystore, which a fresh runner does
+      # not have -- so it generates a NEW RANDOM ONE EVERY RUN, and no such build
+      # can ever install over the previous one. Calling that "release" would be a
+      # lie that costs someone an afternoon.
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aegis-release-apk
+          name: ${{ steps.signing.outputs.signed == 'true' && 'aegis-release-apk' || 'aegis-apk-DEBUG-SIGNED-cannot-update-in-place' }}
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+
+      # Last in the job on purpose: this is the evidence anyone debugging an
+      # install failure needs, and the run log is most easily read from its end.
+      - name: Inspect the finished APK
+        if: always()
+        continue-on-error: true
+        working-directory: app
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          [ -f "$apk" ] || { echo "no APK was produced"; exit 0; }
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          find_tool() {
+            [ -n "$sdk" ] && [ -d "$sdk/build-tools" ] &&
+              find "$sdk/build-tools" -name "$1" 2>/dev/null | sort | tail -1
+          }
+          echo "=============== APK ==============="
+          ls -l "$apk"
+          aapt2=$(find_tool aapt2 || true)
+          if [ -n "$aapt2" ]; then
+            "$aapt2" dump badging "$apk" | grep -E \
+              "^package|^application-label|^application-icon-640|sdkVersion|targetSdkVersion|native-code|launchable-activity" || true
+          else
+            echo "aapt2 not found; cannot report the package name or label."
+          fi
+          echo "=============== signature ==============="
+          signer=$(find_tool apksigner || true)
+          if [ -n "$signer" ]; then
+            "$signer" verify --print-certs "$apk" | grep -E "Signer #1 certificate (DN|SHA-256)" || true
+            debug_certs=$("$signer" verify --print-certs "$apk" | grep -c 'CN=Android Debug' || true)
+            case "$debug_certs" in
+              0) echo "-> signed with a real key: this build can be installed over the previous one." ;;
+              *) echo "-> DEBUG KEY. A fresh CI runner generates a new one every run, so this" 
+                 echo "   build cannot be installed over any other. Run deploy/make-release-key.sh" 
+                 echo "   once and set the four repository secrets to fix this permanently." ;;
+            esac
+          else
+            echo "apksigner not found; cannot report which key signed this APK."
+          fi
+          echo "========================================="
