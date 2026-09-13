@@ -160,29 +160,17 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
       # Optimised, tree-shaken, no debug assertions or observatory.
+      # --build-number sets versionCode. Every build carried versionCode 1 from
+      # the pubspec, so no build was ever *newer* than the one on the phone --
+      # with a stable key that is a reinstall at best and a refusal at worst.
+      # Minutes since the epoch: monotonic, needs no git history (checkout is
+      # shallow here), and identical in rule to deploy/build-apk.sh so builds
+      # from the two paths stay ordered relative to each other.
       - name: Build release APK
         working-directory: app
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number="$(( $(date -u +%s) / 60 ))"
       # Say in the log which key actually signed it, read back off the APK
       # rather than inferred from which secrets were set.
-      # Never fails the job: this only reports, and losing the artifact because
-      # a diagnostic could not find apksigner would be absurd.
-      - name: Report the APK's signature
-        working-directory: app
-        continue-on-error: true
-        run: |
-          apk=build/app/outputs/flutter-apk/app-release.apk
-          ls -l "$apk"
-          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          signer=""
-          if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
-            signer=$(find "$sdk/build-tools" -name apksigner 2>/dev/null | sort | tail -1)
-          fi
-          if [ -n "$signer" ]; then
-            "$signer" verify --print-certs "$apk"
-          else
-            echo "apksigner not found; cannot report which key signed this APK."
-          fi
       # The artifact's name states what it actually is. Without a signing key
       # Gradle falls back to ~/.android/debug.keystore, which a fresh runner does
       # not have -- so it generates a NEW RANDOM ONE EVERY RUN, and no such build
@@ -214,7 +202,7 @@ jobs:
           aapt2=$(find_tool aapt2 || true)
           if [ -n "$aapt2" ]; then
             "$aapt2" dump badging "$apk" | grep -E \
-              "^package|^application-label|^application-icon-640|sdkVersion|targetSdkVersion|native-code|launchable-activity" || true
+              "^package:|^application-label:|^application-icon-640:|^sdkVersion:|^targetSdkVersion:|^native-code:|^launchable-activity:" || true
           else
             echo "aapt2 not found; cannot report the package name or label."
           fi
