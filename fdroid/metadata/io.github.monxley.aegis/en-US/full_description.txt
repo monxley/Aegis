@@ -1,0 +1,50 @@
+Aegis is an anonymous, end-to-end-encrypted messenger. There is no phone number,
+no email and no account on anyone's server: your identity is a key pair made on
+your device the first time you open the app.
+
+The relays that carry your messages cannot read them and cannot tell who they
+are between. Every message goes to a fresh one-time address derived from the
+recipient's key, so two messages to the same person are unlinkable to anyone but
+that person. Traffic is wrapped in fixed-size onion packets, delayed
+individually and mixed with cover traffic, so an observer watching the network
+still cannot draw a line from you to the person you are talking to.
+
+WHAT THE CRYPTOGRAPHY IS
+
+* ML-KEM-768 (FIPS 203) for post-quantum key encapsulation
+* ML-DSA-65 (FIPS 204) for post-quantum signatures
+* X25519 (RFC 7748) for classical key agreement
+* ChaCha20-Poly1305 (RFC 8439) for authenticated encryption
+* HKDF-SHA-256 (RFC 5869) for key derivation
+* PQXDH handshake, then a Double Ratchet that re-keys from ML-KEM as it runs
+* Sphinx onion packets with a LIONESS payload, mixed the Loopix way
+
+Every primitive is implemented from its specification with no third-party
+cryptographic libraries, and tested against the published vectors. None of the
+constructions are invented here.
+
+FEATURES
+
+* 24-word recovery phrase to back up and restore your identity
+* Duress password: a second password opens an empty decoy account
+* Panic wipe from the lock screen or Settings
+* App disguise: swap the launcher icon and name for a calculator or notes app
+* Disappearing messages, synchronised and pruned on both devices
+* Safety numbers to rule out a machine-in-the-middle
+* Tor and SOCKS5, chainable
+* Screenshot blocking, on by default
+* Run your own nodes and route exclusively through them
+* Biometric unlock, with the key held in the platform keystore
+* Voice messages, photos and file attachments
+
+HONEST LIMITS
+
+Aegis is alpha software and has not had an external security audit. The protocol
+and its implementation may contain flaws. Anonymity depends on how many people
+use the network at the same time, and while that number is small so is the
+protection. A truly global, long-running traffic-analysis adversary remains an
+open problem in the field: this is strong resistance, not impossibility. And if
+someone controls your device while Aegis is unlocked, no protocol helps.
+
+The app checks GitHub Releases for newer versions and offers to open the
+download page, because a sideloaded build has no other way to stay current.
