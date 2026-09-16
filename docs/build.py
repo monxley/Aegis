@@ -46,7 +46,7 @@ LANGS = {
         ),
         "skip": "Skip to content",
         "nav": [("#how", "How it works"), ("#crypto", "Cryptography"),
-                ("#features", "Features"), ("#node", "Run a node"),
+                ("#features", "Features"), ("#fdroid", "F-Droid"), ("#node", "Run a node"),
                 ("#limits", "Limits"), ("#faq", "FAQ")],
         "lang_switch": "Русский",
         "lang_switch_title": "Read this page in Russian",
@@ -62,7 +62,16 @@ LANGS = {
         ),
         "cta_download": "Download for Android",
         "cta_source": "Read the source",
-        "cta_note": "Free and open source, GPL-3.0. Sideloaded APK — not on Google Play.",
+        "cta_fdroid": "Add the F-Droid repo",
+        "fdroid_h2": "Updates without a store account",
+        "fdroid_lead": (
+            "Add the project's F-Droid repository and Aegis updates like any "
+            "other app on your phone — no Google account, no Play Services, no "
+            "sideload prompt each time. Every build there is signed with the "
+            "same key as the APKs on GitHub, so you can move between the two "
+            "without reinstalling."
+        ),
+        "cta_note": "Free and open source, Apache-2.0. Sideloaded APK — not on Google Play.",
         "alpha_title": "Alpha software.",
         "alpha_body": (
             "Aegis has not had an external security audit. The protocol and "
@@ -236,7 +245,7 @@ LANGS = {
              "same key — if the certificate fingerprint changes, the APK did "
              "not come from this project."),
             ("Is it really free?",
-             "Yes. GPL-3.0, no accounts, no payments, no telemetry, no "
+             "Yes. Apache-2.0, no accounts, no payments, no telemetry, no "
              "advertising. You can read every line and build it yourself."),
             ("Which platforms does it run on?",
              "Android today. The core is Rust and the interface is Flutter, "
@@ -249,7 +258,7 @@ LANGS = {
                          (REPO + "/blob/main/AEGIS_PROTOCOL.md", "Protocol design"),
                          (REPO + "/blob/main/docs/CRYPTO_MATH.md", "Cryptographic details"),
                          (REPO + "/blob/main/SECURITY_AUDIT.md", "Security notes")],
-        "footer_licence": "Free software under the GNU General Public License v3.0.",
+        "footer_licence": "Open source under the Apache License 2.0.",
     },
     "ru": {
         "dir": "ru",
@@ -268,7 +277,7 @@ LANGS = {
         ),
         "skip": "Перейти к содержанию",
         "nav": [("#how", "Как устроено"), ("#crypto", "Криптография"),
-                ("#features", "Возможности"), ("#node", "Свой узел"),
+                ("#features", "Возможности"), ("#fdroid", "F-Droid"), ("#node", "Свой узел"),
                 ("#limits", "Границы"), ("#faq", "Вопросы")],
         "lang_switch": "English",
         "lang_switch_title": "Read this page in English",
@@ -284,7 +293,16 @@ LANGS = {
         ),
         "cta_download": "Скачать для Android",
         "cta_source": "Открыть исходный код",
-        "cta_note": "Бесплатно и с открытым кодом, GPL-3.0. APK ставится вручную — в Google Play его нет.",
+        "cta_fdroid": "Репозиторий F-Droid",
+        "fdroid_h2": "Обновления без аккаунта в магазине",
+        "fdroid_lead": (
+            "Добавьте репозиторий проекта в F-Droid, и Aegis будет обновляться "
+            "как обычное приложение — без аккаунта Google, без Play Services и "
+            "без ручной установки каждый раз. Сборки там подписаны тем же "
+            "ключом, что и APK на GitHub, так что переходить между ними можно "
+            "без переустановки."
+        ),
+        "cta_note": "Бесплатно и с открытым кодом, Apache-2.0. APK ставится вручную — в Google Play его нет.",
         "alpha_title": "Альфа-версия.",
         "alpha_body": (
             "Aegis не проходил внешний аудит безопасности. В протоколе и в его "
@@ -460,7 +478,7 @@ LANGS = {
              "ключом: если отпечаток сертификата изменился, APK пришёл не от "
              "этого проекта."),
             ("Это правда бесплатно?",
-             "Да. GPL-3.0, без аккаунтов, без платежей, без телеметрии и без "
+             "Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без "
              "рекламы. Можно прочитать каждую строку и собрать самому."),
             ("На каких платформах работает?",
              "Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что "
@@ -473,7 +491,7 @@ LANGS = {
                          (REPO + "/blob/main/AEGIS_PROTOCOL.md", "Описание протокола"),
                          (REPO + "/blob/main/docs/CRYPTO_MATH.md", "Криптографические детали"),
                          (REPO + "/blob/main/SECURITY_AUDIT.md", "Заметки по безопасности")],
-        "footer_licence": "Свободное ПО под GNU General Public License v3.0.",
+        "footer_licence": "Открытый код под Apache License 2.0.",
     },
 }
 
@@ -504,7 +522,7 @@ def json_ld(lang, d):
         '{"@type":"SoftwareApplication","name":"Aegis",'
         '"applicationCategory":"CommunicationApplication",'
         '"operatingSystem":"Android","url":%s,"inLanguage":"%s",'
-        '"description":%s,"license":"https://www.gnu.org/licenses/gpl-3.0.html",'
+        '"description":%s,"license":"https://www.apache.org/licenses/LICENSE-2.0",'
         '"isAccessibleForFree":true,'
         '"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},'
         '"downloadUrl":"%s/releases",'
@@ -620,6 +638,7 @@ def page(lang, d):
 <main id="main">
 
 <section class="hero">
+ <div class="hero-text">
   <p class="kicker">{e(d['hero_kicker'])}</p>
   <h1>{e(d['hero_h1_a'])}<br>{e(d['hero_h1_b'])}<br>
     <span class="accent">{e(d['hero_h1_c'])}</span></h1>
@@ -632,6 +651,14 @@ def page(lang, d):
   <aside class="alpha">
     <strong>{e(d['alpha_title'])}</strong> {e(d['alpha_body'])}
   </aside>
+ </div>
+ <div class="scene" aria-hidden="true">
+  <div class="onion">
+    <span class="ring r1"></span><span class="ring r2"></span>
+    <span class="ring r3"></span><span class="ring r4"></span>
+    <span class="ring r5"></span><span class="core"></span>
+  </div>
+ </div>
 </section>
 
 <section id="how">
@@ -662,6 +689,12 @@ def page(lang, d):
 <section id="shots">
   <h2>{e(d['shots_h2'])}</h2>
   <div class="shots">{shots}</div>
+</section>
+
+<section id="fdroid">
+  <h2>{e(d['fdroid_h2'])}</h2>
+  <p class="lead">{e(d['fdroid_lead'])}</p>
+  <p class="cta"><a class="btn" href="{root}fdroid/">{e(d['cta_fdroid'])}</a></p>
 </section>
 
 <section id="node">
