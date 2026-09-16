@@ -10,8 +10,24 @@
 # (a portable JDK is downloaded if `java` is absent). Only needs git + curl,
 # which you already have if this script was fetched.
 #
-# Needs ~8 GB free disk and ~2 GB RAM. On a <2 GB box the build may be OOM-killed
-# ("Killed"); without root you can't add swap, so build on a bigger box.
+# WHAT IT NEEDS
+#
+#   Disk  ~12 GB free. The toolchains dominate and none of it is this project:
+#         Android NDK r26d ~2.6 GB, Flutter SDK with its engine artifacts
+#         ~2.8 GB, Gradle distribution + caches ~1.5 GB, Rust with three Android
+#         std targets ~1.2 GB, Android SDK platform/build-tools/cmdline-tools
+#         ~0.7 GB, pub cache ~0.3 GB. Aegis itself is ~13 MB of source and
+#         ~0.5 GB of build output.
+#
+#   RAM   4 GB works; 2 GB is tight and 1 GB will not finish. The build caps the
+#         Gradle daemon's heap to half of available RAM (see
+#         prepare-android-project.sh) because Flutter's template asks for 8 GB,
+#         which on a small box means the kernel kills the JVM rather than the JVM
+#         collecting garbage. A kill shows up as a bare "Killed" or as Gradle
+#         reporting that its daemon "disappeared unexpectedly" -- neither of
+#         which points at memory.
+#
+#   Time  ~25-40 min on 2 vCPU for a first build; most of it is downloads.
 set -euo pipefail
 
 REPO="${REPO:-https://github.com/monxley/Aegis}"
