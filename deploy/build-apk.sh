@@ -127,7 +127,12 @@ if [ -f rust/src/frb_generated.rs ] && ! grep -qE '^\s*(pub\s+)?mod frb_generate
 fi
 
 log "cross-compiling the Rust engine for Android (a few minutes)"
+# RUSTFLAGS: 16 KB page alignment. Android 15 introduced 16 KB memory pages, and
+# a device running in that mode cannot load a native library linked for 4 KB --
+# the NDK's default. That shows up as a crash on first launch or, depending on
+# the vendor's installer, a bare "App not installed".
 ( cd rust && rm -f Cargo.lock && \
+  RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
   cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release )
 
 # Sign the release properly if a keystore is available.
