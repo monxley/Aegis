@@ -62,7 +62,8 @@ LANGS = {
         ),
         "cta_download": "Download for Android",
         "cta_source": "Read the source",
-        "cta_note": "Free and open source, GPL-3.0. Sideloaded APK — not on Google Play.",
+        "cta_fdroid": "Add the F-Droid repo",
+        "cta_note": "Free and open source, Apache-2.0. Sideloaded APK — not on Google Play.",
         "alpha_title": "Alpha software.",
         "alpha_body": (
             "Aegis has not had an external security audit. The protocol and "
@@ -236,7 +237,7 @@ LANGS = {
              "same key — if the certificate fingerprint changes, the APK did "
              "not come from this project."),
             ("Is it really free?",
-             "Yes. GPL-3.0, no accounts, no payments, no telemetry, no "
+             "Yes. Apache-2.0, no accounts, no payments, no telemetry, no "
              "advertising. You can read every line and build it yourself."),
             ("Which platforms does it run on?",
              "Android today. The core is Rust and the interface is Flutter, "
@@ -249,7 +250,7 @@ LANGS = {
                          (REPO + "/blob/main/AEGIS_PROTOCOL.md", "Protocol design"),
                          (REPO + "/blob/main/docs/CRYPTO_MATH.md", "Cryptographic details"),
                          (REPO + "/blob/main/SECURITY_AUDIT.md", "Security notes")],
-        "footer_licence": "Free software under the GNU General Public License v3.0.",
+        "footer_licence": "Open source under the Apache License 2.0.",
     },
     "ru": {
         "dir": "ru",
@@ -284,7 +285,8 @@ LANGS = {
         ),
         "cta_download": "Скачать для Android",
         "cta_source": "Открыть исходный код",
-        "cta_note": "Бесплатно и с открытым кодом, GPL-3.0. APK ставится вручную — в Google Play его нет.",
+        "cta_fdroid": "Репозиторий F-Droid",
+        "cta_note": "Бесплатно и с открытым кодом, Apache-2.0. APK ставится вручную — в Google Play его нет.",
         "alpha_title": "Альфа-версия.",
         "alpha_body": (
             "Aegis не проходил внешний аудит безопасности. В протоколе и в его "
@@ -460,7 +462,7 @@ LANGS = {
              "ключом: если отпечаток сертификата изменился, APK пришёл не от "
              "этого проекта."),
             ("Это правда бесплатно?",
-             "Да. GPL-3.0, без аккаунтов, без платежей, без телеметрии и без "
+             "Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без "
              "рекламы. Можно прочитать каждую строку и собрать самому."),
             ("На каких платформах работает?",
              "Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что "
@@ -473,7 +475,7 @@ LANGS = {
                          (REPO + "/blob/main/AEGIS_PROTOCOL.md", "Описание протокола"),
                          (REPO + "/blob/main/docs/CRYPTO_MATH.md", "Криптографические детали"),
                          (REPO + "/blob/main/SECURITY_AUDIT.md", "Заметки по безопасности")],
-        "footer_licence": "Свободное ПО под GNU General Public License v3.0.",
+        "footer_licence": "Открытый код под Apache License 2.0.",
     },
 }
 
@@ -504,7 +506,7 @@ def json_ld(lang, d):
         '{"@type":"SoftwareApplication","name":"Aegis",'
         '"applicationCategory":"CommunicationApplication",'
         '"operatingSystem":"Android","url":%s,"inLanguage":"%s",'
-        '"description":%s,"license":"https://www.gnu.org/licenses/gpl-3.0.html",'
+        '"description":%s,"license":"https://www.apache.org/licenses/LICENSE-2.0",'
         '"isAccessibleForFree":true,'
         '"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},'
         '"downloadUrl":"%s/releases",'
@@ -627,6 +629,7 @@ def page(lang, d):
   <p class="cta">
     <a class="btn primary" href="{REPO}/releases/latest" rel="noopener">{e(d['cta_download'])}</a>
     <a class="btn" href="{REPO}" rel="noopener">{e(d['cta_source'])}</a>
+    <a class="btn" href="{root}fdroid/">{e(d['cta_fdroid'])}</a>
   </p>
   <p class="fine">{e(d['cta_note'])}</p>
   <aside class="alpha">

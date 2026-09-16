@@ -1,0 +1,31 @@
+# F-Droid metadata for the repository this project hosts itself.
+#
+# Every claim here is the same one the site and README make, for the same
+# reason: a store listing is where overstatement is most tempting and least
+# checkable by the reader. Nothing is described as implemented that README.md's
+# roadmap does not mark implemented.
+Categories:
+  - Internet
+  - Security
+License: Apache-2.0
+AuthorName: monxley
+WebSite: https://monxley.github.io/Aegis/
+SourceCode: https://github.com/monxley/Aegis
+IssueTracker: https://github.com/monxley/Aegis/issues
+Changelog: https://github.com/monxley/Aegis/releases
+
+# No AntiFeatures are declared, and that is a considered answer rather than an
+# omission. The source is Apache-2.0 throughout with no proprietary
+# dependencies -- no Play Services, no Firebase, no tracking library -- so
+# UpstreamNonFree and Tracking would both be false.
+#
+# The one thing worth disclosing is that the app checks GitHub Releases for a
+# newer version and offers to open the download page, since a sideloaded build
+# has no other way to stay current. That is stated plainly in the description
+# instead, because none of F-Droid's existing tags describes it accurately and
+# a wrong tag is worse than a sentence.
+#
+# f-droid.org applies its own tags if this is ever submitted there; they are
+# not bound by this file.
+
+RequiresRoot: false
