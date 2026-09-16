@@ -1,0 +1,264 @@
+/* Aegis site.
+ *
+ * Palette taken from the brand hero (docs/screenshots/hero.jpg): near-black
+ * navy, amber accent, steel text, monospace for anything technical.
+ *
+ * No web fonts, no JavaScript, no third-party anything. Partly because it is
+ * the fastest a page can be -- Core Web Vitals are a ranking signal and an
+ * empty main thread wins them for free -- and partly because a privacy tool
+ * whose home page phones a font CDN on every visit is telling on itself. */
+
+:root {
+  --bg: #0a0d12;
+  --bg-2: #0f141b;
+  --panel: #121922;
+  --line: #1e2937;
+  --line-2: #2b3a4d;
+  --text: #e8edf4;
+  --muted: #8b98a9;
+  --accent: #f0972a;
+  --accent-soft: #ffb35c;
+  --teal: #4fd1c5;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --wrap: 1080px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 17px/1.65 var(--sans);
+  /* A single quiet wash, not the decorative gradients the app itself dropped. */
+  background-image:
+    radial-gradient(1100px 500px at 50% -8%, rgba(240,151,42,.07), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+h1, h2, h3 { line-height: 1.15; letter-spacing: -.02em; margin: 0 0 .5em; }
+h1 { font-size: clamp(2.3rem, 6.5vw, 3.9rem); font-weight: 800; }
+h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 650; }
+p { margin: 0 0 1em; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: var(--accent-soft); }
+code { font-family: var(--mono); font-size: .92em; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.skip {
+  position: absolute; left: -9999px;
+  background: var(--accent); color: #12161c;
+  padding: .6rem 1rem; border-radius: 0 0 8px 0; font-weight: 600; z-index: 10;
+}
+.skip:focus { left: 0; top: 0; }
+
+/* ---------- header ---------- */
+
+header.site {
+  display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;
+  max-width: var(--wrap); margin: 0 auto; padding: 1.1rem 20px;
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  display: inline-flex; align-items: center; gap: .55rem;
+  color: var(--text); text-decoration: none;
+  font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  font-size: .95rem;
+}
+/* The app icon is a near-black shield on a transparent background -- built for
+ * a launcher, where the system supplies a light tile. Dropped straight onto
+ * this page it is invisible, so it gets its tile here. */
+.brand img {
+  border-radius: 7px; background: var(--text); padding: 3px;
+  box-sizing: content-box;
+}
+header.site nav { display: flex; gap: 1.1rem; flex-wrap: wrap; margin-inline-start: auto; }
+header.site nav a, .head-actions a {
+  color: var(--muted); text-decoration: none; font-size: .9rem;
+}
+header.site nav a:hover, .head-actions a:hover { color: var(--text); }
+.head-actions { display: flex; gap: .85rem; align-items: center; }
+.head-actions .lang {
+  color: var(--teal); font-family: var(--mono); font-size: .82rem;
+  border: 1px solid var(--line-2); border-radius: 999px; padding: .2rem .7rem;
+}
+.head-actions .lang:hover { border-color: var(--teal); color: var(--teal); }
+
+/* ---------- layout ---------- */
+
+main { max-width: var(--wrap); margin: 0 auto; padding: 0 20px; }
+section { padding: 4.5rem 0; border-bottom: 1px solid var(--line); }
+section:last-child { border-bottom: 0; }
+.lead { color: var(--muted); font-size: 1.08rem; max-width: 62ch; }
+.fine { color: var(--muted); font-size: .86rem; }
+.note {
+  color: var(--muted); font-size: .95rem; max-width: 66ch;
+  border-inline-start: 2px solid var(--line-2); padding-inline-start: 1rem;
+}
+
+/* ---------- hero ---------- */
+
+.hero { padding: 4.5rem 0 4rem; border-bottom: 1px solid var(--line); }
+.kicker {
+  font-family: var(--mono); font-size: .76rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 1.5rem;
+}
+.hero h1 { margin-bottom: 1.1rem; }
+.accent { color: var(--accent); }
+.hero .lead { font-size: 1.16rem; margin-bottom: 1.8rem; }
+
+.cta { display: flex; gap: .75rem; flex-wrap: wrap; margin-bottom: .8rem; }
+.btn {
+  display: inline-block; padding: .72rem 1.35rem; border-radius: 10px;
+  border: 1px solid var(--line-2); color: var(--text); text-decoration: none;
+  font-weight: 600; font-size: .97rem;
+}
+.btn:hover { border-color: var(--muted); color: var(--text); }
+.btn.primary {
+  background: var(--accent); border-color: var(--accent); color: #14181d;
+}
+.btn.primary:hover { background: var(--accent-soft); border-color: var(--accent-soft); color: #14181d; }
+
+.alpha {
+  margin-top: 2rem; padding: 1rem 1.15rem; border-radius: 10px;
+  background: rgba(240,151,42,.07);
+  border: 1px solid rgba(240,151,42,.28);
+  color: var(--muted); font-size: .94rem; max-width: 64ch;
+}
+.alpha strong { color: var(--accent); }
+
+/* ---------- layers ---------- */
+
+.layers { list-style: none; margin: 2.2rem 0 0; padding: 0; display: grid; gap: .8rem; }
+.layer {
+  display: grid; gap: .35rem 1.1rem; align-items: start;
+  grid-template-columns: auto 1fr;
+  padding: 1.15rem 1.25rem; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.layer-n {
+  font-family: var(--mono); font-weight: 700; font-size: 1rem;
+  color: var(--accent); border: 1px solid rgba(240,151,42,.35);
+  border-radius: 8px; padding: .3rem .55rem; line-height: 1;
+}
+.layer-body h3 { margin: 0 0 .15rem; }
+.layer-tech {
+  font-family: var(--mono); font-size: .84rem; color: var(--teal);
+  margin: 0 0 .5rem;
+}
+.layer-body p:last-child { margin: 0; color: var(--muted); font-size: .96rem; }
+.layer-tag {
+  grid-column: 2; font-family: var(--mono); font-size: .76rem;
+  letter-spacing: .06em; color: var(--muted); text-transform: lowercase;
+}
+@media (min-width: 860px) {
+  .layer { grid-template-columns: auto 1fr 15rem; align-items: center; }
+  .layer-tag { grid-column: 3; text-align: end; }
+}
+
+/* ---------- table ---------- */
+
+.table-wrap { overflow-x: auto; margin: 2rem 0 1.5rem; }
+table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: .95rem; }
+th, td { text-align: start; padding: .68rem .9rem; border-bottom: 1px solid var(--line); }
+thead th {
+  font-family: var(--mono); font-size: .76rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); font-weight: 600;
+}
+tbody th { font-weight: 500; color: var(--text); }
+tbody td:first-of-type code { color: var(--teal); }
+tbody td:last-child { color: var(--muted); font-family: var(--mono); font-size: .86rem; }
+
+/* ---------- grids ---------- */
+
+.grid {
+  list-style: none; margin: 2.2rem 0 0; padding: 0;
+  display: grid; gap: .8rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+.grid li {
+  padding: 1.1rem 1.2rem; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+}
+.grid h3 { margin-bottom: .3rem; }
+.grid p { margin: 0; color: var(--muted); font-size: .94rem; }
+.grid.limits li { border-inline-start: 2px solid var(--accent); }
+
+/* ---------- screenshots ---------- */
+
+.shots {
+  display: grid; gap: 1rem; margin-top: 2.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+.shots figure { margin: 0; }
+.shots img {
+  width: 100%; height: auto; display: block; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--bg-2);
+}
+
+/* ---------- code ---------- */
+
+pre {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 1rem 1.15rem; overflow-x: auto;
+  margin: 1.8rem 0; font-size: .88rem; line-height: 1.6;
+}
+pre code { color: var(--teal); white-space: pre; }
+
+/* ---------- faq ---------- */
+
+.faq { margin-top: 2rem; display: grid; gap: .6rem; }
+details {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); padding: 0 1.2rem;
+}
+details[open] { border-color: var(--line-2); }
+summary {
+  cursor: pointer; padding: 1rem 0; list-style: none;
+  display: flex; align-items: center; gap: .7rem;
+}
+summary::-webkit-details-marker { display: none; }
+summary::before {
+  content: "+"; color: var(--accent); font-family: var(--mono);
+  font-size: 1.1rem; line-height: 1; flex: none;
+}
+details[open] summary::before { content: "\2212"; }
+summary h3 { margin: 0; font-weight: 600; }
+details p { color: var(--muted); font-size: .96rem; padding-bottom: 1.1rem; margin: 0; }
+
+/* ---------- footer ---------- */
+
+footer.site {
+  max-width: var(--wrap); margin: 0 auto; padding: 3rem 20px 4rem;
+  border-top: 1px solid var(--line);
+}
+.tagline {
+  font-family: var(--mono); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent); font-size: .82rem;
+}
+.flinks {
+  list-style: none; margin: 1.2rem 0; padding: 0;
+  display: flex; gap: 1.3rem; flex-wrap: wrap;
+}
+.flinks a { color: var(--muted); text-decoration: none; font-size: .92rem; }
+.flinks a:hover { color: var(--text); }
+
+/* Light mode: the brand is a dark one, so this only softens the black for
+ * people whose systems ask for light -- it does not invert the palette. */
+@media (prefers-color-scheme: light) {
+  :root { --bg: #0d1117; }
+}
