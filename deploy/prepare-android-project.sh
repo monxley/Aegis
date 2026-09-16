@@ -30,6 +30,43 @@ if [ ! -d android ]; then
   exit 1
 fi
 
+# Size the Gradle daemon's heap to the machine it is actually running on.
+#
+# Flutter's template writes `org.gradle.jvmargs=-Xmx8G -XX:MaxMetaspaceSize=4G`.
+# -Xmx is a ceiling rather than a reservation, so that is harmless on a large
+# machine -- but on a small VPS the JVM keeps growing instead of collecting, and
+# the kernel kills it. The build dies with a bare "Killed", or Gradle reports
+# that its daemon "disappeared unexpectedly", neither of which points at memory.
+#
+# Half of what the machine reports as available, clamped to [1.5G, 4G]: enough
+# for R8 and the Kotlin compiler on an app this size, and low enough that the
+# OOM killer is not the thing that decides when the build ends.
+GRADLE_PROPS="android/gradle.properties"
+if [ -f "$GRADLE_PROPS" ]; then
+  avail_mb=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+  heap_mb=$(( avail_mb / 2 ))
+  [ "$heap_mb" -lt 1536 ] && heap_mb=1536
+  [ "$heap_mb" -gt 4096 ] && heap_mb=4096
+  log "capping the Gradle heap at ${heap_mb}m (machine reports ${avail_mb}m available)"
+  python3 - "$GRADLE_PROPS" "$heap_mb" <<'PY'
+import re
+import sys
+
+path, heap = sys.argv[1], int(sys.argv[2])
+s = open(path).read()
+# Metaspace is class metadata, not heap; 4G of it is never needed and on a small
+# box it is memory the heap cannot have.
+args = f"org.gradle.jvmargs=-Xmx{heap}m -XX:MaxMetaspaceSize=512m " \
+       "-XX:+HeapDumpOnOutOfMemoryError"
+if re.search(r"^org\.gradle\.jvmargs=.*$", s, re.M):
+    s = re.sub(r"^org\.gradle\.jvmargs=.*$", args, s, count=1, flags=re.M)
+else:
+    s = s.rstrip("\n") + "\n" + args + "\n"
+open(path, "w").write(s)
+print(f"gradle heap set to {heap}m")
+PY
+fi
+
 # The app's own identity: its name in the installer and launcher, and the
 # package name Android installs it under.
 #
