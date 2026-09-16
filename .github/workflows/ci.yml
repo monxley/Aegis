@@ -109,10 +109,20 @@ jobs:
       - name: Analyze (compiles the Dart + generated bindings)
         working-directory: app
         run: flutter analyze
+      # 16 KB page alignment. Android 15 introduced 16 KB memory pages, and a
+      # device running in that mode cannot load a native library linked for 4 KB
+      # -- which is the NDK's default and therefore what this engine was built
+      # with. Depending on the vendor's installer that surfaces as a crash on
+      # first launch or as a bare "App not installed". Google Play has required
+      # it of new apps since November 2025 regardless.
+      #
+      # Only our own .so files are covered here. Flutter's engine is already
+      # aligned; libraries inside third-party AARs are not ours to relink.
       - name: Build the Rust engine for Android (arm64, arm, x86_64)
         working-directory: app/rust
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
         run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
       # Sign the release build with a real key when the repository has one.
       #
@@ -206,6 +216,41 @@ jobs:
           else
             echo "aapt2 not found; cannot report the package name or label."
           fi
+          echo "=============== 16 KB page alignment ==============="
+          # A device with 16 KB pages cannot load a library linked for 4 KB.
+          # Read it off the file rather than trusting that the linker flag took:
+          # p_align on each LOAD segment must be at least 0x4000.
+          python3 - "$apk" <<'PY' || echo "(could not check alignment)"
+          import struct, sys, zipfile
+
+          def loads_aligned(data):
+              if data[:4] != b"\x7fELF" or data[4] != 2:          # 64-bit only
+                  return None
+              phoff, = struct.unpack_from("<Q", data, 0x20)
+              phentsize, phnum = struct.unpack_from("<HH", data, 0x36)
+              worst = None
+              for i in range(phnum):
+                  off = phoff + i * phentsize
+                  p_type, = struct.unpack_from("<I", data, off)
+                  if p_type != 1:                                  # PT_LOAD
+                      continue
+                  p_align, = struct.unpack_from("<Q", data, off + 48)
+                  worst = p_align if worst is None else min(worst, p_align)
+              return worst
+
+          bad = 0
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              for n in sorted(x for x in z.namelist() if x.endswith(".so")):
+                  align = loads_aligned(z.read(n))
+                  if align is None:
+                      continue                                     # 32-bit: unaffected
+                  ok = align >= 0x4000
+                  bad += not ok
+                  print(f"  {'ok ' if ok else 'BAD'} p_align=0x{align:x}  {n}")
+          print("  -> every 64-bit library is 16 KB aligned" if not bad else
+                f"  -> {bad} library/libraries are NOT 16 KB aligned; they will not"
+                "\n     load on an Android 15+ device running 16 KB pages")
+          PY
           echo "=============== signature ==============="
           signer=$(find_tool apksigner || true)
           if [ -n "$signer" ]; then
