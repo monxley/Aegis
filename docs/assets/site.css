@@ -262,3 +262,156 @@ footer.site {
 @media (prefers-color-scheme: light) {
   :root { --bg: #0d1117; }
 }
+
+/* ===================================================================
+   3D
+   ===================================================================
+   CSS transforms only -- no library, no canvas, no JavaScript. About
+   2 KB, which keeps the critical path where the rest of this file put
+   it. The shapes are the product's own: five concentric layers around
+   one message, which is what the protocol does, so the motion says
+   something rather than just moving.
+
+   Everything here is switched off wholesale under
+   prefers-reduced-motion at the bottom of this block. */
+
+.hero { position: relative; }
+
+@media (min-width: 980px) {
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 3rem; align-items: center;
+  }
+}
+
+.scene {
+  display: none;
+  perspective: 1000px;
+  perspective-origin: 50% 50%;
+  height: 380px;
+  place-items: center;
+}
+@media (min-width: 980px) { .scene { display: grid; } }
+
+.onion {
+  position: relative;
+  width: 300px; height: 300px;
+  transform-style: preserve-3d;
+  /* Slow: this sits beside text people are meant to read. */
+  animation: onion-turn 38s linear infinite;
+}
+
+/* Each ring is a flat disc tipped in 3D. Because the parent preserves
+   3D, they genuinely intersect rather than merely overlapping, which is
+   what makes it read as depth instead of as concentric circles. */
+.ring {
+  position: absolute; inset: 0; margin: auto;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  transform-style: preserve-3d;
+}
+.ring.r1 { width: 300px; height: 300px; border-color: rgba(240,151,42,.55);
+           animation: ring-1 22s linear infinite; }
+.ring.r2 { width: 244px; height: 244px; border-color: rgba(79,209,197,.45);
+           border-style: dashed; animation: ring-2 27s linear infinite; }
+.ring.r3 { width: 188px; height: 188px; border-color: rgba(240,151,42,.35);
+           animation: ring-3 19s linear infinite; }
+.ring.r4 { width: 132px; height: 132px; border-color: rgba(79,209,197,.35);
+           border-style: dashed; animation: ring-4 31s linear infinite; }
+.ring.r5 { width: 76px; height: 76px; border-color: rgba(240,151,42,.6);
+           animation: ring-5 15s linear infinite; }
+
+/* The message at the centre: the one thing all five layers are around. */
+.core {
+  position: absolute; inset: 0; margin: auto;
+  width: 34px; height: 24px; border-radius: 5px;
+  background: var(--accent);
+  box-shadow: 0 0 26px 6px rgba(240,151,42,.45);
+  animation: core-pulse 4.5s ease-in-out infinite;
+}
+.core::after {
+  content: ""; position: absolute; inset: 0;
+  border-top: 12px solid rgba(0,0,0,.35);
+  border-left: 17px solid transparent; border-right: 17px solid transparent;
+  border-radius: 5px 5px 0 0;
+}
+
+@keyframes onion-turn {
+  from { transform: rotateX(62deg) rotateZ(0deg); }
+  to   { transform: rotateX(62deg) rotateZ(360deg); }
+}
+@keyframes ring-1 { from { transform: rotate3d(1,.3,0,0deg); }   to { transform: rotate3d(1,.3,0,360deg); } }
+@keyframes ring-2 { from { transform: rotate3d(.4,1,0,360deg); } to { transform: rotate3d(.4,1,0,0deg); } }
+@keyframes ring-3 { from { transform: rotate3d(1,1,.2,0deg); }   to { transform: rotate3d(1,1,.2,360deg); } }
+@keyframes ring-4 { from { transform: rotate3d(.2,1,.6,360deg); }to { transform: rotate3d(.2,1,.6,0deg); } }
+@keyframes ring-5 { from { transform: rotate3d(1,.6,.3,0deg); }  to { transform: rotate3d(1,.6,.3,360deg); } }
+@keyframes core-pulse {
+  0%, 100% { box-shadow: 0 0 26px 6px rgba(240,151,42,.40); }
+  50%      { box-shadow: 0 0 40px 12px rgba(240,151,42,.62); }
+}
+
+/* --- depth on the cards --------------------------------------------
+   A pointer tilt, and a lift out of the page. Kept small: a card that
+   swings is a card you stop reading. */
+
+.layer, .grid li, details {
+  transform: perspective(900px);
+  transition: transform .35s cubic-bezier(.2,.7,.3,1),
+              border-color .35s, box-shadow .35s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .layer:hover {
+    transform: perspective(900px) rotateX(2.2deg) rotateY(-2.2deg) translateZ(14px);
+    border-color: var(--line-2);
+    box-shadow: -14px 18px 40px -22px rgba(0,0,0,.9);
+  }
+  .grid li:hover {
+    transform: perspective(900px) rotateX(3deg) translateZ(12px);
+    border-color: var(--line-2);
+    box-shadow: 0 20px 40px -26px rgba(0,0,0,.9);
+  }
+  .btn { transition: transform .2s ease, background .2s, border-color .2s; }
+  .btn:hover { transform: translateZ(0) translateY(-2px); }
+}
+
+/* --- scroll-driven entrances ---------------------------------------
+   Scroll-driven animations, so there is still no JavaScript. Behind
+   @supports: where the browser does not have them the elements are
+   simply there, in their final state, with nothing missing. */
+
+@supports (animation-timeline: view()) {
+  .layer, .grid li, .shots figure, .table-wrap, .faq details {
+    animation: rise-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 55%;
+  }
+  /* Odd and even tip from opposite sides, so a column of cards does not
+     arrive as one slab. */
+  .layers .layer:nth-child(even) { animation-name: rise-in-alt; }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: perspective(900px) rotateX(-14deg) translateY(34px) translateZ(-60px); }
+  to   { opacity: 1; transform: perspective(900px) rotateX(0) translateY(0) translateZ(0); }
+}
+@keyframes rise-in-alt {
+  from { opacity: 0; transform: perspective(900px) rotateX(-14deg) rotateY(6deg) translateY(34px) translateZ(-60px); }
+  to   { opacity: 1; transform: perspective(900px) rotateX(0) rotateY(0) translateY(0) translateZ(0); }
+}
+
+/* --- the off switch -------------------------------------------------
+   Vestibular disorders make this kind of motion genuinely unpleasant,
+   and the request is explicit when it arrives. Everything stops; the
+   page keeps every word. */
+
+@media (prefers-reduced-motion: reduce) {
+  .onion, .ring, .core { animation: none !important; }
+  .onion { transform: rotateX(58deg); }
+  .layer, .grid li, details, .btn { transition: none; }
+  @supports (animation-timeline: view()) {
+    .layer, .grid li, .shots figure, .table-wrap, .faq details {
+      animation: none; opacity: 1; transform: none;
+    }
+  }
+}
