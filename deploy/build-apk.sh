@@ -196,3 +196,12 @@ echo "  then on your phone open:  http://$IP:8080/app-$BUILD.apk"
 echo "  (open port 8080 in the firewall for that download, then Ctrl-C the server)"
 echo "On Android: allow 'install from unknown sources' and open the APK."
 echo "The seed node is baked in, so it connects with no setup."
+echo
+# Said here rather than only in the header, because the header is what people
+# skip. ~10 GB of toolchain is now sitting under $HOME, which is most of a small
+# VPS's disk -- and on a box whose real job is running a node, it is dead weight
+# the moment the APK is copied off.
+echo "Note: this left ~10 GB of Android toolchain under $HOME (NDK, Flutter SDK,"
+echo "Gradle, Android SDK, caches). Once the APK is on your phone, reclaim it:"
+echo "  bash $SRC/deploy/clean-build-toolchain.sh"
+echo "It removes only the toolchain and never touches a node's data or binary."
