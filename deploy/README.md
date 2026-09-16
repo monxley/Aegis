@@ -78,6 +78,35 @@ PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 \
   docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
+## Reclaiming the disk after an APK build on the same box
+
+`build-apk.sh` leaves roughly **10 GB** of Android toolchain under `$HOME` — the
+NDK (~2.6 GB), the Flutter SDK and its engine artifacts (~2.8 GB), Gradle
+(~1.5 GB), the Rust Android targets (~0.6 GB), the Android SDK, the pub cache.
+It keeps all of it so a second build is fast, which is the wrong trade on a VPS
+whose job is running a node. Once the APK is copied off:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/clean-build-toolchain.sh | bash
+
+# See what it would remove first, without removing anything:
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/clean-build-toolchain.sh | DRY_RUN=1 bash
+```
+
+It removes only build toolchain. Before each delete it checks the path against
+the node's binary, its unit file and its **data dir** — read from the installed
+unit, so a node installed with a custom `DATA_DIR` is protected at the path it
+actually uses — and skips anything that holds or is part of the node. The node
+keeps its identity and its queued envelopes and does not restart.
+
+The base Rust toolchain is kept by default, because `install.sh` needs `cargo`
+to update the node; only the Android targets and the APK-only cargo tools go.
+Pass `PURGE_RUST=1` to remove `~/.cargo` and `~/.rustup` too (`install.sh`
+reinstalls rustup, ~400 MB, on the next update).
+
+The better arrangement is not to build the APK on the node's VPS at all: CI
+builds one on every push, and a tagged release publishes a signed APK.
+
 ## Quick start (Docker)
 
 ```sh
