@@ -12,13 +12,18 @@ name: Release
 # it on that version forever.
 on:
   push:
-    tags: ["v*"]
+    # Both cases: this repository's first tag was `V0.3.0-Aegis`, which `v*` did
+    # not match, so tagging it published nothing and said nothing.
+    tags: ["v*", "V*"]
   # Deliberate manual runs, for a re-publish after a failed upload.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build and publish (e.g. v0.1.1)"
+        description: "Existing tag to build and publish (e.g. v1.0.0)"
         required: true
+      release_name:
+        description: "Release title (default: Aegis <tag>)"
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,6 +38,43 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # A tag the app cannot read is a release nobody is ever offered.
+      #
+      # The in-app updater asks GitHub for the latest release and hands its
+      # `tag_name` to is_newer_version() in the Rust core. That parses a leading
+      # v/V, then everything up to the first `-` or `+`, and needs a number
+      # there. A tag like `Aegis-V1` yields None, is_newer_version returns false,
+      # and every existing install goes on believing it is current -- silently,
+      # forever, with nothing in any log.
+      #
+      # So the tag stays machine-readable and the *title* carries the name:
+      # tag `v1.0.0`, release "Aegis V1".
+      #
+      # This mirrors parse_version in crates/aegis-api/src/lib.rs, which is the
+      # authority; if the two ever disagree, that file is right and this is
+      # stale.
+      - name: Require a tag the updater can parse
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          python3 - "$tag" <<'PY'
+          import sys
+          tag = sys.argv[1].strip()
+          core = tag.lstrip("vV").split("-")[0].split("+")[0]
+          head = core.split(".")[0].strip()
+          if not head.isdigit():
+              print(f"Tag {tag!r} does not start with a version number.")
+              print()
+              print("The in-app updater parses the release tag to decide whether a")
+              print("build is newer. This one does not parse, so no existing")
+              print("install would ever be offered this release -- and nothing")
+              print("would report that.")
+              print()
+              print("Tag it v1.0.0 and set the release title instead:")
+              print("  gh workflow run release.yml -f tag=v1.0.0 -f release_name='Aegis V1'")
+              sys.exit(1)
+          print(f"tag {tag!r} parses as version {core!r}")
+          PY
 
       # Fail before spending twelve minutes on a build that cannot be published.
       - name: Require a real signing key
@@ -161,10 +203,33 @@ jobs:
             "^package:|^application-label:|^native-code:" || true
           sha256sum "$apk" | tee "$GITHUB_WORKSPACE/app-release.apk.sha256"
 
+      # The last gate before the world sees it: does this exact file run?
+      # CI does this on every push, and a release is the one build where finding
+      # out afterwards costs the most -- an APK that installs and dies is worse
+      # than no release, because the update it needs cannot reach anyone who
+      # cannot open the app.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch it on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash deploy/smoke-test-apk.sh app/build/app/outputs/flutter-apk/app-release.apk
+
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          # The tag is what machines read; this is what people read.
+          name: ${{ github.event.inputs.release_name || format('Aegis {0}', github.event.inputs.tag || github.ref_name) }}
           files: |
             app/build/app/outputs/flutter-apk/app-release.apk
             app-release.apk.sha256
