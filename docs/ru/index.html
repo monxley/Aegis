@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegis — анонимный постквантовый мессенджер</title>
+<meta name="description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
+<meta name="keywords" content="анонимный мессенджер, постквантовое шифрование, мессенджер без номера телефона, защита метаданных, миксеть, мессенджер с открытым исходным кодом, луковая маршрутизация, ML-KEM">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#0a0d12">
+<link rel="canonical" href="https://monxley.github.io/Aegis/ru/">
+<link rel="alternate" hreflang="en" href="https://monxley.github.io/Aegis/">
+<link rel="alternate" hreflang="ru" href="https://monxley.github.io/Aegis/ru/">
+<link rel="alternate" hreflang="x-default" href="https://monxley.github.io/Aegis/">
+<link rel="icon" href="../assets/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="../assets/icon.png">
+<link rel="stylesheet" href="../assets/site.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Aegis">
+<meta property="og:title" content="Aegis — анонимный постквантовый мессенджер">
+<meta property="og:description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
+<meta property="og:url" content="https://monxley.github.io/Aegis/ru/">
+<meta property="og:image" content="https://monxley.github.io/Aegis/brand/lockup.png">
+<meta property="og:image:width" content="1402">
+<meta property="og:image:height" content="400">
+<meta property="og:image:alt" content="Aegis — post-quantum private messenger">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Aegis — анонимный постквантовый мессенджер">
+<meta name="twitter:description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
+<meta name="twitter:image" content="https://monxley.github.io/Aegis/brand/lockup.png">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Aegis","applicationCategory":"CommunicationApplication","operatingSystem":"Android","url":"https://monxley.github.io/Aegis/ru/","inLanguage":"ru","description":"Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.","license":"https://www.gnu.org/licenses/gpl-3.0.html","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/monxley/Aegis/releases","softwareHelp":"https://github.com/monxley/Aegis/blob/main/AEGIS_PROTOCOL.md","codeRepository":"https://github.com/monxley/Aegis"},{"@type":"FAQPage","inLanguage":"ru","mainEntity":[{"@type":"Question","name":"Нужен ли номер телефона или почта?","acceptedAnswer":{"@type":"Answer","text":"Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже."}},{"@type":"Question","name":"Что здесь постквантового?","acceptedAnswer":{"@type":"Answer","text":"Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую."}},{"@type":"Question","name":"Могут ли серверы прочитать мои сообщения?","acceptedAnswer":{"@type":"Answer","text":"Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес."}},{"@type":"Question","name":"Чем это отличается от Signal?","acceptedAnswer":{"@type":"Answer","text":"Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Aegis нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное."}},{"@type":"Question","name":"Есть ли он в Google Play?","acceptedAnswer":{"@type":"Answer","text":"Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта."}},{"@type":"Question","name":"Это правда бесплатно?","acceptedAnswer":{"@type":"Answer","text":"Да. GPL-3.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому."}},{"@type":"Question","name":"На каких платформах работает?","acceptedAnswer":{"@type":"Answer","text":"Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android."}}]}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Перейти к содержанию</a>
+
+<header class="site">
+  <a class="brand" href="https://monxley.github.io/Aegis/ru/">
+    <img src="../assets/icon.png" alt="" width="32" height="32">
+    <span>Aegis</span>
+  </a>
+  <nav aria-label="Пять слоёв, одно сообщение"><a href="#how">Как устроено</a><a href="#crypto">Криптография</a><a href="#features">Возможности</a><a href="#node">Свой узел</a><a href="#limits">Границы</a><a href="#faq">Вопросы</a></nav>
+  <div class="head-actions">
+    <a class="lang" href="https://monxley.github.io/Aegis/" hreflang="en" lang="en"
+       title="Read this page in English">English</a>
+    <a class="ghost" href="https://github.com/monxley/Aegis" rel="noopener">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <p class="kicker">На ядре Ciphra · Постквантовый · Анонимный · Без зависимостей</p>
+  <h1>Не перехватить.<br>Не прочитать.<br>
+    <span class="accent">Не связать.</span></h1>
+  <p class="lead">Aegis — анонимный мессенджер со сквозным шифрованием. Без номера телефона, без почты, без аккаунта на чьём-либо сервере. Узлы, через которые идут сообщения, не могут их прочитать и не знают, между кем они.</p>
+  <p class="cta">
+    <a class="btn primary" href="https://github.com/monxley/Aegis/releases/latest" rel="noopener">Скачать для Android</a>
+    <a class="btn" href="https://github.com/monxley/Aegis" rel="noopener">Открыть исходный код</a>
+  </p>
+  <p class="fine">Бесплатно и с открытым кодом, GPL-3.0. APK ставится вручную — в Google Play его нет.</p>
+  <aside class="alpha">
+    <strong>Альфа-версия.</strong> Aegis не проходил внешний аудит безопасности. В протоколе и в его реализации могут быть ошибки. Не полагайтесь на него там, где ошибка поставит кого-то под удар.
+  </aside>
+</section>
+
+<section id="how">
+  <h2>Пять слоёв, одно сообщение</h2>
+  <p class="lead">Каждый слой убирает то, что иначе узнал бы наблюдатель. Ни один из них здесь не придуман: все конструкции — опубликованные схемы, реализованные с нуля на криптоядре без зависимостей.</p>
+  <ol class="layers"><li class="layer"><span class="layer-n" aria-hidden="true">01</span><div class="layer-body"><h3>Личность</h3><p class="layer-tech">Стелс-адреса · только DH</p><p>Каждое сообщение уходит на новый одноразовый адрес, выведенный из открытого ключа получателя. Два сообщения одному человеку невозможно связать друг с другом никому, кроме него самого. Конструкция — CryptoNote, та же, что в Monero.</p></div><span class="layer-tag">анонимность получателя</span></li><li class="layer"><span class="layer-n" aria-hidden="true">02</span><div class="layer-body"><h3>Рукопожатие</h3><p class="layer-tech">PQXDH · X25519 + ML-KEM-768</p><p>Первый контакт согласует ключ одновременно на эллиптической кривой и на решётках. Противник, записывающий трафик сегодня, чтобы расшифровать его на будущем квантовом компьютере, не получит ничего: нужно сломать обе схемы сразу.</p></div><span class="layer-tag">постквантовое согласование ключа</span></li><li class="layer"><span class="layer-n" aria-hidden="true">03</span><div class="layer-body"><h3>Сессия</h3><p class="layer-tech">Постквантовый Double Ratchet</p><p>Ключи двигаются вперёд с каждым сообщением, а по ходу переписки подмешиваются новые инкапсуляции ML-KEM. Кража сегодняшнего ключа не открывает вчерашние сообщения, а сессия после утечки восстанавливается.</p></div><span class="layer-tag">прямая и посткомпрометационная секретность</span></li><li class="layer"><span class="layer-n" aria-hidden="true">04</span><div class="layer-body"><h3>Доставка</h3><p class="layer-tech">Слепой узел + запечатанный отправитель</p><p>Сообщения ждут в почтовом ящике на узле, у которого нет ключа к ним и которому не сообщают отправителя. Не хотите верить на слово — поднимите свой узел.</p></div><span class="layer-tag">анонимность отправителя · без открытого текста</span></li><li class="layer"><span class="layer-n" aria-hidden="true">05</span><div class="layer-body"><h3>Сеть</h3><p class="layer-tech">Луковица Sphinx → миксеть Loopix</p><p>Пакеты одного размера, завёрнуты слоями, задерживаются поодиночке и смешиваются с прикрывающим трафиком. Наблюдатель, видящий сеть целиком, всё равно не проведёт линию от вас к собеседнику.</p></div><span class="layer-tag">устойчивость к анализу трафика</span></li></ol>
+</section>
+
+<section id="crypto">
+  <h2>Что здесь за криптография</h2>
+  <p class="lead">Названо точно, чтобы это можно было проверить, а не принять на веру. Каждый примитив реализован по спецификации без сторонних библиотек и проверен на опубликованных тестовых векторах.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">Назначение</th>
+      <th scope="col">Алгоритм</th>
+      <th scope="col">Спецификация</th></tr></thead>
+    <tbody><tr><th scope="row">Инкапсуляция ключа (постквантовая)</th><td><code>ML-KEM-768</code></td><td>FIPS 203</td></tr><tr><th scope="row">Подписи (постквантовые)</th><td><code>ML-DSA-65</code></td><td>FIPS 204</td></tr><tr><th scope="row">Согласование ключа (классическое)</th><td><code>X25519</code></td><td>RFC 7748</td></tr><tr><th scope="row">Аутентифицированное шифрование</th><td><code>ChaCha20-Poly1305</code></td><td>RFC 8439</td></tr><tr><th scope="row">Вывод ключей</th><td><code>HKDF-SHA-256</code></td><td>RFC 5869</td></tr><tr><th scope="row">Хеширование</th><td><code>SHA-2 / SHA-3</code></td><td>FIPS 180-4 / 202</td></tr><tr><th scope="row">Формат луковицы</th><td><code>Sphinx, полезная нагрузка LIONESS</code></td><td>Danezis–Goldberg</td></tr><tr><th scope="row">Перемешивание и прикрывающий трафик</th><td><code>Loopix</code></td><td>Piotrowska et al.</td></tr></tbody>
+  </table>
+  </div>
+  <p class="note">Рукопожатие — PQXDH: X25519 и ML-KEM-768 вместе, чтобы ключ сессии пережил взлом любой одной из схем. Signal развернул конструкцию той же формы и по той же причине.</p>
+</section>
+
+<section id="features">
+  <h2>Что внутри</h2>
+  <ul class="grid"><li><h3>Без номера и без аккаунта</h3><p>Личность — это пара ключей, созданная на вашем устройстве. Нечего подтверждать, негде регистрироваться, нечего отобрать.</p></li><li><h3>Фраза восстановления из 24 слов</h3><p>Резервная копия личности и перенос на другое устройство. Это единственная копия — сбросить её за вас никто не может.</p></li><li><h3>Пароль под принуждением</h3><p>Второй пароль открывает пустой подставной аккаунт. Настоящий остаётся запечатанным и ничем себя не выдаёт.</p></li><li><h3>Экстренное стирание</h3><p>Удержать для подтверждения — с экрана блокировки или из настроек — и личность с перепиской стираются.</p></li><li><h3>Маскировка приложения</h3><p>Подменить иконку и название на калькулятор, заметки или погоду.</p></li><li><h3>Исчезающие сообщения</h3><p>Таймер для каждого чата, синхронный с собеседником, чистится на обоих устройствах.</p></li><li><h3>Контрольные номера</h3><p>Сверить короткий код лично или по другому каналу и исключить посредника в середине.</p></li><li><h3>Tor и SOCKS5 цепочкой</h3><p>Пустить весь трафик через прокси, через Tor или через оба подряд.</p></li><li><h3>Блокировка скриншотов</h3><p>Android FLAG_SECURE включён по умолчанию, при желании отключается.</p></li><li><h3>Собственные узлы</h3><p>Указать приложению свою инфраструктуру и ходить только через неё.</p></li><li><h3>Биометрия</h3><p>Отпечаток или лицо поверх пароля приложения, ключ хранится в системном хранилище.</p></li><li><h3>Работает в фоне</h3><p>Служба переднего плана продолжает принимать, так что сообщения приходят при закрытом приложении.</p></li></ul>
+</section>
+
+<section id="shots">
+  <h2>Приложение</h2>
+  <div class="shots"><figure><img src="../screenshots/chats.jpg" alt="Список переписок Aegis на Android" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/settings-security.jpg" alt="Настройки безопасности Aegis: блокировка, пароль под принуждением, экстренное стирание" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/settings-privacy.jpg" alt="Настройки приватности Aegis: цепочка Tor и SOCKS5, блокировка скриншотов" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/nodes.jpg" alt="Вид сети Aegis со списком найденных микс-узлов" width="1968" height="2184" loading="lazy" decoding="async"></figure></div>
+</section>
+
+<section id="node">
+  <h2>Поднять свой узел</h2>
+  <p class="lead">Сеть — это те, кто её держит. Узел совмещает слепой почтовый ящик и микс: хранит запечатанные конверты, к которым у него нет ключа, и пересылает луковичные пакеты, из которых видно только предыдущий и следующий шаг. Одна команда на любом VPS:</p>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | sudo bash</code></pre>
+  <p>Скрипт соберёт бинарник, заведёт системного пользователя и запустит systemd-юнит. Откройте порты 5077 и 5078. Повторный запуск той же команды обновляет узел на месте и сохраняет его личность.</p>
+</section>
+
+<section id="limits">
+  <h2>Честные границы</h2>
+  <p class="lead">Взято из раздела non-goals в самом описании протокола. Заявление о безопасности без указанных границ — это реклама.</p>
+  <ul class="grid limits"><li><h3>Внешнего аудита не было</h3><p>Aegis в альфе, и его не проверял никто вне проекта. Считайте каждую гарантию на этой странице проектным намерением, которое пока не подтверждено независимо.</p></li><li><h3>Анонимности нужна толпа</h3><p>Вы скрыты среди тех, кто пользуется сетью одновременно с вами. Пока их мало — мала и защита. Так устроена любая анонимная система.</p></li><li><h3>Глобальный противник не решён</h3><p>Loopix резко повышает стоимость анализа трафика. Действительно глобальный и долго наблюдающий противник остаётся самой трудной открытой задачей в этой области. Мы заявляем сильную устойчивость, а не невозможность.</p></li><li><h3>Ваше устройство остаётся вашим устройством</h3><p>Если кто-то управляет вашим телефоном, пока Aegis разблокирован, сообщения у него на экране. Это не чинится протоколом.</p></li></ul>
+</section>
+
+<section id="faq">
+  <h2>Вопросы</h2>
+  <div class="faq"><details><summary><h3>Нужен ли номер телефона или почта?</h3></summary><p>Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже.</p></details><details><summary><h3>Что здесь постквантового?</h3></summary><p>Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую.</p></details><details><summary><h3>Могут ли серверы прочитать мои сообщения?</h3></summary><p>Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес.</p></details><details><summary><h3>Чем это отличается от Signal?</h3></summary><p>Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Aegis нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное.</p></details><details><summary><h3>Есть ли он в Google Play?</h3></summary><p>Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта.</p></details><details><summary><h3>Это правда бесплатно?</h3></summary><p>Да. GPL-3.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому.</p></details><details><summary><h3>На каких платформах работает?</h3></summary><p>Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android.</p></details></div>
+</section>
+
+</main>
+
+<footer class="site">
+  <p class="tagline">Реализуй, не изобретай.</p>
+  <ul class="flinks"><li><a href="https://github.com/monxley/Aegis">Исходный код</a></li><li><a href="https://github.com/monxley/Aegis/releases">Выпуски</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/AEGIS_PROTOCOL.md">Описание протокола</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/docs/CRYPTO_MATH.md">Криптографические детали</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/SECURITY_AUDIT.md">Заметки по безопасности</a></li></ul>
+  <p class="fine">Свободное ПО под GNU General Public License v3.0.</p>
+</footer>
+</body>
+</html>
