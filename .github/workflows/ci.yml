@@ -266,3 +266,58 @@ jobs:
             echo "apksigner not found; cannot report which key signed this APK."
           fi
           echo "========================================="
+
+  # Everything above reads the APK as a file. None of it can tell you whether
+  # the app runs -- and this project has shipped a perfectly valid APK whose
+  # native library aborted on load, with a green build saying nothing about it.
+  # So: boot an emulator, install it, start it, and look.
+  smoke:
+    name: Install and launch the APK on an emulator
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the APK the build just produced
+        uses: actions/download-artifact@v4
+        with:
+          # Matches both artifact names -- the build renames it when it had to
+          # fall back to the debug key, and this test is worth running either
+          # way. A debug-signed APK installs fine on a device that has no other
+          # copy of it, which is exactly what a fresh emulator is.
+          pattern: aegis-*apk*
+          merge-multiple: true
+          path: apk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # The emulator needs KVM, and the runner's udev rules do not grant it to
+      # the unprivileged user by default.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch it
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          # An emulator that boots with an unlocked, awake screen; otherwise the
+          # activity starts behind the keyguard and never resumes.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash deploy/smoke-test-apk.sh apk/app-release.apk
+      # The screenshot is the point: it is the only artifact in this repository
+      # that shows the app as a user would see it.
+      - name: Upload the screenshot and logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-first-launch
+          path: |
+            screen.png
+            logcat.txt
+          if-no-files-found: warn
