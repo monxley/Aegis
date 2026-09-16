@@ -107,6 +107,54 @@ reinstalls rustup, ~400 MB, on the next update).
 The better arrangement is not to build the APK on the node's VPS at all: CI
 builds one on every push, and a tagged release publishes a signed APK.
 
+## Building the APK on a phone (Termux) — don't
+
+There is no command for this, and the reason is not effort or packaging. Three
+separate parts of the Android toolchain are published for **x86-64 hosts only**,
+so an arm64 phone has nothing to run:
+
+1. **Flutter's Android AOT compiler.** `flutter build apk --release` runs
+   `gen_snapshot` on the *host* to compile Dart ahead of time. Flutter publishes
+   it per host architecture, and the list has no arm64 Linux entry —
+   `packages/flutter_tools/lib/src/flutter_cache.dart`, `_linuxBinaryDirs`, is
+   six lines and every one of them is `linux-x64`. `artifacts.dart` resolves the
+   binary under `<engine>/<host>/gen_snapshot` and special-cases only Apple
+   Silicon (down to `darwin-x64`), so an arm64 Linux host asks for
+   `android-arm64-release/linux-arm64.zip`, which does not exist. **A release
+   APK cannot be built on any arm64 host**, Termux, proot or Raspberry Pi alike.
+2. **Google's build-tools.** `aapt2`, `zipalign` and `aidl` ship as x86-64 ELF
+   binaries, including the `aapt2` that AGP pulls from Maven. They do not run on
+   aarch64 at all. Rebuilt aarch64 versions exist outside Google (AndroidIDE
+   ships some); nothing in this repo uses or vouches for them.
+3. **The NDK**, which cross-compiles the Rust engine, is released for x86-64
+   Linux, macOS and Windows. There is no arm64 Linux NDK, so `cargo ndk` has
+   nothing to call. (Termux's own clang *is* an `aarch64-linux-android`
+   toolchain, so the Rust half alone could be built there — arm64 only.)
+
+Even ignoring all three, the build wants ~10 GB of free space and more RAM than
+a phone will give Gradle, R8 and the Dart compiler at once.
+
+**What to do from a phone instead** — drive CI from Termux and install what it
+produces. This gives a properly signed release APK, which an on-device build
+could never do anyway:
+
+```sh
+pkg install gh
+gh auth login
+gh workflow run release.yml -R monxley/Aegis -f tag=v0.1.0   # or push a v* tag
+gh run watch  -R monxley/Aegis
+gh release download v0.1.0 -R monxley/Aegis -p '*.apk'
+termux-open app-release.apk
+```
+
+Check what you are installing first — the release publishes a SHA-256 next to
+the APK:
+
+```sh
+gh release download v0.1.0 -R monxley/Aegis -p '*.sha256'
+sha256sum -c app-release.apk.sha256
+```
+
 ## Quick start (Docker)
 
 ```sh
