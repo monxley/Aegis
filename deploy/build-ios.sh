@@ -79,7 +79,7 @@ flutter pub get >/dev/null
 # iOS launcher icon from the bundled source PNG (best-effort; keeps the default
 # Flutter icon if generation fails rather than breaking the build).
 log "generating the iOS app icon"
-dart run flutter_launcher_icons -f flutter_launcher_icons-ios.yaml >/dev/null 2>&1 \
+dart run flutter_launcher_icons -f ios-launcher-icons.yaml \
   || warn "app-icon generation failed (keeping default)"
 
 mkdir -p lib/src/rust           # codegen canonicalizes this path before creating it

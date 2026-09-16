@@ -1,0 +1,24 @@
+# iOS-only launcher-icon config, used by deploy/build-ios.sh:
+#   dart run flutter_launcher_icons -f ios-launcher-icons.yaml
+#
+# Kept separate from the `flutter_launcher_icons:` block in pubspec.yaml (which
+# the Android build uses) so each platform is generated on its own — the Android
+# build has no ios/ folder and the iOS build has no android/ folder.
+#
+# THE NAME MATTERS. This was called flutter_launcher_icons-ios.yaml, and
+# flutter_launcher_icons treats every `flutter_launcher_icons-*.yaml` in the
+# directory as a FLAVOUR to build. So the Android run, which passes no -f,
+# discovered a flavour called "ios", tried to write iOS icons into a project
+# with no ios/ folder, died on the missing project.pbxproj -- and never reached
+# the Android config in pubspec.yaml at all. The Android launcher icon was
+# therefore never generated, in either build path, and the failure was swallowed
+# by `>/dev/null 2>&1 ||`. Do not rename this back to that pattern.
+#
+# iOS icons must be fully opaque (the App Store rejects alpha), so the shield is
+# flattened onto a white background.
+flutter_launcher_icons:
+  ios: true
+  android: false
+  image_path: "assets/logo/icon.png"
+  remove_alpha_ios: true
+  background_color_ios: "#FFFFFF"
