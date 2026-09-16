@@ -110,7 +110,8 @@ keypass: "$KEY_PASSWORD"
 make_current_version_link: false
 YAML
 )
-cp "$HERE/app/assets/logo/icon.png" "$WORK/repo/icon.png" 2>/dev/null || true
+mkdir -p "$WORK/repo/icons"
+cp "$HERE/app/assets/logo/icon.png" "$WORK/repo/icons/icon.png" 2>/dev/null || true
 
 ( cd "$WORK" && fdroid update --pretty --verbose ) || fail "fdroid update failed"
 
