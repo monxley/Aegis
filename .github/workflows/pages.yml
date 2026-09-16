@@ -78,12 +78,24 @@ jobs:
                  "secrets (deploy/make-release-key.sh prints them)."
           fi
 
+      # NOT the apt package. Ubuntu ships fdroidserver 2.2.1, which pulls
+      # androguard 3.x, which cannot parse a resources.arsc produced by a
+      # current aapt2 -- it asserts a reserved byte is zero and aborts:
+      #     androguard...ResParserError: res1 must be zero!
+      # That is what failed run 35162442977 on a perfectly good APK. 2.4+
+      # carries androguard 4.x, which reads it.
       - name: Install fdroidserver
         if: steps.key.outputs.have == 'true'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends fdroidserver
-          fdroid --version
+          sudo apt-get install -y -qq --no-install-recommends libmagic1
+          python3 -m venv "$RUNNER_TEMP/fdroid"
+          "$RUNNER_TEMP/fdroid/bin/pip" install --quiet --upgrade pip
+          "$RUNNER_TEMP/fdroid/bin/pip" install --quiet 'fdroidserver>=2.4'
+          echo "$RUNNER_TEMP/fdroid/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/fdroid/bin/fdroid" --version
+          "$RUNNER_TEMP/fdroid/bin/python" -c \
+            "import androguard; print('androguard', androguard.__version__)"
 
       # Only releases built by release.yml carry the release signature; the
       # script drops anything signed with a different key, which is what the
@@ -105,7 +117,9 @@ jobs:
           [ -n "$(ls -A apks 2>/dev/null)" ] || echo "::warning::No release APKs found yet."
 
       - name: Build the F-Droid repository
+        id: fdroid
         if: steps.key.outputs.have == 'true'
+        continue-on-error: true
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -138,6 +152,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+    outputs:
+      fdroid: ${{ steps.fdroid.outcome }}
 
   deploy:
     needs: build
@@ -148,3 +164,17 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # The site is published by now either way. This exists so that an F-Droid
+  # failure still turns the run red rather than passing unnoticed -- the first
+  # attempt at this took the whole site down with it, which is the opposite
+  # mistake.
+  fdroid-status:
+    needs: [build, deploy]
+    if: always() && needs.build.outputs.fdroid == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "The site deployed, but the F-Droid repository did not build." >&2
+          echo "See the 'Build the F-Droid repository' step in the build job." >&2
+          exit 1
