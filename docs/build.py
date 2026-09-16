@@ -62,6 +62,7 @@ LANGS = {
         ),
         "cta_download": "Download for Android",
         "cta_source": "Read the source",
+        "cta_fdroid": "Add the F-Droid repo",
         "cta_note": "Free and open source, Apache-2.0. Sideloaded APK — not on Google Play.",
         "alpha_title": "Alpha software.",
         "alpha_body": (
@@ -284,6 +285,7 @@ LANGS = {
         ),
         "cta_download": "Скачать для Android",
         "cta_source": "Открыть исходный код",
+        "cta_fdroid": "Репозиторий F-Droid",
         "cta_note": "Бесплатно и с открытым кодом, Apache-2.0. APK ставится вручную — в Google Play его нет.",
         "alpha_title": "Альфа-версия.",
         "alpha_body": (
@@ -627,6 +629,7 @@ def page(lang, d):
   <p class="cta">
     <a class="btn primary" href="{REPO}/releases/latest" rel="noopener">{e(d['cta_download'])}</a>
     <a class="btn" href="{REPO}" rel="noopener">{e(d['cta_source'])}</a>
+    <a class="btn" href="{root}fdroid/">{e(d['cta_fdroid'])}</a>
   </p>
   <p class="fine">{e(d['cta_note'])}</p>
   <aside class="alpha">
