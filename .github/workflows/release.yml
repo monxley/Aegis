@@ -1,0 +1,255 @@
+name: Release
+
+# Publishing a build, as opposed to producing one. CI builds an APK on every
+# push so regressions surface early; this runs on a version tag and attaches the
+# result to a GitHub Release, where the app's own updater looks for it.
+#
+# It REFUSES to publish a debug-signed APK. CI is allowed to fall back to the
+# debug key and name the artifact accordingly, because a broken build is worth
+# looking at either way. A release is not: an APK signed with Android's public
+# debug key cannot be installed over the previous version, and is evidence of
+# nothing about who built it. Shipping one would strand every user who installed
+# it on that version forever.
+on:
+  push:
+    # Both cases: this repository's first tag was `V0.3.0-Aegis`, which `v*` did
+    # not match, so tagging it published nothing and said nothing.
+    tags: ["v*", "V*"]
+  # Deliberate manual runs, for a re-publish after a failed upload.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (e.g. v1.0.0)"
+        required: true
+      release_name:
+        description: "Release title (default: Aegis <tag>)"
+        required: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write        # needed to create the release and upload the APK
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # A tag the app cannot read is a release nobody is ever offered.
+      #
+      # The in-app updater asks GitHub for the latest release and hands its
+      # `tag_name` to is_newer_version() in the Rust core. That parses a leading
+      # v/V, then everything up to the first `-` or `+`, and needs a number
+      # there. A tag like `Aegis-V1` yields None, is_newer_version returns false,
+      # and every existing install goes on believing it is current -- silently,
+      # forever, with nothing in any log.
+      #
+      # So the tag stays machine-readable and the *title* carries the name:
+      # tag `v1.0.0`, release "Aegis V1".
+      #
+      # This mirrors parse_version in crates/aegis-api/src/lib.rs, which is the
+      # authority; if the two ever disagree, that file is right and this is
+      # stale.
+      - name: Require a tag the updater can parse
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          python3 - "$tag" <<'PY'
+          import sys
+          tag = sys.argv[1].strip()
+          core = tag.lstrip("vV").split("-")[0].split("+")[0]
+          head = core.split(".")[0].strip()
+          if not head.isdigit():
+              print(f"Tag {tag!r} does not start with a version number.")
+              print()
+              print("The in-app updater parses the release tag to decide whether a")
+              print("build is newer. This one does not parse, so no existing")
+              print("install would ever be offered this release -- and nothing")
+              print("would report that.")
+              print()
+              print("Tag it v1.0.0 and set the release title instead:")
+              print("  gh workflow run release.yml -f tag=v1.0.0 -f release_name='Aegis V1'")
+              sys.exit(1)
+          print(f"tag {tag!r} parses as version {core!r}")
+          PY
+
+      # Fail before spending twelve minutes on a build that cannot be published.
+      - name: Require a real signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "No signing key. A release signed with Android's public debug"
+            echo "key cannot be updated in place and proves nothing about who"
+            echo "built it, so this workflow will not publish one."
+            echo
+            echo "Run deploy/make-release-key.sh once and set the four secrets"
+            echo "it prints: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,"
+            echo "ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD."
+            exit 1
+          fi
+
+      - name: Install Rust + Android targets
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+
+      - name: Cache the codegen and cross-compile tools
+        id: cargo-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/flutter_rust_bridge_codegen
+            ~/.cargo/bin/cargo-ndk
+          key: cargo-tools-${{ runner.os }}-frb-2.0.0-ndk-3.5.4
+      - name: Install tooling
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install flutter_rust_bridge_codegen --version 2.0.0 --locked
+          cargo install cargo-ndk --version 3.5.4 --locked
+
+      - name: Scaffold platforms + generate bindings
+        working-directory: app
+        run: |
+          flutter create --platforms=android --project-name aegis .
+          flutter pub get
+          mkdir -p lib/src/rust
+          rm -f test/widget_test.dart
+          bash ../deploy/prepare-android-project.sh
+          flutter_rust_bridge_codegen generate
+          if [ -f rust/src/frb_generated.rs ] && ! grep -qE '^\s*(pub\s+)?mod frb_generated;' rust/src/lib.rs; then
+            printf '\nmod frb_generated;\n' >> rust/src/lib.rs
+          fi
+
+      - name: Build the Rust engine for Android (arm64, arm, x86_64)
+        working-directory: app/rust
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          # See ci.yml: a 16 KB-page device cannot load a 4 KB-linked library.
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+        run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
+
+      - name: Prepare the generated Gradle build
+        working-directory: app/android
+        run: |
+          python3 ../../deploy/enable-core-library-desugaring.py .
+          python3 ../../deploy/align-plugin-compile-sdk.py .
+
+      - name: Configure release signing
+        working-directory: app/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/aegis-release.jks
+          # Written, never echoed: the values are secrets and the log is public.
+          {
+            printf 'storeFile=aegis-release.jks\n'
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > key.properties
+          python3 ../../deploy/apply-release-signing.py .
+
+      # versionName comes from the tag, so what the app reports matches what the
+      # release is called -- the in-app updater compares the two. versionCode is
+      # minutes since the epoch, the same monotonic rule CI and build-apk.sh use.
+      - name: Build the release APK
+        working-directory: app
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          flutter build apk --release \
+            --build-name="$version" \
+            --build-number="$(( $(date -u +%s) / 60 ))"
+
+      # The last gate. If anything above silently fell back to the debug key,
+      # this stops the release rather than publishing something nobody can
+      # update away from.
+      - name: Verify the APK is signed with the release key
+        working-directory: app
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          signer=$(find "$sdk/build-tools" -name apksigner 2>/dev/null | sort | tail -1 || true)
+          if [ -z "$signer" ]; then
+            echo "apksigner not found; refusing to publish an APK whose signature" >&2
+            echo "cannot be verified." >&2
+            exit 1
+          fi
+          "$signer" verify --print-certs "$apk"
+          if "$signer" verify --print-certs "$apk" | grep -q 'CN=Android Debug'; then
+            echo >&2
+            echo "This APK is signed with Android's DEBUG key. Refusing to" >&2
+            echo "publish it: it cannot be installed over any other build and" >&2
+            echo "proves nothing about who produced it." >&2
+            exit 1
+          fi
+          aapt2=$(find "$sdk/build-tools" -name aapt2 2>/dev/null | sort | tail -1 || true)
+          [ -n "$aapt2" ] && "$aapt2" dump badging "$apk" | grep -E \
+            "^package:|^application-label:|^native-code:" || true
+          sha256sum "$apk" | tee "$GITHUB_WORKSPACE/app-release.apk.sha256"
+
+      # The last gate before the world sees it: does this exact file run?
+      # CI does this on every push, and a release is the one build where finding
+      # out afterwards costs the most -- an APK that installs and dies is worse
+      # than no release, because the update it needs cannot reach anyone who
+      # cannot open the app.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch it on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash deploy/smoke-test-apk.sh app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          # The tag is what machines read; this is what people read.
+          name: ${{ github.event.inputs.release_name || format('Aegis {0}', github.event.inputs.tag || github.ref_name) }}
+          files: |
+            app/build/app/outputs/flutter-apk/app-release.apk
+            app-release.apk.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Sideload the APK below. Android will ask you to allow installs from
+            this source the first time.
+
+            Verify what you are installing before you trust it — compare the
+            SHA-256 in `app-release.apk.sha256` with the file you downloaded, and
+            check the signing certificate:
+
+            ```
+            apksigner verify --print-certs app-release.apk
+            ```
+
+            Every Aegis release is signed with the same key. If the fingerprint
+            differs from the previous release, the APK did not come from this
+            project — do not install it.
+
+            **Alpha software, and it has not had an external security audit.**
+            The protocol and its implementation may contain flaws.

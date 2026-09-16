@@ -84,6 +84,12 @@ jobs:
           # is not a dependency. It is scaffold noise, not a test we wrote, and
           # it is the only thing in the tree with hard analyzer errors.
           rm -f test/widget_test.dart
+          # Everything that turns the generated project into Aegis: INTERNET and
+          # the other permissions, the background service, launcher aliases,
+          # FLAG_SECURE + FlutterFragmentActivity, minSdk, the launcher icon.
+          # Shared with deploy/build-apk.sh. Without it CI produced an APK that
+          # installed and then could not reach the network at all.
+          bash ../deploy/prepare-android-project.sh
           flutter_rust_bridge_codegen generate
           # codegen writes rust/src/frb_generated.rs but does not declare it in
           # the crate root, so without this the glue is never compiled and the
@@ -103,10 +109,20 @@ jobs:
       - name: Analyze (compiles the Dart + generated bindings)
         working-directory: app
         run: flutter analyze
+      # 16 KB page alignment. Android 15 introduced 16 KB memory pages, and a
+      # device running in that mode cannot load a native library linked for 4 KB
+      # -- which is the NDK's default and therefore what this engine was built
+      # with. Depending on the vendor's installer that surfaces as a crash on
+      # first launch or as a bare "App not installed". Google Play has required
+      # it of new apps since November 2025 regardless.
+      #
+      # Only our own .so files are covered here. Flutter's engine is already
+      # aligned; libraries inside third-party AARs are not ours to relink.
       - name: Build the Rust engine for Android (arm64, arm, x86_64)
         working-directory: app/rust
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
         run: cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
       # Sign the release build with a real key when the repository has one.
       #
@@ -126,6 +142,7 @@ jobs:
           python3 ../../deploy/enable-core-library-desugaring.py .
           python3 ../../deploy/align-plugin-compile-sdk.py .
       - name: Configure release signing
+        id: signing
         working-directory: app/android
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -145,33 +162,162 @@ jobs:
             } > key.properties
           fi
           python3 ../../deploy/apply-release-signing.py .
+          # Say which of the two builds this is, so later steps -- and the
+          # artifact's own name -- cannot misrepresent it.
+          if [ -f key.properties ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
       # Optimised, tree-shaken, no debug assertions or observatory.
+      # --build-number sets versionCode. Every build carried versionCode 1 from
+      # the pubspec, so no build was ever *newer* than the one on the phone --
+      # with a stable key that is a reinstall at best and a refusal at worst.
+      # Minutes since the epoch: monotonic, needs no git history (checkout is
+      # shallow here), and identical in rule to deploy/build-apk.sh so builds
+      # from the two paths stay ordered relative to each other.
       - name: Build release APK
         working-directory: app
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number="$(( $(date -u +%s) / 60 ))"
       # Say in the log which key actually signed it, read back off the APK
       # rather than inferred from which secrets were set.
-      # Never fails the job: this only reports, and losing the artifact because
-      # a diagnostic could not find apksigner would be absurd.
-      - name: Report the APK's signature
-        working-directory: app
-        continue-on-error: true
-        run: |
-          apk=build/app/outputs/flutter-apk/app-release.apk
-          ls -l "$apk"
-          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          signer=""
-          if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
-            signer=$(find "$sdk/build-tools" -name apksigner 2>/dev/null | sort | tail -1)
-          fi
-          if [ -n "$signer" ]; then
-            "$signer" verify --print-certs "$apk"
-          else
-            echo "apksigner not found; cannot report which key signed this APK."
-          fi
+      # The artifact's name states what it actually is. Without a signing key
+      # Gradle falls back to ~/.android/debug.keystore, which a fresh runner does
+      # not have -- so it generates a NEW RANDOM ONE EVERY RUN, and no such build
+      # can ever install over the previous one. Calling that "release" would be a
+      # lie that costs someone an afternoon.
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aegis-release-apk
+          name: ${{ steps.signing.outputs.signed == 'true' && 'aegis-release-apk' || 'aegis-apk-DEBUG-SIGNED-cannot-update-in-place' }}
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+
+      # Last in the job on purpose: this is the evidence anyone debugging an
+      # install failure needs, and the run log is most easily read from its end.
+      - name: Inspect the finished APK
+        if: always()
+        continue-on-error: true
+        working-directory: app
+        run: |
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          [ -f "$apk" ] || { echo "no APK was produced"; exit 0; }
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          find_tool() {
+            [ -n "$sdk" ] && [ -d "$sdk/build-tools" ] &&
+              find "$sdk/build-tools" -name "$1" 2>/dev/null | sort | tail -1
+          }
+          echo "=============== APK ==============="
+          ls -l "$apk"
+          aapt2=$(find_tool aapt2 || true)
+          if [ -n "$aapt2" ]; then
+            "$aapt2" dump badging "$apk" | grep -E \
+              "^package:|^application-label:|^application-icon-640:|^sdkVersion:|^targetSdkVersion:|^native-code:|^launchable-activity:" || true
+          else
+            echo "aapt2 not found; cannot report the package name or label."
+          fi
+          echo "=============== 16 KB page alignment ==============="
+          # A device with 16 KB pages cannot load a library linked for 4 KB.
+          # Read it off the file rather than trusting that the linker flag took:
+          # p_align on each LOAD segment must be at least 0x4000.
+          python3 - "$apk" <<'PY' || echo "(could not check alignment)"
+          import struct, sys, zipfile
+
+          def loads_aligned(data):
+              if data[:4] != b"\x7fELF" or data[4] != 2:          # 64-bit only
+                  return None
+              phoff, = struct.unpack_from("<Q", data, 0x20)
+              phentsize, phnum = struct.unpack_from("<HH", data, 0x36)
+              worst = None
+              for i in range(phnum):
+                  off = phoff + i * phentsize
+                  p_type, = struct.unpack_from("<I", data, off)
+                  if p_type != 1:                                  # PT_LOAD
+                      continue
+                  p_align, = struct.unpack_from("<Q", data, off + 48)
+                  worst = p_align if worst is None else min(worst, p_align)
+              return worst
+
+          bad = 0
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              for n in sorted(x for x in z.namelist() if x.endswith(".so")):
+                  align = loads_aligned(z.read(n))
+                  if align is None:
+                      continue                                     # 32-bit: unaffected
+                  ok = align >= 0x4000
+                  bad += not ok
+                  print(f"  {'ok ' if ok else 'BAD'} p_align=0x{align:x}  {n}")
+          print("  -> every 64-bit library is 16 KB aligned" if not bad else
+                f"  -> {bad} library/libraries are NOT 16 KB aligned; they will not"
+                "\n     load on an Android 15+ device running 16 KB pages")
+          PY
+          echo "=============== signature ==============="
+          signer=$(find_tool apksigner || true)
+          if [ -n "$signer" ]; then
+            "$signer" verify --print-certs "$apk" | grep -E "Signer #1 certificate (DN|SHA-256)" || true
+            debug_certs=$("$signer" verify --print-certs "$apk" | grep -c 'CN=Android Debug' || true)
+            case "$debug_certs" in
+              0) echo "-> signed with a real key: this build can be installed over the previous one." ;;
+              *) echo "-> DEBUG KEY. A fresh CI runner generates a new one every run, so this" 
+                 echo "   build cannot be installed over any other. Run deploy/make-release-key.sh" 
+                 echo "   once and set the four repository secrets to fix this permanently." ;;
+            esac
+          else
+            echo "apksigner not found; cannot report which key signed this APK."
+          fi
+          echo "========================================="
+
+  # Everything above reads the APK as a file. None of it can tell you whether
+  # the app runs -- and this project has shipped a perfectly valid APK whose
+  # native library aborted on load, with a green build saying nothing about it.
+  # So: boot an emulator, install it, start it, and look.
+  smoke:
+    name: Install and launch the APK on an emulator
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the APK the build just produced
+        uses: actions/download-artifact@v4
+        with:
+          # Matches both artifact names -- the build renames it when it had to
+          # fall back to the debug key, and this test is worth running either
+          # way. A debug-signed APK installs fine on a device that has no other
+          # copy of it, which is exactly what a fresh emulator is.
+          pattern: aegis-*apk*
+          merge-multiple: true
+          path: apk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      # The emulator needs KVM, and the runner's udev rules do not grant it to
+      # the unprivileged user by default.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch it
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          # An emulator that boots with an unlocked, awake screen; otherwise the
+          # activity starts behind the keyguard and never resumes.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash deploy/smoke-test-apk.sh apk/app-release.apk
+      # The screenshot is the point: it is the only artifact in this repository
+      # that shows the app as a user would see it.
+      - name: Upload the screenshot and logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-first-launch
+          path: |
+            screen.png
+            logcat.txt
+          if-no-files-found: warn
