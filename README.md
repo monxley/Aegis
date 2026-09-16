@@ -9,6 +9,11 @@
 
 <sub>No phone numbers · no central account · Monero-style stealth addressing · a blind, replicated relay</sub>
 
+[![Release](https://img.shields.io/github/v/release/monxley/Aegis?label=release&color=f0972a)](https://github.com/monxley/Aegis/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Website](https://img.shields.io/badge/website-monxley.github.io%2FAegis-4fd1c5)](https://monxley.github.io/Aegis/)
+[![CI](https://github.com/monxley/Aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/monxley/Aegis/actions/workflows/ci.yml)
+
 </div>
 
 ![Aegis — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
@@ -17,7 +22,75 @@ Aegis is a Session-class messenger — no phone numbers, no central account — 
 borrows Monero / CryptoNote *stealth addressing* for recipient unlinkability and
 reuses Ciphra's blind, replicated server as a store-and-forward relay.
 
+## Install
+
+**[v1.0.0](https://github.com/monxley/Aegis/releases/latest)** — Android, signed,
+sideloaded. Not on Google Play. Website: **[English](https://monxley.github.io/Aegis/)**
+· **[Русский](https://monxley.github.io/Aegis/ru/)**
+
+### F-Droid (recommended)
+
+Add the project's own repository and Aegis updates like any other app — no Google
+account, no Play Services, no re-sideloading each time:
+
+```
+https://monxley.github.io/Aegis/fdroid/repo?fingerprint=ad4a315c9f6f92e7684d38d999e07594d287b312d06239bf5015809fa00a7b66
+```
+
+F-Droid pins that fingerprint when you add the repository. If it ever differs,
+the repository is not this one. Builds there are signed with the same key as the
+APKs below, so you can move between the two without reinstalling.
+
+*(This is a repository we host and sign ourselves, not f-droid.org. f-droid.org
+builds from source and signs with **its** key, which would mean a different
+signature and no upgrade path from these APKs.)*
+
+### Direct APK
+
+Download `app-release.apk` from the
+[latest release](https://github.com/monxley/Aegis/releases/latest), then check it
+before you trust it:
+
+```sh
+# 1. The file is the one we published.
+sha256sum -c app-release.apk.sha256
+
+# 2. The signature is ours. Every release carries the same certificate.
+apksigner verify --print-certs app-release.apk
+#    SHA-256: ad4a315c9f6f92e7684d38d999e07594d287b312d06239bf5015809fa00a7b66
+```
+
+A different fingerprint means the APK did not come from this project, whatever
+the page it came from claims. Android will refuse to install it over a genuine
+one anyway — that refusal is the protection working, not a bug.
+
+> [!IMPORTANT]
+> **Upgrading from v0.1–v0.3?** Those builds were signed with a different
+> (development) key, so Android cannot install v1.0.0 over them.
+> **Back up your 24-word recovery phrase first** — Settings → Recovery phrase —
+> then uninstall the old version and install this one. Without the phrase the
+> identity is gone; nobody can reset it for you. This is a one-time break: every
+> release from v1.0.0 on installs over its predecessor.
+
+> [!WARNING]
+> **Alpha software, with no external security audit.** The protocol and its
+> implementation may contain flaws. Don't rely on it where being wrong would put
+> someone in danger.
+
+### Build it yourself
+
+Everything below `Build & run it yourself` builds the same app from source. The
+console-only path, for a plain Linux box with no GUI:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
+```
+
 ## Status
+
+**v1.0.0 is released** — a signed Android build, published on GitHub Releases and
+through the project's own F-Droid repository, with an emulator install-and-launch
+check standing between every build and a release.
 
 **All five protocol layers are implemented, and folded into one client.** Under
 the hood: identity & stealth addressing, the post-quantum session core (PQXDH
@@ -77,7 +150,7 @@ The Android app — Android-first, anonymous by default, private under pressure.
   </tr>
 </table>
 
-## Quick start
+## The core, from Rust
 
 `AegisClient` is the whole messenger behind one type — one identity backs the
 shareable Aegis ID, the view key, the handshake key, and the signing key; PQXDH
