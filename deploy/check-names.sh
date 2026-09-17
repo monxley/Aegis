@@ -80,12 +80,29 @@ fi
 
 # --- 4. Nothing calls itself by the old name ---------------------------------
 #
-# Deliberate exceptions, each for a reason: the published v0.3.0 tag is history
-# and cannot be rewritten, the mix node's log lines are protocol-level, and the
-# social accounts are real and live until they are renamed by hand.
+# Deliberate exceptions, each for a reason:
+#
+#   * the published v0.3.0 tag is history and cannot be rewritten;
+#   * so is `io.github.monxley.aegis`, the package id v1.0.0 shipped under. The
+#     release notes have to name it, because Android treats the new id as a
+#     different app and users need to be told why the update does not appear;
+#   * install.sh names the OLD paths on purpose -- it is the migration, and it
+#     has to read /var/lib/aegis to be able to move it. A blanket rename already
+#     turned those into /var/lib/shoal, which made the function migrate the new
+#     path onto itself: a silent no-op that would have left a real node's
+#     identity behind and started it with a fresh key;
+#   * the social accounts are real and live until they are renamed by hand.
+#
+# The mix node's log prefixes used to be listed here as "protocol-level". They
+# were not; they were just strings, and they are now `shoal:`.
+# One `|| true` at the very end, not inside the pipeline: `a || true | b` does
+# not mean "run a, ignore its status, then pipe into b" -- it parses as
+# `a || (true | b)`, which drops the filter on the success path.
 stragglers=$(grep -rni "aegis" --exclude-dir=.git --exclude-dir=target \
   --exclude-dir=.dart_tool --exclude-dir=build --exclude-dir=fdroid . 2>/dev/null \
-  | grep -viE "V0\.3\.0-Aegis|aegis: (delivery|DELIVERY)|t\.me/aegis_private|instagram\.com/aegis\.private|check-names\.sh" || true)
+  | grep -viE "V0\.3\.0-Aegis|io\.github\.monxley\.aegis|t\.me/aegis_private|instagram\.com/aegis\.private" \
+  | grep -v "^\./deploy/check-names\.sh:" \
+  | grep -v "^\./deploy/install\.sh:" || true)
 if [ -n "$stragglers" ]; then
   note "the old name survives in $(printf '%s\n' "$stragglers" | wc -l) place(s):"
   printf '%s\n' "$stragglers" | head -20 >&2
