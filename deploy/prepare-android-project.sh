@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Turn the project `flutter create` generates into the one Aegis actually needs.
+# Turn the project `flutter create` generates into the one Shoal actually needs.
 #
 # `flutter create` emits a generic app. Everything below is the difference
 # between that and this product, and none of it is optional:
@@ -70,13 +70,13 @@ fi
 # The app's own identity: its name in the installer and launcher, and the
 # package name Android installs it under.
 #
-# `flutter create --project-name aegis` leaves BOTH wrong, and nothing has ever
+# `flutter create --project-name shoal` leaves BOTH wrong, and nothing has ever
 # corrected them:
 #
-#   * android:label="aegis" on <application>. This is what the package installer
-#     and the app-info screen show -- the launcher aliases carry "Aegis", but
+#   * android:label="shoal" on <application>. This is what the package installer
+#     and the app-info screen show -- the launcher aliases carry "Shoal", but
 #     the installer never looks at those.
-#   * applicationId "com.example.aegis". com.example is the reserved example
+#   * applicationId "com.example.shoal". com.example is the reserved example
 #     namespace: Play rejects it outright, and several vendor installers refuse
 #     it too, which shows up as a bare "app not installed" with no reason given.
 #
@@ -86,8 +86,8 @@ fi
 # namespace without moving every source file would leave the manifest pointing
 # at a class that does not exist.
 #
-# Override with AEGIS_APPLICATION_ID if you publish under your own domain.
-APP_ID="${AEGIS_APPLICATION_ID:-io.github.monxley.aegis}"
+# Override with SHOAL_APPLICATION_ID if you publish under your own domain.
+APP_ID="${SHOAL_APPLICATION_ID:-io.github.monxley.shoal}"
 python3 - "$APP_ID" <<'PY' || log "warning: could not set the app's name and id"
 import re
 import sys
@@ -96,10 +96,10 @@ app_id = sys.argv[1]
 
 manifest = "android/app/src/main/AndroidManifest.xml"
 s = open(manifest).read()
-new = re.sub(r'android:label="[^"]*"', 'android:label="Aegis"', s, count=1)
+new = re.sub(r'android:label="[^"]*"', 'android:label="Shoal"', s, count=1)
 if new != s:
     open(manifest, "w").write(new)
-    print('set android:label="Aegis"')
+    print('set android:label="Shoal"')
 
 gradle = "android/app/build.gradle.kts"
 s = open(gradle).read()
@@ -113,7 +113,7 @@ elif not n:
     raise SystemExit("could not find applicationId in " + gradle)
 PY
 
-# Generate the Aegis launcher icon (all densities + adaptive) from the bundled
+# Generate the Shoal launcher icon (all densities + adaptive) from the bundled
 # source PNG, per the flutter_launcher_icons config in pubspec.yaml.
 #
 # Verified, not hoped for. This used to be `>/dev/null 2>&1 || log warning`, so
@@ -163,10 +163,10 @@ fi
 
 # Register the background foreground-service in the manifest (idempotent), so
 # the app can keep receiving 24/7. Inserted just before </application>.
-if [ -f "$MANIFEST" ] && ! grep -q 'AegisBackgroundService' "$MANIFEST"; then
-  log "registering AegisBackgroundService in AndroidManifest"
+if [ -f "$MANIFEST" ] && ! grep -q 'ShoalBackgroundService' "$MANIFEST"; then
+  log "registering ShoalBackgroundService in AndroidManifest"
   awk '/<\/application>/ && !s {
-        print "        <service android:name=\".AegisBackgroundService\" android:exported=\"false\" android:foregroundServiceType=\"dataSync\"/>";
+        print "        <service android:name=\".ShoalBackgroundService\" android:exported=\"false\" android:foregroundServiceType=\"dataSync\"/>";
         s=1
       } {print}' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 fi
@@ -246,7 +246,7 @@ s = open(p).read()
 if "FLAG_SECURE" in s:
     raise SystemExit(0)
 m = re.search(r"^\s*package\s+[\w.]+", s, re.M)
-pkg = m.group(0).strip() if m else "package com.example.aegis"
+pkg = m.group(0).strip() if m else "package com.example.shoal"
 open(p, "w").write(pkg + """
 
 import android.content.ComponentName
@@ -260,9 +260,9 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
-    private val secureChannel = "aegis/screen_security"
-    private val backgroundChannel = "aegis/background"
-    private val disguiseChannel = "aegis/disguise"
+    private val secureChannel = "shoal/screen_security"
+    private val backgroundChannel = "shoal/background"
+    private val disguiseChannel = "shoal/disguise"
 
     // Launcher aliases (declared in the manifest): exactly one is enabled at a
     // time, which is the icon + name shown in the launcher.
@@ -306,7 +306,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, backgroundChannel)
             .setMethodCallHandler { call, result ->
-                val intent = Intent(this, AegisBackgroundService::class.java)
+                val intent = Intent(this, ShoalBackgroundService::class.java)
                 when (call.method) {
                     "start" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -370,7 +370,7 @@ print("patched", p, "for FLAG_SECURE + toggle + background + disguise channels")
 # app can keep polling and receiving 24/7 with a quiet persistent notification.
 import os
 pkg_name = pkg.replace("package", "").strip()
-svc = os.path.join(os.path.dirname(p), "AegisBackgroundService.kt")
+svc = os.path.join(os.path.dirname(p), "ShoalBackgroundService.kt")
 open(svc, "w").write("package " + pkg_name + """
 
 import android.app.Notification
@@ -386,16 +386,16 @@ import android.os.IBinder
 // A minimal foreground service: it runs no logic itself, it just keeps the app
 // process alive (with a quiet, ongoing notification) so the Dart poll timer
 // keeps pulling messages while the app is backgrounded — 24/7 delivery.
-class AegisBackgroundService : Service() {
+class ShoalBackgroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val channelId = "aegis_background"
+        val channelId = "shoal_background"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (nm.getNotificationChannel(channelId) == null) {
                 val ch = NotificationChannel(
-                    channelId, "Aegis background",
+                    channelId, "Shoal background",
                     NotificationManager.IMPORTANCE_MIN
                 )
                 ch.setShowBadge(false)
@@ -408,7 +408,7 @@ class AegisBackgroundService : Service() {
             @Suppress("DEPRECATION") Notification.Builder(this)
         }
         val notification = builder
-            .setContentTitle("Aegis")
+            .setContentTitle("Shoal")
             .setContentText("Active — receiving messages")
             .setSmallIcon(applicationInfo.icon)
             .setOngoing(true)
@@ -484,7 +484,7 @@ s2 = re.sub(r"\s*<intent-filter>.*?LAUNCHER.*?</intent-filter>", "", s, count=1,
 if s2 == s:
     raise SystemExit(0)
 aliases = """
-        <activity-alias android:name=".LauncherDefault" android:enabled="true" android:exported="true" android:targetActivity=".MainActivity" android:icon="@mipmap/ic_launcher" android:label="Aegis">
+        <activity-alias android:name=".LauncherDefault" android:enabled="true" android:exported="true" android:targetActivity=".MainActivity" android:icon="@mipmap/ic_launcher" android:label="Shoal">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

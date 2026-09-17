@@ -17,7 +17,7 @@ import 'package:flutter/services.dart';
 /// A no-op on desktop. Best-effort: swallows channel errors (e.g. an old build
 /// without the native handler).
 class ScreenSecurity {
-  static const MethodChannel _ch = MethodChannel('aegis/screen_security');
+  static const MethodChannel _ch = MethodChannel('shoal/screen_security');
 
   /// Turn the screen-privacy protection on or off.
   static Future<void> setSecure(bool on) async {

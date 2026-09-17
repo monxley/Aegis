@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'theme.dart';
 
-/// The Aegis identity mark. Used where the product signs its name — the lock
+/// The Shoal identity mark. Used where the product signs its name — the lock
 /// screen, onboarding, the app bar — and never as a security indicator.
 class ShieldMark extends StatelessWidget {
   final double size;
@@ -21,10 +21,10 @@ class ShieldMark extends StatelessWidget {
   }
 }
 
-/// The "AEGIS" wordmark.
-class AegisWordmark extends StatelessWidget {
+/// The "SHOAL" wordmark.
+class ShoalWordmark extends StatelessWidget {
   final double height;
-  const AegisWordmark({super.key, this.height = 34});
+  const ShoalWordmark({super.key, this.height = 34});
 
   @override
   Widget build(BuildContext context) {
@@ -72,8 +72,8 @@ class _PrimaryButtonState extends State<PrimaryButton> {
     final enabled = widget.onPressed != null && !widget.loading;
     // Disabled is expressed as a muted surface, not as a faded copy of the
     // enabled state — translucent text fails contrast.
-    final fill = enabled ? AegisColor.accent : AegisColor.surfaceElevated;
-    final fg = enabled ? AegisColor.textOnAccent : AegisColor.textMuted;
+    final fill = enabled ? ShoalColor.accent : ShoalColor.surfaceElevated;
+    final fg = enabled ? ShoalColor.textOnAccent : ShoalColor.textMuted;
 
     return Semantics(
       button: true,
@@ -96,15 +96,15 @@ class _PrimaryButtonState extends State<PrimaryButton> {
           onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
           onTap: enabled ? widget.onPressed : null,
           child: AnimatedContainer(
-            duration: AegisMotion.of(context, AegisMotion.fast),
-            curve: AegisMotion.enter,
+            duration: ShoalMotion.of(context, ShoalMotion.fast),
+            curve: ShoalMotion.enter,
             height: 48,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _pressed ? AegisColor.accentMuted : fill,
-              borderRadius: BorderRadius.circular(AegisRadius.sm),
+              color: _pressed ? ShoalColor.accentMuted : fill,
+              borderRadius: BorderRadius.circular(ShoalRadius.sm),
               border: Border.all(
-                color: _focused ? AegisColor.textPrimary : Colors.transparent,
+                color: _focused ? ShoalColor.textPrimary : Colors.transparent,
                 width: 2,
               ),
             ),
@@ -122,7 +122,7 @@ class _PrimaryButtonState extends State<PrimaryButton> {
                     children: [
                       if (widget.icon != null) ...[
                         Icon(widget.icon, color: fg, size: 18),
-                        const SizedBox(width: AegisSpace.s2),
+                        const SizedBox(width: ShoalSpace.s2),
                       ],
                       Text(
                         widget.label,
@@ -206,7 +206,7 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
             height: 48,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AegisColor.danger),
+              border: Border.all(color: ShoalColor.danger),
             ),
             clipBehavior: Clip.antiAlias,
             child: Stack(
@@ -217,18 +217,18 @@ class _HoldToWipeButtonState extends State<HoldToWipeButton>
                   widthFactor: t,
                   heightFactor: 1,
                   alignment: Alignment.centerLeft,
-                  child: Container(color: AegisColor.danger.withValues(alpha: 0.25)),
+                  child: Container(color: ShoalColor.danger.withValues(alpha: 0.25)),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(Icons.local_fire_department_rounded,
-                        size: 18, color: AegisColor.danger),
+                        size: 18, color: ShoalColor.danger),
                     const SizedBox(width: 8),
                     Text(
                       t > 0 && t < 1 ? 'Keep holding…' : widget.idleLabel,
                       style: const TextStyle(
-                        color: AegisColor.danger,
+                        color: ShoalColor.danger,
                         fontWeight: FontWeight.w700,
                         fontSize: 15,
                       ),
@@ -293,11 +293,11 @@ class ContactAvatar extends StatelessWidget {
   }
 }
 
-/// Shorten an Aegis ID for display: `aegis:AB12…9Z`.
-String shortId(String aegisId) {
-  final body = aegisId.startsWith('aegis:') ? aegisId.substring(6) : aegisId;
-  if (body.length <= 12) return aegisId;
-  return 'aegis:${body.substring(0, 6)}…${body.substring(body.length - 4)}';
+/// Shorten an Shoal ID for display: `shoal:AB12…9Z`.
+String shortId(String shoalId) {
+  final body = shoalId.startsWith('shoal:') ? shoalId.substring(6) : shoalId;
+  if (body.length <= 12) return shoalId;
+  return 'shoal:${body.substring(0, 6)}…${body.substring(body.length - 4)}';
 }
 
 const _months = [

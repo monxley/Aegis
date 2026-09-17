@@ -1,20 +1,20 @@
-# Aegis — Internal Security Review
+# Shoal — Internal Security Review
 
-**Scope:** the Aegis messaging protocol and its Rust implementation
-(`crates/aegis-*`), plus the at-rest / device-hardening layer in `aegis-api`.
+**Scope:** the Shoal messaging protocol and its Rust implementation
+(`crates/shoal-*`), plus the at-rest / device-hardening layer in `shoal-api`.
 **Method:** manual source review of the cryptographic core, key-derivation,
 AEAD/nonce handling, the PQ handshake/ratchet, stealth addressing, the mailbox
 envelope, and the Sphinx/Loopix network layer.
 **Date:** 2026-07 · **Reviewer:** internal.
 
 > ### This is NOT the external audit
-> AEGIS_PROTOCOL.md §11 and the roadmap both list an **independent external
+> SHOAL_PROTOCOL.md §11 and the roadmap both list an **independent external
 > security audit as a release blocker**, and this document does not replace it.
-> Aegis *implements* well-studied designs (X3DH/PQXDH, Double Ratchet, ML-KEM,
+> Shoal *implements* well-studied designs (X3DH/PQXDH, Double Ratchet, ML-KEM,
 > ML-DSA, Sphinx, Loopix) **from scratch**, and hand-written implementations of
 > sound designs are exactly where side-channels and edge-case bugs hide. Treat
 > everything below as "found by reading the code carefully," not as a clearance.
-> Until a professional audit is done, Aegis makes **no security promises** and
+> Until a professional audit is done, Shoal makes **no security promises** and
 > should be labelled *alpha*.
 
 Findings are rated **High / Medium / Low / Info** by realistic impact against
@@ -45,7 +45,7 @@ at the end, so this reads as a review and not just a bug list.
 > resulting mask, so neither the compare nor the choice branches on validity. The
 > existing `kem_roundtrip_and_implicit_rejection` test covers both mask branches.
 
-**Where:** `crates/aegis-crypto/src/ml_kem.rs`, `decapsulate()`:
+**Where:** `crates/shoal-crypto/src/ml_kem.rs`, `decapsulate()`:
 
 ```rust
 let ct_prime = pke_encrypt(ek_pke, &m_prime, &r);
@@ -91,8 +91,8 @@ multiply-shift, but confirm on the ARM release target).
 > hand-rolling Argon2id zero-dependency under time pressure would be riskier than
 > the finding. Tracked as roadmap 2.5.
 
-**Where:** `crates/aegis-api/src/vault.rs` (`ITERATIONS = 120_000`) for the app
-password that encrypts the master seed; `crates/aegis-api/src/lib.rs`
+**Where:** `crates/shoal-api/src/vault.rs` (`ITERATIONS = 120_000`) for the app
+password that encrypts the master seed; `crates/shoal-api/src/lib.rs`
 (`NOTES_ITERATIONS = 314_159`) for the notes password. Both call
 `pbkdf2_sha256`.
 
@@ -124,7 +124,7 @@ at-rest / coercion posture.)
 > if the syscall returns `ENOSYS`. Both paths are covered by tests. The
 > `SecRandomCopyBytes`/`getentropy` path for iOS slots in the same way later.
 
-**Where:** `crates/aegis-crypto/src/rand.rs`, `fill_random()` — `File::open(
+**Where:** `crates/shoal-crypto/src/rand.rs`, `fill_random()` — `File::open(
 "/dev/urandom")` + `read_exact`, and **panics** on failure.
 
 **Problem.** Every key, ephemeral, salt, and nonce in the system ultimately
@@ -155,11 +155,11 @@ failure near-impossible rather than fd/sandbox-dependent.
 ## F-4 · Low · Non-constant-time tag comparison during stealth scanning
 
 > **Status: ✅ fixed.** The 16-byte `addr_tag` confirm now uses the new
-> constant-time `aegis_crypto::ct_eq`. The 1-byte `view_tag` fast-reject stays a
+> constant-time `shoal_crypto::ct_eq`. The 1-byte `view_tag` fast-reject stays a
 > plain compare by design (it is a coarse speed optimization, per Monero) and is
 > documented as such in the code.
 
-**Where:** `crates/aegis-identity/src/identity.rs` (`recomputed.view_tag ==
+**Where:** `crates/shoal-identity/src/identity.rs` (`recomputed.view_tag ==
 address.view_tag && recomputed.addr_tag == address.addr_tag`).
 
 **Problem.** Recipient scanning compares recomputed vs stored `addr_tag`/
@@ -178,8 +178,8 @@ rather than fight it.
 
 ## F-5 · Info · Self-implemented PQ primitives and protocol
 
-`aegis-crypto` re-implements ML-KEM-768 (FIPS 203), ML-DSA-65 (FIPS 204),
-X25519, ChaCha20-Poly1305, SHA-2/3, HKDF/HMAC from scratch, and `aegis-*`
+`shoal-crypto` re-implements ML-KEM-768 (FIPS 203), ML-DSA-65 (FIPS 204),
+X25519, ChaCha20-Poly1305, SHA-2/3, HKDF/HMAC from scratch, and `shoal-*`
 assembles PQXDH, the Double Ratchet, Sphinx and Loopix on top. This is a
 deliberate zero-dependency choice, and the primitives are cross-checked against
 RFC/FIPS **test vectors** — which proves *functional* correctness but **not**
@@ -236,7 +236,7 @@ preserving and covered by tests):
 - ✅ **F-1** — constant-time ML-KEM decapsulation (masked compare + byte-wise
   select). The key-recovery-class oracle is closed.
 - ✅ **F-3** — `getrandom(2)` RNG with a cached `/dev/urandom` fallback.
-- ✅ **F-4** — constant-time `addr_tag` compare via `aegis_crypto::ct_eq`.
+- ✅ **F-4** — constant-time `addr_tag` compare via `shoal_crypto::ct_eq`.
 - ⚠️ **F-2** — PBKDF2 raised to 600k with a versioned, backward-compatible vault.
   The memory-hard **Argon2id** upgrade is intentionally left for dedicated work
   (a vetted implementation, not a rushed from-scratch one) → roadmap 2.5.

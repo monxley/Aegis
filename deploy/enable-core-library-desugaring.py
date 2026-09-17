@@ -23,7 +23,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-MARKER = "// aegis: core library desugaring enabled by deploy/enable-core-library-desugaring.py"
+MARKER = "// shoal: core library desugaring enabled by deploy/enable-core-library-desugaring.py"
 
 # Kept in step with what flutter_local_notifications asks for. Desugaring is a
 # compile-time rewrite, so this version affects the generated code and is worth

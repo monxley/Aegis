@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Aegis iOS app from the macOS command line. iOS is NOT like the
+# Build the Shoal iOS app from the macOS command line. iOS is NOT like the
 # Android build: Apple's toolchain (clang for arm64-apple-ios, code signing,
 # the Simulator, `xcodebuild`) exists only on macOS, so — unlike
 # deploy/build-apk.sh, which runs on a headless Linux VPS — THIS SCRIPT MUST RUN
@@ -26,7 +26,7 @@ set -euo pipefail
 
 REPO="${REPO:-https://github.com/monxley/Aegis}"
 FLUTTER_DIR="${FLUTTER_DIR:-$HOME/flutter}"
-WORK="${WORK:-$HOME/aegis-ios-build}"
+WORK="${WORK:-$HOME/shoal-ios-build}"
 FRB_VERSION="2.0.0"
 # `device` → build the app for a physical iPhone/iPad (unsigned; sign in Xcode).
 # `simulator` → build for the iOS Simulator (no signing needed at all).
@@ -73,7 +73,7 @@ cd "$SRC/app"
 
 # 4. Bindings + platform folder.
 log "generating bindings + the iOS platform folder"
-flutter create --platforms=ios --project-name aegis . >/dev/null
+flutter create --platforms=ios --project-name shoal . >/dev/null
 flutter pub get >/dev/null
 
 # iOS launcher icon from the bundled source PNG (best-effort; keeps the default
@@ -102,15 +102,15 @@ log "cross-compiling the Rust engine for iOS device + simulator (a few minutes)"
   cargo build --release --target aarch64-apple-ios-sim && \
   cargo build --release --target x86_64-apple-ios )
 
-LIB=librust_lib_aegis.a          # matches [package] name in app/rust/Cargo.toml
+LIB=librust_lib_shoal.a          # matches [package] name in app/rust/Cargo.toml
 RLIBS="ios/rust-libs"
 mkdir -p "$RLIBS/device" "$RLIBS/sim"
-cp "rust/target/aarch64-apple-ios/release/$LIB" "$RLIBS/device/libaegis_rust.a"
+cp "rust/target/aarch64-apple-ios/release/$LIB" "$RLIBS/device/libshoal_rust.a"
 # One simulator lib covering both Intel and Apple-Silicon Macs.
 lipo -create \
   "rust/target/aarch64-apple-ios-sim/release/$LIB" \
   "rust/target/x86_64-apple-ios/release/$LIB" \
-  -output "$RLIBS/sim/libaegis_rust.a"
+  -output "$RLIBS/sim/libshoal_rust.a"
 
 # 6. Link the static lib into the Runner. Rather than surgery on project.pbxproj,
 #    append SDK-conditional linker flags to the xcconfigs Flutter already
@@ -121,13 +121,13 @@ lipo -create \
 for cfg in Debug Release; do
   xcconfig="ios/Flutter/$cfg.xcconfig"
   [ -f "$xcconfig" ] || continue
-  if ! grep -q 'rust-libs/device/libaegis_rust.a' "$xcconfig"; then
+  if ! grep -q 'rust-libs/device/libshoal_rust.a' "$xcconfig"; then
     log "linking the Rust static lib into $cfg.xcconfig"
     {
       echo ''
-      echo '// Aegis: link the cross-compiled Rust engine (added by deploy/build-ios.sh).'
-      echo 'OTHER_LDFLAGS[sdk=iphoneos*]=$(inherited) -force_load $(SRCROOT)/rust-libs/device/libaegis_rust.a'
-      echo 'OTHER_LDFLAGS[sdk=iphonesimulator*]=$(inherited) -force_load $(SRCROOT)/rust-libs/sim/libaegis_rust.a'
+      echo '// Shoal: link the cross-compiled Rust engine (added by deploy/build-ios.sh).'
+      echo 'OTHER_LDFLAGS[sdk=iphoneos*]=$(inherited) -force_load $(SRCROOT)/rust-libs/device/libshoal_rust.a'
+      echo 'OTHER_LDFLAGS[sdk=iphonesimulator*]=$(inherited) -force_load $(SRCROOT)/rust-libs/sim/libshoal_rust.a'
     } >> "$xcconfig"
   fi
 done
@@ -140,7 +140,7 @@ PLIST="ios/Runner/Info.plist"
 if [ -f "$PLIST" ]; then
   if ! /usr/libexec/PlistBuddy -c 'Print :NSFaceIDUsageDescription' "$PLIST" >/dev/null 2>&1; then
     log "adding NSFaceIDUsageDescription to Info.plist"
-    /usr/libexec/PlistBuddy -c 'Add :NSFaceIDUsageDescription string "Unlock Aegis with Face ID."' "$PLIST"
+    /usr/libexec/PlistBuddy -c 'Add :NSFaceIDUsageDescription string "Unlock Shoal with Face ID."' "$PLIST"
   fi
   if ! /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$PLIST" >/dev/null 2>&1; then
     log "declaring the fetch background mode in Info.plist"
@@ -157,21 +157,21 @@ if [ -f "$PLIST" ]; then
     fi
   }
   add_plist_string NSMicrophoneUsageDescription \
-    "Aegis uses the microphone to record voice messages, which are encrypted before they leave your device."
+    "Shoal uses the microphone to record voice messages, which are encrypted before they leave your device."
   add_plist_string NSCameraUsageDescription \
-    "Aegis uses the camera to take photos you send in a chat, encrypted end-to-end."
+    "Shoal uses the camera to take photos you send in a chat, encrypted end-to-end."
   add_plist_string NSPhotoLibraryUsageDescription \
-    "Aegis needs access to your photos so you can attach one to a message. Photos are encrypted before sending."
+    "Shoal needs access to your photos so you can attach one to a message. Photos are encrypted before sending."
 fi
 
-# 8. Native glue — rewrite AppDelegate.swift to add the `aegis/screen_security`
+# 8. Native glue — rewrite AppDelegate.swift to add the `shoal/screen_security`
 #    channel. iOS has NO way to block screenshots (unlike Android FLAG_SECURE),
 #    so `setSecure` instead toggles an app-switcher privacy blur: a cover view
 #    shown when the app resigns active, so the multitasking snapshot doesn't leak
 #    the conversation. Also posts a Dart-visible event when a screenshot is taken
 #    (detect-only — iOS cannot prevent it). Secure by default (blur on).
 SWIFT="ios/Runner/AppDelegate.swift"
-if [ -f "$SWIFT" ] && ! grep -q 'aegis/screen_security' "$SWIFT"; then
+if [ -f "$SWIFT" ] && ! grep -q 'shoal/screen_security' "$SWIFT"; then
   log "patching AppDelegate.swift for the app-switcher privacy blur"
   cat > "$SWIFT" <<'SWIFT_EOF'
 import Flutter
@@ -179,7 +179,7 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-    private let secureChannelName = "aegis/screen_security"
+    private let secureChannelName = "shoal/screen_security"
     // Secure by default: cover the app snapshot in the switcher until the user
     // turns it off (mirrors the Android FLAG_SECURE default).
     private var privacyBlurEnabled = true
@@ -265,6 +265,6 @@ else
 fi
 echo
 echo "The seed node is baked in, so it connects with no setup."
-echo "Export compliance: Aegis uses end-to-end encryption. Before any TestFlight/"
+echo "Export compliance: Shoal uses end-to-end encryption. Before any TestFlight/"
 echo "App Store upload, set ITSAppUsesNonExemptEncryption in Info.plist and complete"
 echo "Apple's encryption self-classification — do not guess this value."

@@ -4,7 +4,7 @@ import '../engine.dart';
 import '../theme.dart';
 import 'proxy.dart';
 
-/// A launch notice for Russian-language devices: what to do when Aegis cannot
+/// A launch notice for Russian-language devices: what to do when Shoal cannot
 /// reach the network.
 ///
 /// WHY IT IS KEYED ON LANGUAGE AND WORDED AS A CONDITIONAL
@@ -23,7 +23,7 @@ import 'proxy.dart';
 ///
 /// WHAT IT DELIBERATELY DOES NOT SAY
 ///
-/// That a VPN makes Aegis more secure. It does not: a VPN and the built-in
+/// That a VPN makes Shoal more secure. It does not: a VPN and the built-in
 /// proxy change whether a packet arrives, not who can read it. Messages are
 /// end-to-end encrypted either way. Leaving that unsaid invites exactly the
 /// wrong conclusion, so it is said.
@@ -39,7 +39,7 @@ bool _shownThisLaunch = false;
 void resetRegionNoticeForTesting() => _shownThisLaunch = false;
 
 bool _isRussian() {
-  // The platform locale rather than the app's: Aegis has no Russian
+  // The platform locale rather than the app's: Shoal has no Russian
   // translation, so Localizations would resolve to English and tell us nothing
   // about the person holding the phone.
   final locale = WidgetsBinding.instance.platformDispatcher.locale;
@@ -48,7 +48,7 @@ bool _isRussian() {
 
 Future<void> maybeShowRegionNotice(
   BuildContext context,
-  AegisEngineController engine,
+  ShoalEngineController engine,
 ) async {
   if (_shownThisLaunch || !_isRussian()) return;
   _shownThisLaunch = true;
@@ -57,45 +57,45 @@ Future<void> maybeShowRegionNotice(
   await showDialog<void>(
     context: context,
     builder: (dialog) => AlertDialog(
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       icon: const Icon(Icons.travel_explore_rounded,
-          color: AegisColor.warning, size: 28),
-      title: const Text('Если Aegis не подключается'),
+          color: ShoalColor.warning, size: 28),
+      title: const Text('Если Shoal не подключается'),
       content: const SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Узлы сети Aegis могут быть недоступны из некоторых сетей и '
+              'Узлы сети Shoal могут быть недоступны из некоторых сетей и '
               'стран. Тогда в шапке видно «no connection», и сообщения не '
               'уходят.',
               style: TextStyle(
-                  color: AegisColor.textSecondary, fontSize: 14, height: 1.5),
+                  color: ShoalColor.textSecondary, fontSize: 14, height: 1.5),
             ),
-            SizedBox(height: AegisSpace.s3),
+            SizedBox(height: ShoalSpace.s3),
             Text(
               'Что помогает:',
               style: TextStyle(
-                  color: AegisColor.textPrimary,
+                  color: ShoalColor.textPrimary,
                   fontSize: 14,
                   fontWeight: FontWeight.w600),
             ),
-            SizedBox(height: AegisSpace.s2),
+            SizedBox(height: ShoalSpace.s2),
             Text(
               '• Включить VPN.\n'
               '• Или настроить прокси прямо здесь: Настройки → SOCKS5 / Tor. '
               'Стороннее приложение для этого не нужно.',
               style: TextStyle(
-                  color: AegisColor.textSecondary, fontSize: 14, height: 1.5),
+                  color: ShoalColor.textSecondary, fontSize: 14, height: 1.5),
             ),
-            SizedBox(height: AegisSpace.s3),
+            SizedBox(height: ShoalSpace.s3),
             Text(
               'На шифрование это не влияет. VPN и прокси решают, дойдёт ли '
               'пакет, а не то, кто сможет его прочитать — переписка зашифрована '
               'от устройства до устройства в любом случае.',
               style: TextStyle(
-                  color: AegisColor.textMuted, fontSize: 13, height: 1.45),
+                  color: ShoalColor.textMuted, fontSize: 13, height: 1.45),
             ),
           ],
         ),
@@ -107,8 +107,8 @@ Future<void> maybeShowRegionNotice(
         ),
         FilledButton(
           style: FilledButton.styleFrom(
-            backgroundColor: AegisColor.accent,
-            foregroundColor: AegisColor.textOnAccent,
+            backgroundColor: ShoalColor.accent,
+            foregroundColor: ShoalColor.textOnAccent,
           ),
           onPressed: () {
             Navigator.of(dialog).pop();

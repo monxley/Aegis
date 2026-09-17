@@ -1,0 +1,16 @@
+[package]
+name = "shoal-mix"
+description = "The Shoal mixnet: networked Sphinx mix nodes and a MailboxStore that onion-routes sends through them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shoal-net = { path = "../shoal-net" }
+shoal-mailbox = { path = "../shoal-mailbox" }
+shoal-crypto = { path = "../shoal-crypto" }
+
+[dev-dependencies]
+# For the anonymous-receive test: seal/open envelopes with a real view keypair.
+shoal-identity = { path = "../shoal-identity" }

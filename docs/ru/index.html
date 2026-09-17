@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aegis — анонимный постквантовый мессенджер</title>
+<title>Shoal — анонимный постквантовый мессенджер</title>
 <meta name="description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
 <meta name="keywords" content="анонимный мессенджер, постквантовое шифрование, мессенджер без номера телефона, защита метаданных, миксеть, мессенджер с открытым исходным кодом, луковая маршрутизация, ML-KEM">
 <meta name="robots" content="index, follow, max-image-preview:large">
@@ -16,21 +16,21 @@
 <link rel="apple-touch-icon" href="../assets/icon.png">
 <link rel="stylesheet" href="../assets/site.css">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Aegis">
-<meta property="og:title" content="Aegis — анонимный постквантовый мессенджер">
+<meta property="og:site_name" content="Shoal">
+<meta property="og:title" content="Shoal — анонимный постквантовый мессенджер">
 <meta property="og:description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
 <meta property="og:url" content="https://monxley.github.io/Aegis/ru/">
 <meta property="og:image" content="https://monxley.github.io/Aegis/brand/lockup.png">
 <meta property="og:image:width" content="1402">
 <meta property="og:image:height" content="400">
-<meta property="og:image:alt" content="Aegis — post-quantum private messenger">
+<meta property="og:image:alt" content="Shoal — post-quantum private messenger">
 <meta property="og:locale" content="ru_RU">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Aegis — анонимный постквантовый мессенджер">
+<meta name="twitter:title" content="Shoal — анонимный постквантовый мессенджер">
 <meta name="twitter:description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
 <meta name="twitter:image" content="https://monxley.github.io/Aegis/brand/lockup.png">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Aegis","applicationCategory":"CommunicationApplication","operatingSystem":"Android","url":"https://monxley.github.io/Aegis/ru/","inLanguage":"ru","description":"Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/monxley/Aegis/releases","softwareHelp":"https://github.com/monxley/Aegis/blob/main/AEGIS_PROTOCOL.md","codeRepository":"https://github.com/monxley/Aegis"},{"@type":"FAQPage","inLanguage":"ru","mainEntity":[{"@type":"Question","name":"Нужен ли номер телефона или почта?","acceptedAnswer":{"@type":"Answer","text":"Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже."}},{"@type":"Question","name":"Что здесь постквантового?","acceptedAnswer":{"@type":"Answer","text":"Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую."}},{"@type":"Question","name":"Могут ли серверы прочитать мои сообщения?","acceptedAnswer":{"@type":"Answer","text":"Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес."}},{"@type":"Question","name":"Чем это отличается от Signal?","acceptedAnswer":{"@type":"Answer","text":"Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Aegis нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное."}},{"@type":"Question","name":"Есть ли он в Google Play?","acceptedAnswer":{"@type":"Answer","text":"Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта."}},{"@type":"Question","name":"Это правда бесплатно?","acceptedAnswer":{"@type":"Answer","text":"Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому."}},{"@type":"Question","name":"На каких платформах работает?","acceptedAnswer":{"@type":"Answer","text":"Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android."}}]}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Shoal","applicationCategory":"CommunicationApplication","operatingSystem":"Android","url":"https://monxley.github.io/Aegis/ru/","inLanguage":"ru","description":"Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/monxley/Aegis/releases","softwareHelp":"https://github.com/monxley/Aegis/blob/main/SHOAL_PROTOCOL.md","codeRepository":"https://github.com/monxley/Aegis"},{"@type":"FAQPage","inLanguage":"ru","mainEntity":[{"@type":"Question","name":"Нужен ли номер телефона или почта?","acceptedAnswer":{"@type":"Answer","text":"Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже."}},{"@type":"Question","name":"Что здесь постквантового?","acceptedAnswer":{"@type":"Answer","text":"Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую."}},{"@type":"Question","name":"Могут ли серверы прочитать мои сообщения?","acceptedAnswer":{"@type":"Answer","text":"Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес."}},{"@type":"Question","name":"Чем это отличается от Signal?","acceptedAnswer":{"@type":"Answer","text":"Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Shoal нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное."}},{"@type":"Question","name":"Есть ли он в Google Play?","acceptedAnswer":{"@type":"Answer","text":"Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта."}},{"@type":"Question","name":"Это правда бесплатно?","acceptedAnswer":{"@type":"Answer","text":"Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому."}},{"@type":"Question","name":"На каких платформах работает?","acceptedAnswer":{"@type":"Answer","text":"Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android."}}]}]}</script>
 </head>
 <body>
 <a class="skip" href="#main">Перейти к содержанию</a>
@@ -38,7 +38,7 @@
 <header class="site">
   <a class="brand" href="https://monxley.github.io/Aegis/ru/">
     <img src="../assets/icon.png" alt="" width="32" height="32">
-    <span>Aegis</span>
+    <span>Shoal</span>
   </a>
   <nav aria-label="Пять слоёв, одно сообщение"><a href="#how">Как устроено</a><a href="#crypto">Криптография</a><a href="#features">Возможности</a><a href="#fdroid">F-Droid</a><a href="#node">Свой узел</a><a href="#limits">Границы</a><a href="#faq">Вопросы</a></nav>
   <div class="head-actions">
@@ -55,14 +55,14 @@
   <p class="kicker">На ядре Ciphra · Постквантовый · Анонимный · Без зависимостей</p>
   <h1>Не перехватить.<br>Не прочитать.<br>
     <span class="accent">Не связать.</span></h1>
-  <p class="lead">Aegis — анонимный мессенджер со сквозным шифрованием. Без номера телефона, без почты, без аккаунта на чьём-либо сервере. Узлы, через которые идут сообщения, не могут их прочитать и не знают, между кем они.</p>
+  <p class="lead">Shoal — анонимный мессенджер со сквозным шифрованием. Без номера телефона, без почты, без аккаунта на чьём-либо сервере. Узлы, через которые идут сообщения, не могут их прочитать и не знают, между кем они.</p>
   <p class="cta">
     <a class="btn primary" href="https://github.com/monxley/Aegis/releases/latest" rel="noopener">Скачать для Android</a>
     <a class="btn" href="https://github.com/monxley/Aegis" rel="noopener">Открыть исходный код</a>
   </p>
   <p class="fine">Бесплатно и с открытым кодом, Apache-2.0. APK ставится вручную — в Google Play его нет.</p>
   <aside class="alpha">
-    <strong>Альфа-версия.</strong> Aegis не проходил внешний аудит безопасности. В протоколе и в его реализации могут быть ошибки. Не полагайтесь на него там, где ошибка поставит кого-то под удар.
+    <strong>Альфа-версия.</strong> Shoal не проходил внешний аудит безопасности. В протоколе и в его реализации могут быть ошибки. Не полагайтесь на него там, где ошибка поставит кого-то под удар.
   </aside>
  </div>
  <div class="scene" aria-hidden="true">
@@ -101,12 +101,12 @@
 
 <section id="shots">
   <h2>Приложение</h2>
-  <div class="shots"><figure><img src="../screenshots/chats.jpg" alt="Список переписок Aegis на Android" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/settings-security.jpg" alt="Настройки безопасности Aegis: блокировка, пароль под принуждением, экстренное стирание" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/settings-privacy.jpg" alt="Настройки приватности Aegis: цепочка Tor и SOCKS5, блокировка скриншотов" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/nodes.jpg" alt="Вид сети Aegis со списком найденных микс-узлов" width="1968" height="2184" loading="lazy" decoding="async"></figure></div>
+  <div class="shots"><figure><img src="../screenshots/chats.jpg" alt="Список переписок Shoal на Android" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/settings-security.jpg" alt="Настройки безопасности Shoal: блокировка, пароль под принуждением, экстренное стирание" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/settings-privacy.jpg" alt="Настройки приватности Shoal: цепочка Tor и SOCKS5, блокировка скриншотов" width="1968" height="2184" loading="lazy" decoding="async"></figure><figure><img src="../screenshots/nodes.jpg" alt="Вид сети Shoal со списком найденных микс-узлов" width="1968" height="2184" loading="lazy" decoding="async"></figure></div>
 </section>
 
 <section id="fdroid">
   <h2>Обновления без аккаунта в магазине</h2>
-  <p class="lead">Добавьте репозиторий проекта в F-Droid, и Aegis будет обновляться как обычное приложение — без аккаунта Google, без Play Services и без ручной установки каждый раз. Сборки там подписаны тем же ключом, что и APK на GitHub, так что переходить между ними можно без переустановки.</p>
+  <p class="lead">Добавьте репозиторий проекта в F-Droid, и Shoal будет обновляться как обычное приложение — без аккаунта Google, без Play Services и без ручной установки каждый раз. Сборки там подписаны тем же ключом, что и APK на GitHub, так что переходить между ними можно без переустановки.</p>
   <p class="cta"><a class="btn" href="../fdroid/">Репозиторий F-Droid</a></p>
 </section>
 
@@ -120,19 +120,19 @@
 <section id="limits">
   <h2>Честные границы</h2>
   <p class="lead">Взято из раздела non-goals в самом описании протокола. Заявление о безопасности без указанных границ — это реклама.</p>
-  <ul class="grid limits"><li><h3>Внешнего аудита не было</h3><p>Aegis в альфе, и его не проверял никто вне проекта. Считайте каждую гарантию на этой странице проектным намерением, которое пока не подтверждено независимо.</p></li><li><h3>Анонимности нужна толпа</h3><p>Вы скрыты среди тех, кто пользуется сетью одновременно с вами. Пока их мало — мала и защита. Так устроена любая анонимная система.</p></li><li><h3>Глобальный противник не решён</h3><p>Loopix резко повышает стоимость анализа трафика. Действительно глобальный и долго наблюдающий противник остаётся самой трудной открытой задачей в этой области. Мы заявляем сильную устойчивость, а не невозможность.</p></li><li><h3>Ваше устройство остаётся вашим устройством</h3><p>Если кто-то управляет вашим телефоном, пока Aegis разблокирован, сообщения у него на экране. Это не чинится протоколом.</p></li></ul>
+  <ul class="grid limits"><li><h3>Внешнего аудита не было</h3><p>Shoal в альфе, и его не проверял никто вне проекта. Считайте каждую гарантию на этой странице проектным намерением, которое пока не подтверждено независимо.</p></li><li><h3>Анонимности нужна толпа</h3><p>Вы скрыты среди тех, кто пользуется сетью одновременно с вами. Пока их мало — мала и защита. Так устроена любая анонимная система.</p></li><li><h3>Глобальный противник не решён</h3><p>Loopix резко повышает стоимость анализа трафика. Действительно глобальный и долго наблюдающий противник остаётся самой трудной открытой задачей в этой области. Мы заявляем сильную устойчивость, а не невозможность.</p></li><li><h3>Ваше устройство остаётся вашим устройством</h3><p>Если кто-то управляет вашим телефоном, пока Shoal разблокирован, сообщения у него на экране. Это не чинится протоколом.</p></li></ul>
 </section>
 
 <section id="faq">
   <h2>Вопросы</h2>
-  <div class="faq"><details><summary><h3>Нужен ли номер телефона или почта?</h3></summary><p>Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже.</p></details><details><summary><h3>Что здесь постквантового?</h3></summary><p>Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую.</p></details><details><summary><h3>Могут ли серверы прочитать мои сообщения?</h3></summary><p>Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес.</p></details><details><summary><h3>Чем это отличается от Signal?</h3></summary><p>Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Aegis нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное.</p></details><details><summary><h3>Есть ли он в Google Play?</h3></summary><p>Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта.</p></details><details><summary><h3>Это правда бесплатно?</h3></summary><p>Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому.</p></details><details><summary><h3>На каких платформах работает?</h3></summary><p>Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android.</p></details></div>
+  <div class="faq"><details><summary><h3>Нужен ли номер телефона или почта?</h3></summary><p>Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже.</p></details><details><summary><h3>Что здесь постквантового?</h3></summary><p>Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую.</p></details><details><summary><h3>Могут ли серверы прочитать мои сообщения?</h3></summary><p>Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес.</p></details><details><summary><h3>Чем это отличается от Signal?</h3></summary><p>Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Shoal нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное.</p></details><details><summary><h3>Есть ли он в Google Play?</h3></summary><p>Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта.</p></details><details><summary><h3>Это правда бесплатно?</h3></summary><p>Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому.</p></details><details><summary><h3>На каких платформах работает?</h3></summary><p>Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android.</p></details></div>
 </section>
 
 </main>
 
 <footer class="site">
   <p class="tagline">Реализуй, не изобретай.</p>
-  <ul class="flinks"><li><a href="https://github.com/monxley/Aegis">Исходный код</a></li><li><a href="https://github.com/monxley/Aegis/releases">Выпуски</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/AEGIS_PROTOCOL.md">Описание протокола</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/docs/CRYPTO_MATH.md">Криптографические детали</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/SECURITY_AUDIT.md">Заметки по безопасности</a></li></ul>
+  <ul class="flinks"><li><a href="https://github.com/monxley/Aegis">Исходный код</a></li><li><a href="https://github.com/monxley/Aegis/releases">Выпуски</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/SHOAL_PROTOCOL.md">Описание протокола</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/docs/CRYPTO_MATH.md">Криптографические детали</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/SECURITY_AUDIT.md">Заметки по безопасности</a></li></ul>
   <p class="fine">Открытый код под Apache License 2.0.</p>
 </footer>
 </body>

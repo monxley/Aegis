@@ -1,5 +1,5 @@
-name: aegis
-description: "Aegis — anonymous, end-to-end-encrypted, post-quantum messenger."
+name: shoal
+description: "Shoal — anonymous, end-to-end-encrypted, post-quantum messenger."
 publish_to: "none"
 version: 1.0.0+1
 
@@ -64,7 +64,7 @@ dev_dependencies:
   # PNG at build time — see deploy/build-apk.sh.
   flutter_launcher_icons: ^0.13.1
 
-# Launcher icon: the Aegis shield.
+# Launcher icon: the Shoal shield.
 flutter_launcher_icons:
   android: true
   image_path: "assets/logo/icon.png"

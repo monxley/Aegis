@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Aegis Android APK on a plain Linux VPS, entirely from the console
+# Build the Shoal Android APK on a plain Linux VPS, entirely from the console
 # (no GUI, no GitHub Actions). Made for a Debian/Ubuntu box you SSH into.
 #
 #   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
@@ -16,7 +16,7 @@
 #         Android NDK r26d ~2.6 GB, Flutter SDK with its engine artifacts
 #         ~2.8 GB, Gradle distribution + caches ~1.5 GB, Rust with three Android
 #         std targets ~1.2 GB, Android SDK platform/build-tools/cmdline-tools
-#         ~0.7 GB, pub cache ~0.3 GB. Aegis itself is ~13 MB of source and
+#         ~0.7 GB, pub cache ~0.3 GB. Shoal itself is ~13 MB of source and
 #         ~0.5 GB of build output.
 #
 #   RAM   4 GB works; 2 GB is tight and 1 GB will not finish. The build caps the
@@ -36,7 +36,7 @@ SDK="${ANDROID_SDK_ROOT:-$HOME/android-sdk}"
 NDK_VER="26.3.11579264"
 PLATFORM="android-34"
 BUILDTOOLS="34.0.0"
-WORK="${WORK:-$HOME/aegis-build}"
+WORK="${WORK:-$HOME/shoal-build}"
 FRB_VERSION="2.0.0"
 
 log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
@@ -120,10 +120,10 @@ cd "$SRC/app"
 
 log "generating bindings + platform folders"
 export FLUTTER_ALLOW_ROOT=true   # this VPS session runs as root; that's fine here
-flutter create --platforms=android --project-name aegis . >/dev/null
+flutter create --platforms=android --project-name shoal . >/dev/null
 flutter pub get >/dev/null
 
-# Everything that turns the generated project into Aegis -- manifest
+# Everything that turns the generated project into Shoal -- manifest
 # permissions, the background service, launcher aliases, FLAG_SECURE, minSdk,
 # the launcher icon. Shared with CI so the two builds cannot drift apart; it
 # used to live inline here, and CI produced an APK with no INTERNET permission.
@@ -160,10 +160,10 @@ log "cross-compiling the Rust engine for Android (a few minutes)"
 # hand to anyone as a release. The script below says which of the two happened.
 if [ -n "${KEYSTORE:-}" ]; then
   log "signing the release with $KEYSTORE"
-  install -m 0600 "$KEYSTORE" android/app/aegis-release.jks
+  install -m 0600 "$KEYSTORE" android/app/shoal-release.jks
   ( umask 077
     {
-      printf 'storeFile=aegis-release.jks\n'
+      printf 'storeFile=shoal-release.jks\n'
       printf 'storePassword=%s\n' "${KEYSTORE_PASSWORD:?set KEYSTORE_PASSWORD}"
       printf 'keyAlias=%s\n' "${KEY_ALIAS:?set KEY_ALIAS}"
       printf 'keyPassword=%s\n' "${KEY_PASSWORD:?set KEY_PASSWORD}"

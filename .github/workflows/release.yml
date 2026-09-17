@@ -22,7 +22,7 @@ on:
         description: "Existing tag to build and publish (e.g. v1.0.0)"
         required: true
       release_name:
-        description: "Release title (default: Aegis <tag>)"
+        description: "Release title (default: Shoal <tag>)"
         required: false
 
 env:
@@ -44,14 +44,14 @@ jobs:
       # The in-app updater asks GitHub for the latest release and hands its
       # `tag_name` to is_newer_version() in the Rust core. That parses a leading
       # v/V, then everything up to the first `-` or `+`, and needs a number
-      # there. A tag like `Aegis-V1` yields None, is_newer_version returns false,
+      # there. A tag like `Shoal-V1` yields None, is_newer_version returns false,
       # and every existing install goes on believing it is current -- silently,
       # forever, with nothing in any log.
       #
       # So the tag stays machine-readable and the *title* carries the name:
-      # tag `v1.0.0`, release "Aegis V1".
+      # tag `v1.0.0`, release "Shoal V1".
       #
-      # This mirrors parse_version in crates/aegis-api/src/lib.rs, which is the
+      # This mirrors parse_version in crates/shoal-api/src/lib.rs, which is the
       # authority; if the two ever disagree, that file is right and this is
       # stale.
       - name: Require a tag the updater can parse
@@ -71,7 +71,7 @@ jobs:
               print("would report that.")
               print()
               print("Tag it v1.0.0 and set the release title instead:")
-              print("  gh workflow run release.yml -f tag=v1.0.0 -f release_name='Aegis V1'")
+              print("  gh workflow run release.yml -f tag=v1.0.0 -f release_name='Shoal V1'")
               sys.exit(1)
           print(f"tag {tag!r} parses as version {core!r}")
           PY
@@ -121,7 +121,7 @@ jobs:
       - name: Scaffold platforms + generate bindings
         working-directory: app
         run: |
-          flutter create --platforms=android --project-name aegis .
+          flutter create --platforms=android --project-name shoal .
           flutter pub get
           mkdir -p lib/src/rust
           rm -f test/widget_test.dart
@@ -154,10 +154,10 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           umask 077
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/aegis-release.jks
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/shoal-release.jks
           # Written, never echoed: the values are secrets and the log is public.
           {
-            printf 'storeFile=aegis-release.jks\n'
+            printf 'storeFile=shoal-release.jks\n'
             printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
             printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
             printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
@@ -229,7 +229,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           # The tag is what machines read; this is what people read.
-          name: ${{ github.event.inputs.release_name || format('Aegis {0}', github.event.inputs.tag || github.ref_name) }}
+          name: ${{ github.event.inputs.release_name || format('Shoal {0}', github.event.inputs.tag || github.ref_name) }}
           files: |
             app/build/app/outputs/flutter-apk/app-release.apk
             app-release.apk.sha256
@@ -247,7 +247,7 @@ jobs:
             apksigner verify --print-certs app-release.apk
             ```
 
-            Every Aegis release is signed with the same key. If the fingerprint
+            Every Shoal release is signed with the same key. If the fingerprint
             differs from the previous release, the APK did not come from this
             project — do not install it.
 

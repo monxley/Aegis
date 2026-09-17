@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../brand.dart';
 import '../engine.dart';
-import '../src/rust/api/aegis.dart';
+import '../src/rust/api/shoal.dart';
 import '../theme.dart';
 import '../widgets.dart';
 
@@ -12,7 +12,7 @@ import '../widgets.dart';
 /// seed-derived key), so a stealer that grabs the app's files gets only
 /// ciphertext.
 class NotesScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const NotesScreen({super.key, required this.engine});
 
   @override
@@ -83,12 +83,12 @@ class _NotesScreenState extends State<NotesScreen> {
         String? err;
         return StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            backgroundColor: AegisColor.surface,
+            backgroundColor: ShoalColor.surface,
             title: Text(
               widget.engine.notesHasPassword
                   ? 'Change notes password'
                   : 'Set notes password',
-              style: const TextStyle(color: AegisColor.textPrimary, fontSize: 18),
+              style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 18),
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -96,21 +96,21 @@ class _NotesScreenState extends State<NotesScreen> {
                 const Text(
                   'A separate password just for your notes, on top of the '
                   'device key. You’ll need it to open Notes.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+                  style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: a,
                   obscureText: true,
                   autofocus: true,
-                  style: const TextStyle(color: AegisColor.textPrimary),
+                  style: const TextStyle(color: ShoalColor.textPrimary),
                   decoration: const InputDecoration(hintText: 'New password'),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: b,
                   obscureText: true,
-                  style: const TextStyle(color: AegisColor.textPrimary),
+                  style: const TextStyle(color: ShoalColor.textPrimary),
                   decoration: InputDecoration(hintText: 'Repeat', errorText: err),
                 ),
               ],
@@ -118,7 +118,7 @@ class _NotesScreenState extends State<NotesScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, null),
-                child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+                child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
               ),
               TextButton(
                 onPressed: () {
@@ -132,7 +132,7 @@ class _NotesScreenState extends State<NotesScreen> {
                   }
                   Navigator.pop(ctx, a.text);
                 },
-                child: const Text('Save', style: TextStyle(color: AegisColor.accent)),
+                child: const Text('Save', style: TextStyle(color: ShoalColor.accent)),
               ),
             ],
           ),
@@ -169,15 +169,15 @@ class _NotesScreenState extends State<NotesScreen> {
           children: [
             Text('Notes'),
             Text('Local · encrypted · never sent',
-                style: TextStyle(color: AegisColor.textSecondary, fontSize: 11)),
+                style: TextStyle(color: ShoalColor.textSecondary, fontSize: 11)),
           ],
         ),
         actions: [
           AnimatedBuilder(
             animation: widget.engine,
             builder: (context, _) => PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, color: AegisColor.textPrimary),
-              color: AegisColor.surface,
+              icon: const Icon(Icons.more_vert_rounded, color: ShoalColor.textPrimary),
+              color: ShoalColor.surface,
               onSelected: (v) {
                 switch (v) {
                   case 'set':
@@ -195,19 +195,19 @@ class _NotesScreenState extends State<NotesScreen> {
                     widget.engine.notesHasPassword
                         ? 'Change notes password'
                         : 'Set notes password',
-                    style: const TextStyle(color: AegisColor.textPrimary),
+                    style: const TextStyle(color: ShoalColor.textPrimary),
                   ),
                 ),
                 if (widget.engine.notesHasPassword && !widget.engine.notesLocked)
                   const PopupMenuItem(
                     value: 'remove',
                     child: Text('Remove notes password',
-                        style: TextStyle(color: AegisColor.textPrimary)),
+                        style: TextStyle(color: ShoalColor.textPrimary)),
                   ),
                 const PopupMenuItem(
                   value: 'panic',
                   child: Text('Wipe all notes',
-                      style: TextStyle(color: AegisColor.danger)),
+                      style: TextStyle(color: ShoalColor.danger)),
                 ),
               ],
             ),
@@ -253,7 +253,7 @@ class _NotesScreenState extends State<NotesScreen> {
           const Text('Notes are locked',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: AegisColor.textPrimary,
+                  color: ShoalColor.textPrimary,
                   fontSize: 20,
                   fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
@@ -261,7 +261,7 @@ class _NotesScreenState extends State<NotesScreen> {
             'Enter your notes password. It’s separate from the app password and '
             'never leaves this device.',
             textAlign: TextAlign.center,
-            style: AegisType.secondary,
+            style: ShoalType.secondary,
           ),
           const SizedBox(height: 24),
           TextField(
@@ -269,11 +269,11 @@ class _NotesScreenState extends State<NotesScreen> {
             autofocus: true,
             obscureText: true,
             enabled: !_busy,
-            style: const TextStyle(color: AegisColor.textPrimary),
+            style: const TextStyle(color: ShoalColor.textPrimary),
             onSubmitted: (_) => _unlock(),
             decoration: InputDecoration(
               hintText: 'Notes password',
-              prefixIcon: const Icon(Icons.lock_rounded, color: AegisColor.textSecondary),
+              prefixIcon: const Icon(Icons.lock_rounded, color: ShoalColor.textSecondary),
               errorText: _pwError,
             ),
           ),
@@ -292,21 +292,21 @@ class _NotesScreenState extends State<NotesScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Wipe all notes?',
-            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
+            style: TextStyle(color: ShoalColor.textPrimary, fontSize: 18)),
         content: const Text(
           'Every note on this device is erased. This cannot be undone.',
-          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+          style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+            child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Wipe', style: TextStyle(color: AegisColor.danger)),
+            child: const Text('Wipe', style: TextStyle(color: ShoalColor.danger)),
           ),
         ],
       ),
@@ -316,7 +316,7 @@ class _NotesScreenState extends State<NotesScreen> {
 }
 
 class _NoteBubble extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final Note note;
   const _NoteBubble({required this.engine, required this.note});
 
@@ -333,7 +333,7 @@ class _NoteBubble extends StatelessWidget {
           margin: const EdgeInsets.symmetric(vertical: 4),
           padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
           decoration: const BoxDecoration(
-            color: AegisColor.accent,
+            color: ShoalColor.accent,
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(18),
               topRight: Radius.circular(18),
@@ -347,11 +347,11 @@ class _NoteBubble extends StatelessWidget {
             children: [
               Text(note.text,
                   style: const TextStyle(
-                      color: AegisColor.textOnAccent, fontSize: 15, height: 1.3)),
+                      color: ShoalColor.textOnAccent, fontSize: 15, height: 1.3)),
               const SizedBox(height: 2),
               Text(
                 formatClock(note.timestampMs.toInt()),
-                style: const TextStyle(color: AegisColor.textMuted, fontSize: 10),
+                style: const TextStyle(color: ShoalColor.textMuted, fontSize: 10),
               ),
             ],
           ),
@@ -364,7 +364,7 @@ class _NoteBubble extends StatelessWidget {
     HapticFeedback.mediumImpact();
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -373,8 +373,8 @@ class _NoteBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.copy_rounded, color: AegisColor.textPrimary),
-              title: const Text('Copy', style: TextStyle(color: AegisColor.textPrimary)),
+              leading: const Icon(Icons.copy_rounded, color: ShoalColor.textPrimary),
+              title: const Text('Copy', style: TextStyle(color: ShoalColor.textPrimary)),
               onTap: () {
                 Navigator.pop(ctx);
                 Clipboard.setData(ClipboardData(text: note.text));
@@ -384,16 +384,16 @@ class _NoteBubble extends StatelessWidget {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.edit_rounded, color: AegisColor.textPrimary),
-              title: const Text('Edit', style: TextStyle(color: AegisColor.textPrimary)),
+              leading: const Icon(Icons.edit_rounded, color: ShoalColor.textPrimary),
+              title: const Text('Edit', style: TextStyle(color: ShoalColor.textPrimary)),
               onTap: () {
                 Navigator.pop(ctx);
                 _edit(context);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.delete_outline_rounded, color: AegisColor.danger),
-              title: const Text('Delete', style: TextStyle(color: AegisColor.danger)),
+              leading: const Icon(Icons.delete_outline_rounded, color: ShoalColor.danger),
+              title: const Text('Delete', style: TextStyle(color: ShoalColor.danger)),
               onTap: () {
                 Navigator.pop(ctx);
                 engine.deleteNote(note.id);
@@ -411,24 +411,24 @@ class _NoteBubble extends StatelessWidget {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Edit note',
-            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
+            style: TextStyle(color: ShoalColor.textPrimary, fontSize: 18)),
         content: TextField(
           controller: ctrl,
           autofocus: true,
           maxLines: null,
-          style: const TextStyle(color: AegisColor.textPrimary),
+          style: const TextStyle(color: ShoalColor.textPrimary),
           decoration: const InputDecoration(hintText: 'Note'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+            child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Save', style: TextStyle(color: AegisColor.accent)),
+            child: const Text('Save', style: TextStyle(color: ShoalColor.accent)),
           ),
         ],
       ),
@@ -457,7 +457,7 @@ class _Composer extends StatelessWidget {
                 controller: controller,
                 minLines: 1,
                 maxLines: 5,
-                style: const TextStyle(color: AegisColor.textPrimary),
+                style: const TextStyle(color: ShoalColor.textPrimary),
                 textInputAction: TextInputAction.newline,
                 decoration: const InputDecoration(
                   hintText: 'Write a private note…',
@@ -473,10 +473,10 @@ class _Composer extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: const BoxDecoration(
-                  color: AegisColor.accent,
+                  color: ShoalColor.accent,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.add_rounded, color: AegisColor.textOnAccent),
+                child: const Icon(Icons.add_rounded, color: ShoalColor.textOnAccent),
               ),
             ),
           ],
@@ -501,7 +501,7 @@ class _NotesEmpty extends StatelessWidget {
             SizedBox(height: 16),
             Text('Your private notes',
                 style: TextStyle(
-                    color: AegisColor.textPrimary,
+                    color: ShoalColor.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w600)),
             SizedBox(height: 8),
@@ -509,7 +509,7 @@ class _NotesEmpty extends StatelessWidget {
               'Only on this device, encrypted at rest — never sent to any node. '
               'A place for keys, addresses, reminders.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+              style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
             ),
           ],
         ),

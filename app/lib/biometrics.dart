@@ -22,7 +22,7 @@ class Biometrics {
   static const FlutterSecureStorage _store = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
-  static const String _seedKey = 'aegis.bio_seed';
+  static const String _seedKey = 'shoal.bio_seed';
 
   /// Whether the device can do biometric auth right now (hardware present and at
   /// least one fingerprint/face enrolled).
