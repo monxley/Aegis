@@ -11,7 +11,7 @@ import '../widgets.dart';
 ///
 /// Because the key derivation (PBKDF2, hundreds of thousands of rounds) takes a
 /// beat, the unlock is shown as a live progress ring around the lock glyph that
-/// fills as the key is derived and blooms into the open shield on success.
+/// fills as the key is derived and blooms into the unlocked state on success.
 class LockScreen extends StatefulWidget {
   final ShoalEngineController engine;
   final VoidCallback onUnlocked;

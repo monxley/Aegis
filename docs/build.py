@@ -21,6 +21,25 @@ HERE = pathlib.Path(__file__).parent
 BASE = "https://monxley.github.io/Aegis"
 REPO = "https://github.com/monxley/Aegis"
 
+
+def _png_size(path):
+    """Read a PNG's dimensions from its IHDR.
+
+    The social card's declared size used to be written out by hand, and when the
+    card was regenerated at a different aspect the numbers stayed behind --
+    scrapers then lay out the preview to a size the image does not have. Reading
+    it from the file is the only version that cannot drift.
+    """
+    import struct
+    with open(path, "rb") as f:
+        head = f.read(26)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"{path}: not a PNG")
+    return struct.unpack(">II", head[16:24])
+
+
+OG_W, OG_H = _png_size(HERE / "brand" / "og.png")
+
 # Every claim below is checked against the repository, not written from
 # impression: the five layers are the ones in docs/screenshots/hero.jpg, the
 # primitives are those in crates/shoal-crypto, and nothing is described as
@@ -607,16 +626,16 @@ def page(lang, d):
 <meta property="og:title" content="{e(d['title'])}">
 <meta property="og:description" content="{e(d['desc'])}">
 <meta property="og:url" content="{here}">
-<meta property="og:image" content="{BASE}/brand/lockup.png">
-<meta property="og:image:width" content="1402">
-<meta property="og:image:height" content="400">
+<meta property="og:image" content="{BASE}/brand/og.png">
+<meta property="og:image:width" content="{OG_W}">
+<meta property="og:image:height" content="{OG_H}">
 <meta property="og:image:alt" content="Shoal — post-quantum private messenger">
 <meta property="og:locale" content="{d['locale']}">
 <meta property="og:locale:alternate" content="{d['alt_locale']}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{e(d['title'])}">
 <meta name="twitter:description" content="{e(d['desc'])}">
-<meta name="twitter:image" content="{BASE}/brand/lockup.png">
+<meta name="twitter:image" content="{BASE}/brand/og.png">
 {json_ld(lang, d)}
 </head>
 <body>

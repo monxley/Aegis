@@ -4,18 +4,22 @@ import 'theme.dart';
 
 /// The Shoal identity mark. Used where the product signs its name — the lock
 /// screen, onboarding, the app bar — and never as a security indicator.
-class ShieldMark extends StatelessWidget {
+class ShoalMark extends StatelessWidget {
+  /// The mark's drawn *height*. The shoal is a wide diamond, so it is sized by
+  /// height and left to take the width it needs — sizing a 1.22:1 mark by a
+  /// single square `size` would shrink it against everything beside it.
   final double size;
-  const ShieldMark({super.key, this.size = 64});
+  const ShoalMark({super.key, this.size = 64});
 
   @override
   Widget build(BuildContext context) {
-    // Rendered a touch larger than the nominal size, since the asset carries
-    // transparent margin of its own.
+    // The asset carries ~8% transparent margin of its own, which the small
+    // overdraw below cancels out.
     return Image.asset(
-      'assets/logo/shield.png',
-      width: size * 1.18,
-      height: size * 1.18,
+      'assets/logo/mark.png',
+      height: size * 1.12,
+      fit: BoxFit.contain,
+      excludeFromSemantics: true,
       filterQuality: FilterQuality.medium,
     );
   }

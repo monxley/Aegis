@@ -497,7 +497,7 @@ class _NotesEmpty extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            BrandGlyph(Brand.shieldLayered, size: 96),
+            BrandGlyph(Brand.markLayered, size: 96),
             SizedBox(height: 16),
             Text('Your private notes',
                 style: TextStyle(

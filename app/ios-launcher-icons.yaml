@@ -14,11 +14,13 @@
 # therefore never generated, in either build path, and the failure was swallowed
 # by `>/dev/null 2>&1 ||`. Do not rename this back to that pattern.
 #
-# iOS icons must be fully opaque (the App Store rejects alpha), so the shield is
-# flattened onto a white background.
+# iOS icons must be fully opaque (the App Store rejects alpha), so this points
+# at the pre-flattened icon rather than at the transparent adaptive foreground:
+# the mark is a pale silver, and flattening it onto white would leave a nearly
+# invisible icon. The brand ground is carried in the asset itself.
 flutter_launcher_icons:
   ios: true
   android: false
-  image_path: "assets/logo/icon.png"
+  image_path: "assets/logo/icon_legacy.png"
   remove_alpha_ios: true
-  background_color_ios: "#FFFFFF"
+  background_color_ios: "#0A0D12"
