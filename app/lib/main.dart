@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'brand.dart';
 import 'design/states.dart';
 import 'engine.dart';
-import 'screens/chats.dart';
+import 'screens/home.dart';
 import 'screens/lock.dart';
 import 'screens/onboarding.dart';
 import 'theme.dart';
@@ -199,7 +199,7 @@ class _BootstrapState extends State<_Bootstrap> with WidgetsBindingObserver {
       case _Phase.onboarding:
         return OnboardingScreen(engine: widget.engine);
       case _Phase.chats:
-        return ChatsScreen(engine: widget.engine);
+        return HomeShell(engine: widget.engine);
     }
   }
 
