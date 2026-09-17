@@ -138,7 +138,8 @@ class _LockScreenState extends State<LockScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
+      body: ScaleField(
+        child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
@@ -248,6 +249,7 @@ class _LockScreenState extends State<LockScreen>
             ),
           ),
         ),
+      ),
     );
   }
 }

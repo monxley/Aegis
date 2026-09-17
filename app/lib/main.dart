@@ -238,7 +238,8 @@ class _SplashState extends State<_Splash>
   Widget build(BuildContext context) {
     final fade = CurvedAnimation(parent: _intro, curve: Curves.easeOut);
     return Scaffold(
-      body: Center(
+      body: ScaleField(
+        child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -254,6 +255,7 @@ class _SplashState extends State<_Splash>
             const SizedBox(height: 44),
             FadeTransition(opacity: fade, child: const ProgressLine()),
           ],
+        ),
         ),
       ),
     );

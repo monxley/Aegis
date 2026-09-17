@@ -310,12 +310,15 @@ footer.site {
   position: absolute;
   inset: -1.5rem -50vw 0;
   background: url("scales.png") repeat;
-  background-size: 140px auto;
-  opacity: .05;
+  background-size: 116px auto;
+  /* 5% was honest texture on a calibrated desktop panel and simply invisible
+   * on a phone in daylight, which is where most of this page is read. The
+   * ground is near-black, so even at 13% the shapes stay behind the type. */
+  opacity: .13;
   z-index: -1;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(180deg, #000, transparent 88%);
-          mask-image: linear-gradient(180deg, #000, transparent 88%);
+  -webkit-mask-image: linear-gradient(180deg, #000 10%, transparent 92%);
+          mask-image: linear-gradient(180deg, #000 10%, transparent 92%);
 }
 @media (prefers-contrast: more) { .hero::before { display: none; } }
 

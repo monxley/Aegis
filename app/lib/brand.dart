@@ -26,6 +26,74 @@ class Brand {
   static const wordmarkDark = 'assets/brand/wordmark_dark.png';
   static const lockupVertical = 'assets/brand/lockup_vertical.png';
   static const lockupHorizontal = 'assets/brand/lockup_horizontal.png';
+  /// A seamless tile of the mark's own lattice. See [ScaleField].
+  static const scales = 'assets/brand/scales.png';
+}
+
+/// The mark's lattice, tiled behind a screen that carries the brand.
+///
+/// Same shape as the logo, continued past its diamond: the tile is one fish of
+/// the mark, repeated on a half-drop. It is deliberately faint and fades out
+/// downwards, so it never competes with the content — and it goes only on the
+/// screens where the product signs its name (splash, lock, onboarding, empty
+/// states), never behind a conversation, where a texture under someone's words
+/// is just noise.
+class ScaleField extends StatelessWidget {
+  final Widget child;
+
+  /// Opacity of the tile over the app background.
+  final double opacity;
+
+  /// Drawn size of one tile, in logical pixels.
+  final double tile;
+
+  /// Where the fade reaches nothing. 1 means "fade over the whole height".
+  final double fadeTo;
+
+  const ScaleField({
+    super.key,
+    required this.child,
+    this.opacity = 0.055,
+    this.tile = 92,
+    this.fadeTo = 0.85,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The asset is 320px wide; `scale` is what turns that into `tile` logical
+    // pixels, so changing the tile size never needs the asset regenerated.
+    final image = ExactAssetImage(Brand.scales, scale: 320 / tile);
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (rect) => LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: const [Colors.white, Colors.transparent],
+                stops: [0.0, fadeTo],
+              ).createShader(rect),
+              child: Opacity(
+                opacity: opacity,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    image: DecorationImage(
+                      image: image,
+                      repeat: ImageRepeat.repeat,
+                      filterQuality: FilterQuality.medium,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
 }
 
 /// A brand image at a given size.
