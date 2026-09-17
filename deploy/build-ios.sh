@@ -24,7 +24,7 @@
 #   - CocoaPods:  `sudo gem install cocoapods`  (or `brew install cocoapods`)
 set -euo pipefail
 
-REPO="${REPO:-https://github.com/monxley/Aegis}"
+REPO="${REPO:-https://github.com/monxley/shoal}"
 FLUTTER_DIR="${FLUTTER_DIR:-$HOME/flutter}"
 WORK="${WORK:-$HOME/shoal-ios-build}"
 FRB_VERSION="2.0.0"

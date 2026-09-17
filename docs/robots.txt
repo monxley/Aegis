@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://monxley.github.io/Aegis/sitemap.xml
+Sitemap: https://monxley.github.io/shoal/sitemap.xml

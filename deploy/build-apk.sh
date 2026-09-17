@@ -2,7 +2,7 @@
 # Build the Shoal Android APK on a plain Linux VPS, entirely from the console
 # (no GUI, no GitHub Actions). Made for a Debian/Ubuntu box you SSH into.
 #
-#   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/build-apk.sh | bash
 #
 # It installs a JDK, the Flutter SDK, the Android command-line SDK + NDK, and
 # Rust, then builds an installable RELEASE APK (set BUILD=debug for a debug
@@ -30,7 +30,7 @@
 #   Time  ~25-40 min on 2 vCPU for a first build; most of it is downloads.
 set -euo pipefail
 
-REPO="${REPO:-https://github.com/monxley/Aegis}"
+REPO="${REPO:-https://github.com/monxley/shoal}"
 FLUTTER_DIR="${FLUTTER_DIR:-$HOME/flutter}"
 SDK="${ANDROID_SDK_ROOT:-$HOME/android-sdk}"
 NDK_VER="26.3.11579264"

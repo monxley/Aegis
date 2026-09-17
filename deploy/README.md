@@ -26,11 +26,11 @@ No GUI, no Docker — just SSH into the box and run:
 
 ```sh
 # First seed node of a new network:
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh \
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
   | sudo PUBLIC_HOST=your.host bash
 
 # Any other node joins an existing one:
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh \
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
   | sudo PUBLIC_HOST=node2.host BOOTSTRAP=seed.host:5078 bash
 ```
 
@@ -49,7 +49,7 @@ new binary instead of silently keeping the running one.
 ```sh
 # Update a node in place. Pass the same PUBLIC_HOST/BOOTSTRAP you installed with;
 # the unit file is rewritten from them, so anything you omit reverts to default.
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh \
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
   | sudo PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 bash
 ```
 
@@ -87,10 +87,10 @@ It keeps all of it so a second build is fast, which is the wrong trade on a VPS
 whose job is running a node. Once the APK is copied off:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/clean-build-toolchain.sh | bash
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/clean-build-toolchain.sh | bash
 
 # See what it would remove first, without removing anything:
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/clean-build-toolchain.sh | DRY_RUN=1 bash
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/clean-build-toolchain.sh | DRY_RUN=1 bash
 ```
 
 It removes only build toolchain. Before each delete it checks the path against
@@ -141,9 +141,9 @@ could never do anyway:
 ```sh
 pkg install gh
 gh auth login
-gh workflow run release.yml -R monxley/Aegis -f tag=v0.1.0   # or push a v* tag
-gh run watch  -R monxley/Aegis
-gh release download v0.1.0 -R monxley/Aegis -p '*.apk'
+gh workflow run release.yml -R monxley/shoal -f tag=v0.1.0   # or push a v* tag
+gh run watch  -R monxley/shoal
+gh release download v0.1.0 -R monxley/shoal -p '*.apk'
 termux-open app-release.apk
 ```
 
@@ -151,7 +151,7 @@ Check what you are installing first — the release publishes a SHA-256 next to
 the APK:
 
 ```sh
-gh release download v0.1.0 -R monxley/Aegis -p '*.sha256'
+gh release download v0.1.0 -R monxley/shoal -p '*.sha256'
 sha256sum -c app-release.apk.sha256
 ```
 

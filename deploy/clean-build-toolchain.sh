@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Give back the disk that deploy/build-apk.sh took, and leave the node running.
 #
-#   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/clean-build-toolchain.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/clean-build-toolchain.sh | bash
 #
 # build-apk.sh downloads about 10 GB of Android toolchain -- NDK, Flutter SDK,
 # Gradle, the Android SDK, a JDK, a pub cache -- and leaves all of it under
@@ -75,7 +75,7 @@ if [ -n "$NODE_BIN" ]; then
 else
   warn "No node found on this box. Nothing here will install one; this script"
   warn "only frees space. To install or update the node afterwards:"
-  warn "  curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | sudo bash"
+  warn "  curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh | sudo bash"
 fi
 echo
 
