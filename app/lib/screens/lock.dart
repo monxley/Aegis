@@ -146,6 +146,11 @@ class _LockScreenState extends State<LockScreen>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
                 const Spacer(),
+                // The mark signs the screen; the ring below reports the work.
+                // Two separate jobs, so they are two separate things rather
+                // than a logo with a progress ring wrapped around it.
+                const Center(child: ShoalMark(size: 56)),
+                const SizedBox(height: 32),
                 Center(
                   child: AnimatedBuilder(
                     animation: _progress,
