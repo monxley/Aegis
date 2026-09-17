@@ -168,7 +168,7 @@ class _HowItWorksState extends State<_HowItWorks> {
                   const Icon(Icons.swap_horiz_rounded,
                       size: 18, color: AegisColor.accent),
                   const SizedBox(width: 10),
-                  Expanded(
+                  const Expanded(
                     child: Text('How adding someone works',
                         style: AegisType.heading),
                   ),
