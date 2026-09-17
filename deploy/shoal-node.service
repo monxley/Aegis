@@ -1,0 +1,30 @@
+# systemd unit for a full Shoal node. Install:
+#   sudo cp target/release/shoal-relay-server /usr/local/bin/
+#   sudo useradd -r -s /usr/sbin/nologin shoal && sudo mkdir -p /var/lib/shoal && sudo chown shoal /var/lib/shoal
+#   sudo cp deploy/shoal-node.service /etc/systemd/system/
+#   # edit ExecStart below: set your public host and a real bootstrap node
+#   sudo systemctl enable --now shoal-node
+[Unit]
+Description=Shoal node (blind mailbox + mixnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=shoal
+Group=shoal
+# Replace your.host and the bootstrap address. The first seed node omits --bootstrap.
+ExecStart=/usr/local/bin/shoal-relay-server \
+  --listen 0.0.0.0:5077 --mix 0.0.0.0:5078 --data /var/lib/shoal \
+  --advertise-mix your.host:5078 --advertise-provider your.host:5077 \
+  --bootstrap seed.shoal.example:5078
+Restart=on-failure
+RestartSec=5
+# Hardening: the node holds no data keys and needs only its data dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/shoal
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

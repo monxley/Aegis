@@ -1,0 +1,15 @@
+[package]
+name = "shoal-session"
+description = "Shoal session setup (PQXDH) and message encryption (post-quantum Double Ratchet) — Phase 1"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shoal-crypto = { path = "../shoal-crypto" }
+
+[dev-dependencies]
+# Used only by integration tests that exercise the full authenticity chain
+# (Shoal ID ↔ bundle signing key). Not a runtime dependency.
+shoal-identity = { path = "../shoal-identity" }

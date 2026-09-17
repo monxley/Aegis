@@ -69,6 +69,6 @@ class DeviceIntegrity {
   String get reason {
     if (rooted && emulator) return 'This device looks rooted and like an emulator.';
     if (rooted) return 'This device looks rooted.';
-    return 'Aegis looks like it’s running on an emulator.';
+    return 'Shoal looks like it’s running on an emulator.';
   }
 }

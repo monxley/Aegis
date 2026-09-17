@@ -1,5 +1,5 @@
 [package]
-name = "rust_lib_aegis"
+name = "rust_lib_shoal"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
-# The Aegis engine (this repo's workspace). All crypto/protocol lives here.
-aegis-api = { path = "../../crates/aegis-api" }
+# The Shoal engine (this repo's workspace). All crypto/protocol lives here.
+shoal-api = { path = "../../crates/shoal-api" }
 # The bridge. Version is pinned by `flutter_rust_bridge_codegen` at setup time.
 flutter_rust_bridge = "=2.0.0"

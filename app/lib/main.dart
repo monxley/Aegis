@@ -16,19 +16,19 @@ void main() {
   // the app frozen on the native splash if it hung or errored — instead we show
   // a splash we control and surface any startup failure on screen.
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(AegisApp(engine: AegisEngineController()));
+  runApp(ShoalApp(engine: ShoalEngineController()));
 }
 
-class AegisApp extends StatefulWidget {
-  final AegisEngineController engine;
+class ShoalApp extends StatefulWidget {
+  final ShoalEngineController engine;
 
-  const AegisApp({super.key, required this.engine});
+  const ShoalApp({super.key, required this.engine});
 
   @override
-  State<AegisApp> createState() => _AegisAppState();
+  State<ShoalApp> createState() => _ShoalAppState();
 }
 
-class _AegisAppState extends State<AegisApp> with WidgetsBindingObserver {
+class _ShoalAppState extends State<ShoalApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
@@ -55,22 +55,22 @@ class _AegisAppState extends State<AegisApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Aegis',
+      title: 'Shoal',
       debugShowCheckedModeBanner: false,
-      theme: AegisTheme.dark,
+      theme: ShoalTheme.dark,
       // One scroll feel everywhere: stretch instead of the Material glow, and
       // the same physics on Android and iOS.
-      scrollBehavior: const AegisScrollBehavior(),
+      scrollBehavior: const ShoalScrollBehavior(),
       home: _Bootstrap(engine: widget.engine),
     );
   }
 }
 
-/// Runs [AegisEngineController.boot] and swaps in the right first screen. While
-/// booting it shows the Aegis splash; if boot throws it shows the error (so a
+/// Runs [ShoalEngineController.boot] and swaps in the right first screen. While
+/// booting it shows the Shoal splash; if boot throws it shows the error (so a
 /// failure to load the native library is readable, not a black screen).
 class _Bootstrap extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const _Bootstrap({required this.engine});
 
   @override
@@ -212,7 +212,7 @@ class _BootstrapState extends State<_Bootstrap> with WidgetsBindingObserver {
   }
 }
 
-/// The splash shown while the engine boots — the shield mark over the app
+/// The splash shown while the engine boots — the mark over the app
 /// background, with a quiet progress hint.
 class _Splash extends StatefulWidget {
   const _Splash();
@@ -248,7 +248,7 @@ class _SplashState extends State<_Splash>
                 scale: Tween(begin: 0.86, end: 1.0).animate(
                   CurvedAnimation(parent: _intro, curve: Curves.easeOutBack),
                 ),
-                child: const AegisLockupVertical(width: 240),
+                child: const ShoalLockupVertical(width: 240),
               ),
             ),
             const SizedBox(height: 44),
@@ -260,11 +260,11 @@ class _SplashState extends State<_Splash>
   }
 }
 
-/// Shown if [AegisEngineController.boot] throws — most likely the Rust library
+/// Shown if [ShoalEngineController.boot] throws — most likely the Rust library
 /// failed to load. Readable beats a frozen logo, and Retry re-runs boot.
 ///
 /// Built on ErrorStateView, which is the component this screen was hand-rolling
-/// badly: it printed the raw exception as the headline. "Aegis failed to start"
+/// badly: it printed the raw exception as the headline. "Shoal failed to start"
 /// followed by `Invalid argument(s): Failed to load dynamic library` tells a
 /// user nothing they can act on, and buries the one fact that actually matters
 /// here — nothing was lost. The exception is still one tap away, where it
@@ -278,7 +278,7 @@ class _StartupError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: ErrorStateView(
-        title: 'Aegis could not start',
+        title: 'Shoal could not start',
         message: 'Nothing has been lost: your identity and messages are on '
             'this device, encrypted, and a failed start does not touch them. '
             'Retrying usually works. Reinstalling erases local data — your '

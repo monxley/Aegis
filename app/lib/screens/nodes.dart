@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../brand.dart';
 import '../engine.dart';
-import '../src/rust/api/aegis.dart';
+import '../src/rust/api/shoal.dart';
 import '../theme.dart';
 
 /// The network view: every node this client has learned from the gossiped
@@ -12,7 +12,7 @@ import '../theme.dart';
 /// **offline**. Star the ones you prefer (used to steer routing once custom-node
 /// mode is enabled).
 class NodesScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const NodesScreen({super.key, required this.engine});
 
   @override
@@ -68,7 +68,7 @@ class _NodesScreenState extends State<NodesScreen> {
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.refresh_rounded, color: AegisColor.textPrimary),
+                : const Icon(Icons.refresh_rounded, color: ShoalColor.textPrimary),
             onPressed: _probing ? null : _probeAll,
           ),
         ],
@@ -94,7 +94,7 @@ class _NodesScreenState extends State<NodesScreen> {
                       Text(
                         'No gossiped nodes known yet',
                         style: TextStyle(
-                          color: AegisColor.textPrimary,
+                          color: ShoalColor.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
@@ -105,7 +105,7 @@ class _NodesScreenState extends State<NodesScreen> {
                         'offline or plain-relay mode.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: AegisColor.textSecondary,
+                          color: ShoalColor.textSecondary,
                           fontSize: 12,
                           height: 1.4,
                         ),
@@ -114,15 +114,15 @@ class _NodesScreenState extends State<NodesScreen> {
                   ),
                 ),
               if (online.isNotEmpty) ...[
-                _sectionHeader('Online', online.length, AegisColor.accent),
+                _sectionHeader('Online', online.length, ShoalColor.accent),
                 ...online.map((n) => _NodeTile(engine: widget.engine, node: n, online: true)),
               ],
               if (unknown.isNotEmpty) ...[
-                _sectionHeader('Checking…', unknown.length, AegisColor.textSecondary),
+                _sectionHeader('Checking…', unknown.length, ShoalColor.textSecondary),
                 ...unknown.map((n) => _NodeTile(engine: widget.engine, node: n, online: null)),
               ],
               if (offline.isNotEmpty) ...[
-                _sectionHeader('Offline', offline.length, AegisColor.textSecondary),
+                _sectionHeader('Offline', offline.length, ShoalColor.textSecondary),
                 ...offline.map((n) => _NodeTile(engine: widget.engine, node: n, online: false)),
               ],
               const Padding(
@@ -130,7 +130,7 @@ class _NodesScreenState extends State<NodesScreen> {
                 child: Text(
                   'Online = reachable from this device right now. Nodes carry '
                   'onion traffic; providers also hold a blind mailbox.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 11, height: 1.4),
+                  style: TextStyle(color: ShoalColor.textSecondary, fontSize: 11, height: 1.4),
                 ),
               ),
             ],
@@ -153,7 +153,7 @@ class _NodesScreenState extends State<NodesScreen> {
           const SizedBox(width: 8),
           Text('$label · $count',
               style: const TextStyle(
-                  color: AegisColor.textPrimary,
+                  color: ShoalColor.textPrimary,
                   fontSize: 14,
                   fontWeight: FontWeight.w700)),
         ],
@@ -163,7 +163,7 @@ class _NodesScreenState extends State<NodesScreen> {
 }
 
 class _NodeTile extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final NodeSummary node;
   final bool? online; // null = still checking
   const _NodeTile({required this.engine, required this.node, required this.online});
@@ -180,13 +180,13 @@ class _NodeTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: AegisColor.surface,
+          color: ShoalColor.surface,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           children: [
             Icon(node.isProvider ? Icons.dns_rounded : Icons.swap_horiz_rounded,
-                color: node.isProvider ? AegisColor.accent : AegisColor.textSecondary,
+                color: node.isProvider ? ShoalColor.accent : ShoalColor.textSecondary,
                 size: 22),
             const SizedBox(width: 12),
             Expanded(
@@ -195,14 +195,14 @@ class _NodeTile extends StatelessWidget {
                 children: [
                   Text(shortId,
                       style: const TextStyle(
-                          color: AegisColor.textPrimary,
+                          color: ShoalColor.textPrimary,
                           fontFamily: 'monospace',
                           fontSize: 14,
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 2),
                   Text(
                     '${node.isProvider ? 'provider' : 'forwarder'} · ${node.mixAddr}',
-                    style: const TextStyle(color: AegisColor.textSecondary, fontSize: 12),
+                    style: const TextStyle(color: ShoalColor.textSecondary, fontSize: 12),
                   ),
                 ],
               ),
@@ -210,7 +210,7 @@ class _NodeTile extends StatelessWidget {
             IconButton(
               tooltip: fav ? 'Unstar' : 'Star',
               icon: Icon(fav ? Icons.star_rounded : Icons.star_outline_rounded,
-                  color: fav ? AegisColor.accent : AegisColor.textSecondary),
+                  color: fav ? ShoalColor.accent : ShoalColor.textSecondary),
               onPressed: () => engine.toggleFavoriteNode(node.id),
             ),
           ],
@@ -224,7 +224,7 @@ class _NodeTile extends StatelessWidget {
 /// through them, so the app connects to the network through infrastructure you
 /// control instead of the built-in nodes.
 class _MyNodesCard extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const _MyNodesCard({required this.engine});
 
   @override
@@ -279,7 +279,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
       margin: const EdgeInsets.only(top: 4, bottom: 6),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AegisColor.surface,
+        color: ShoalColor.surface,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -287,11 +287,11 @@ class _MyNodesCardState extends State<_MyNodesCard> {
         children: [
           const Row(
             children: [
-              Icon(Icons.dns_rounded, size: 20, color: AegisColor.accent),
+              Icon(Icons.dns_rounded, size: 20, color: ShoalColor.accent),
               SizedBox(width: 10),
               Text('My nodes',
                   style: TextStyle(
-                      color: AegisColor.textPrimary,
+                      color: ShoalColor.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.w700)),
             ],
@@ -300,7 +300,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
           const Text(
             'Add a node by host:port to bootstrap through it. Turn on “only my '
             'nodes” to route exclusively through the nodes you add.',
-            style: AegisType.secondary,
+            style: ShoalType.secondary,
           ),
           const SizedBox(height: 12),
           Row(
@@ -309,7 +309,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
                 child: TextField(
                   controller: _ctrl,
                   enabled: !_busy,
-                  style: const TextStyle(color: AegisColor.textPrimary, fontSize: 14),
+                  style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 14),
                   keyboardType: TextInputType.url,
                   onSubmitted: (_) => _add(),
                   decoration: InputDecoration(
@@ -322,7 +322,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
               const SizedBox(width: 8),
               IconButton(
                 onPressed: _busy ? null : _add,
-                icon: const Icon(Icons.add_circle_rounded, color: AegisColor.accent),
+                icon: const Icon(Icons.add_circle_rounded, color: ShoalColor.accent),
                 tooltip: 'Add node',
               ),
             ],
@@ -333,12 +333,12 @@ class _MyNodesCardState extends State<_MyNodesCard> {
                   padding: const EdgeInsets.symmetric(vertical: 3),
                   child: Row(
                     children: [
-                      const Icon(Icons.circle, size: 7, color: AegisColor.accent),
+                      const Icon(Icons.circle, size: 7, color: ShoalColor.accent),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(n,
                             style: const TextStyle(
-                                color: AegisColor.textPrimary,
+                                color: ShoalColor.textPrimary,
                                 fontFamily: 'monospace',
                                 fontSize: 13)),
                       ),
@@ -347,7 +347,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
                         child: const Padding(
                           padding: EdgeInsets.all(4),
                           child: Icon(Icons.close_rounded,
-                              size: 18, color: AegisColor.danger),
+                              size: 18, color: ShoalColor.danger),
                         ),
                       ),
                     ],
@@ -359,12 +359,12 @@ class _MyNodesCardState extends State<_MyNodesCard> {
             children: [
               const Expanded(
                 child: Text('Connect only through my nodes',
-                    style: TextStyle(color: AegisColor.textPrimary, fontSize: 14)),
+                    style: TextStyle(color: ShoalColor.textPrimary, fontSize: 14)),
               ),
               Switch(
                 value: e.ownNodesOnly,
                 onChanged: (_busy || nodes.isEmpty) ? null : _setOnly,
-                activeThumbColor: AegisColor.accent,
+                activeThumbColor: ShoalColor.accent,
               ),
             ],
           ),
@@ -372,7 +372,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
             const Text(
               'Routing exclusively through your nodes. If they go offline, the '
               'app can’t connect until they’re back.',
-              style: TextStyle(color: AegisColor.accent, fontSize: 11, height: 1.4),
+              style: TextStyle(color: ShoalColor.accent, fontSize: 11, height: 1.4),
             ),
           if (_busy)
             const Padding(
@@ -385,7 +385,7 @@ class _MyNodesCardState extends State<_MyNodesCard> {
                       child: CircularProgressIndicator(strokeWidth: 2)),
                   SizedBox(width: 8),
                   Text('Reconnecting…',
-                      style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
+                      style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12)),
                 ],
               ),
             ),

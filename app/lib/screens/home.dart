@@ -19,7 +19,7 @@ import 'settings.dart';
 /// position and its state when you come back to it, and the chat list does not
 /// re-subscribe to the engine every time you glance at Settings.
 class HomeShell extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const HomeShell({super.key, required this.engine});
 
   @override
@@ -54,8 +54,8 @@ class _HomeShellState extends State<HomeShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
-        backgroundColor: AegisColor.surface,
-        indicatorColor: AegisColor.accent.withValues(alpha: 0.16),
+        backgroundColor: ShoalColor.surface,
+        indicatorColor: ShoalColor.accent.withValues(alpha: 0.16),
         surfaceTintColor: Colors.transparent,
         // Labels always visible. An icon-only bar asks people to learn three
         // glyphs before they can find the setting that wipes the device.
@@ -64,17 +64,17 @@ class _HomeShellState extends State<HomeShell> {
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.forum_outlined),
-            selectedIcon: Icon(Icons.forum_rounded, color: AegisColor.accent),
+            selectedIcon: Icon(Icons.forum_rounded, color: ShoalColor.accent),
             label: 'Chats',
           ),
           NavigationDestination(
             icon: Icon(Icons.people_outline_rounded),
-            selectedIcon: Icon(Icons.people_rounded, color: AegisColor.accent),
+            selectedIcon: Icon(Icons.people_rounded, color: ShoalColor.accent),
             label: 'Contacts',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded, color: AegisColor.accent),
+            selectedIcon: Icon(Icons.settings_rounded, color: ShoalColor.accent),
             label: 'Settings',
           ),
         ],

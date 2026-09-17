@@ -12,7 +12,7 @@ import '../design/responsive.dart';
 import '../design/security.dart';
 import '../design/states.dart';
 import '../engine.dart';
-import '../src/rust/api/aegis.dart';
+import '../src/rust/api/shoal.dart';
 import '../theme.dart';
 import '../voice.dart';
 import '../widgets.dart';
@@ -20,7 +20,7 @@ import '../widgets.dart';
 /// One conversation. Shows the history and a composer; sending goes straight
 /// into the Rust engine (which establishes the session on the first message).
 class ChatScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final Contact contact;
   const ChatScreen({super.key, required this.engine, required this.contact});
 
@@ -56,7 +56,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _scroll.addListener(_onScroll);
     _refresh();
     // Opening the chat marks its received messages read (sends read receipts).
-    widget.engine.markRead(widget.contact.aegisId);
+    widget.engine.markRead(widget.contact.shoalId);
   }
 
   /// Whether two messages are close enough in time to belong to one run.
@@ -77,7 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Pull everything the screen renders across the bridge once, into local
   /// state. Called on open and whenever the engine reports a change.
   void _refresh() {
-    final id = widget.contact.aegisId;
+    final id = widget.contact.shoalId;
     _locked = widget.engine.chatLocked(id);
     _hasPassword = widget.engine.chatHasPassword(id);
     _disappearingSecs = widget.engine.disappearingSecs(id);
@@ -89,7 +89,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(_refresh);
     _scrollToEnd();
     // New mail may have arrived while we're looking — receipt it as read.
-    widget.engine.markRead(widget.contact.aegisId);
+    widget.engine.markRead(widget.contact.shoalId);
   }
 
   @override
@@ -128,10 +128,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _showDisappearing() async {
     const options = [0, 300, 3600, 86400, 604800]; // off · 5m · 1h · 1d · 1w
-    final current = widget.engine.disappearingSecs(widget.contact.aegisId);
+    final current = widget.engine.disappearingSecs(widget.contact.shoalId);
     final choice = await showModalBottomSheet<int>(
       context: context,
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -146,7 +146,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Text(
                   'Disappearing messages',
                   style: TextStyle(
-                      color: AegisColor.textPrimary,
+                      color: ShoalColor.textPrimary,
                       fontSize: 17,
                       fontWeight: FontWeight.w700),
                 ),
@@ -159,16 +159,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: Text(
                   'New messages vanish from both devices after the timer. Applies '
                   'to this conversation.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+                  style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
                 ),
               ),
             ),
             for (final o in options)
               ListTile(
                 title: Text(o == 0 ? 'Off' : _fmtTimer(o),
-                    style: const TextStyle(color: AegisColor.textPrimary)),
+                    style: const TextStyle(color: ShoalColor.textPrimary)),
                 trailing: o == current
-                    ? const Icon(Icons.check_rounded, color: AegisColor.accent)
+                    ? const Icon(Icons.check_rounded, color: ShoalColor.accent)
                     : null,
                 onTap: () => Navigator.pop(ctx, o),
               ),
@@ -178,7 +178,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     if (choice == null || !mounted) return;
-    widget.engine.setDisappearing(widget.contact.aegisId, choice);
+    widget.engine.setDisappearing(widget.contact.shoalId, choice);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(choice == 0
           ? 'Disappearing messages off'
@@ -191,7 +191,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showSecurity() {
     String? number;
     try {
-      number = widget.engine.safetyNumber(widget.contact.aegisId);
+      number = widget.engine.safetyNumber(widget.contact.shoalId);
     } catch (e) {
       // A missing safety number is not fatal — it just means no session has
       // been established yet. Show the sheet without it rather than an error.
@@ -213,27 +213,27 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _chatPasswordAction() async {
-    final id = widget.contact.aegisId;
+    final id = widget.contact.shoalId;
     if (widget.engine.chatHasPassword(id)) {
       final ok = await showDialog<bool>(
         context: context,
         builder: (d) => AlertDialog(
-          backgroundColor: AegisColor.surface,
+          backgroundColor: ShoalColor.surface,
           title: const Text('Remove chat password?',
-              style: TextStyle(color: AegisColor.textPrimary)),
+              style: TextStyle(color: ShoalColor.textPrimary)),
           content: const Text(
             'This conversation will no longer ask for its own password.',
-            style: TextStyle(color: AegisColor.textSecondary),
+            style: TextStyle(color: ShoalColor.textSecondary),
           ),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(d, false),
                 child: const Text('Cancel',
-                    style: TextStyle(color: AegisColor.textSecondary))),
+                    style: TextStyle(color: ShoalColor.textSecondary))),
             TextButton(
                 onPressed: () => Navigator.pop(d, true),
                 child: const Text('Remove',
-                    style: TextStyle(color: AegisColor.danger))),
+                    style: TextStyle(color: ShoalColor.danger))),
           ],
         ),
       );
@@ -244,9 +244,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final pw = await showDialog<String>(
       context: context,
       builder: (d) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Set chat password',
-            style: TextStyle(color: AegisColor.textPrimary)),
+            style: TextStyle(color: ShoalColor.textPrimary)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -254,7 +254,7 @@ class _ChatScreenState extends State<ChatScreen> {
               controller: controller,
               autofocus: true,
               obscureText: true,
-              style: const TextStyle(color: AegisColor.textPrimary),
+              style: const TextStyle(color: ShoalColor.textPrimary),
               decoration: const InputDecoration(hintText: 'Password'),
             ),
             const SizedBox(height: 10),
@@ -262,7 +262,7 @@ class _ChatScreenState extends State<ChatScreen> {
               'This chat’s history is sealed under this password. It will ask '
               'for it after the app restarts. There is no recovery if you '
               'forget it.',
-              style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+              style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
             ),
           ],
         ),
@@ -270,11 +270,11 @@ class _ChatScreenState extends State<ChatScreen> {
           TextButton(
               onPressed: () => Navigator.pop(d),
               child: const Text('Cancel',
-                  style: TextStyle(color: AegisColor.textSecondary))),
+                  style: TextStyle(color: ShoalColor.textSecondary))),
           TextButton(
               onPressed: () => Navigator.pop(d, controller.text),
               child: const Text('Set',
-                  style: TextStyle(color: AegisColor.accent))),
+                  style: TextStyle(color: ShoalColor.accent))),
         ],
       ),
     );
@@ -297,7 +297,7 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       // Always stores the message locally (even if the network send fails, it's
       // kept and retried), so it never vanishes from the chat.
-      await widget.engine.send(aegisId: widget.contact.aegisId, text: text);
+      await widget.engine.send(shoalId: widget.contact.shoalId, text: text);
       _scrollToEnd(force: true);
     } catch (e) {
       if (mounted) {
@@ -319,7 +319,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) async {
     try {
       await widget.engine.sendAttachment(
-        aegisId: widget.contact.aegisId,
+        shoalId: widget.contact.shoalId,
         kind: kind,
         fileName: name,
         mime: mime,
@@ -378,16 +378,16 @@ class _ChatScreenState extends State<ChatScreen> {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: AegisColor.accent.withValues(alpha: 0.12),
+          color: ShoalColor.accent.withValues(alpha: 0.12),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: AegisColor.accent, size: 20),
+        child: Icon(icon, color: ShoalColor.accent, size: 20),
       ),
       title: Text(title,
           style: const TextStyle(
-              color: AegisColor.textPrimary, fontWeight: FontWeight.w600)),
+              color: ShoalColor.textPrimary, fontWeight: FontWeight.w600)),
       subtitle: Text(subtitle,
-          style: const TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
+          style: const TextStyle(color: ShoalColor.textSecondary, fontSize: 12)),
       onTap: () => Navigator.pop(sheet, value),
     );
   }
@@ -442,7 +442,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool get _isBlocked => widget.engine
       .contacts()
-      .firstWhere((c) => c.aegisId == widget.contact.aegisId,
+      .firstWhere((c) => c.shoalId == widget.contact.shoalId,
           orElse: () => widget.contact)
       .blocked;
 
@@ -468,7 +468,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Text(
                     widget.contact.name,
                     overflow: TextOverflow.ellipsis,
-                    style: AegisType.heading,
+                    style: ShoalType.heading,
                   ),
                   SecurityIndicator(
                     // No per-contact verified flag is stored yet, so the app
@@ -489,8 +489,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   ? Icons.timer_rounded
                   : Icons.timer_off_outlined,
               color: _disappearingSecs > 0
-                  ? AegisColor.accent
-                  : AegisColor.textSecondary,
+                  ? ShoalColor.accent
+                  : ShoalColor.textSecondary,
             ),
             onPressed: _showDisappearing,
           ),
@@ -502,8 +502,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     ? Icons.lock_rounded
                     : Icons.lock_open_rounded,
                 color: _hasPassword
-                    ? AegisColor.accent
-                    : AegisColor.textPrimary,
+                    ? ShoalColor.accent
+                    : ShoalColor.textPrimary,
               ),
               onPressed: _chatPasswordAction,
             ),
@@ -525,14 +525,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       icon: Icons.block_rounded,
                       label: 'Blocked',
                       detail: 'Their messages are dropped without being delivered.',
-                      tone: AegisColor.danger,
+                      tone: ShoalColor.danger,
                     ),
                   if (_disappearingSecs > 0)
                     NoticeBar(
                       icon: Icons.timer_rounded,
                       label: 'Disappearing',
                       detail: 'New messages vanish after ${_fmtTimer(_disappearingSecs)}.',
-                      tone: AegisColor.accent,
+                      tone: ShoalColor.accent,
                     ),
                   Expanded(
                     child: history.isEmpty
@@ -583,16 +583,16 @@ class _ChatScreenState extends State<ChatScreen> {
                                         child: _Bubble(
                                           message: msg,
                                           engine: widget.engine,
-                                          aegisId: widget.contact.aegisId,
+                                          shoalId: widget.contact.shoalId,
                                           firstInGroup: firstInGroup,
                                           lastInGroup: lastInGroup,
                                           // An attachment retry needs its bytes back from
                                           // storage, a different path than text.
                                           onRetry: () => msg.hasAttachment
                                               ? widget.engine.resendAttachment(
-                                                  widget.contact.aegisId, msg)
+                                                  widget.contact.shoalId, msg)
                                               : widget.engine.resend(
-                                                  aegisId: widget.contact.aegisId,
+                                                  shoalId: widget.contact.shoalId,
                                                   id: msg.id,
                                                 ),
                                         ),
@@ -635,8 +635,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
 class _Bubble extends StatelessWidget {
   final ChatMessage message;
-  final AegisEngineController engine;
-  final String aegisId;
+  final ShoalEngineController engine;
+  final String shoalId;
   final VoidCallback? onRetry;
 
   /// Whether this message opens a run from the same sender, and whether it
@@ -652,7 +652,7 @@ class _Bubble extends StatelessWidget {
   const _Bubble({
     required this.message,
     required this.engine,
-    required this.aegisId,
+    required this.shoalId,
     this.onRetry,
     this.firstInGroup = true,
     this.lastInGroup = true,
@@ -690,19 +690,19 @@ class _Bubble extends StatelessWidget {
                 Navigator.pop(sheet);
                 // Picking the one already set toggles it off.
                 engine.react(
-                  aegisId,
+                  shoalId,
                   message.id,
                   emoji == current ? '' : emoji,
                 );
               },
             ),
-            const Divider(height: 1, color: AegisColor.surfaceElevated),
+            const Divider(height: 1, color: ShoalColor.surfaceElevated),
             if (isText)
               ListTile(
                 leading:
-                    const Icon(Icons.copy_rounded, color: AegisColor.textPrimary),
+                    const Icon(Icons.copy_rounded, color: ShoalColor.textPrimary),
                 title: const Text('Copy',
-                    style: TextStyle(color: AegisColor.textPrimary)),
+                    style: TextStyle(color: ShoalColor.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheet);
                   _copy(context);
@@ -711,9 +711,9 @@ class _Bubble extends StatelessWidget {
             if (mine && isText)
               ListTile(
                 leading:
-                    const Icon(Icons.edit_rounded, color: AegisColor.textPrimary),
+                    const Icon(Icons.edit_rounded, color: ShoalColor.textPrimary),
                 title: const Text('Edit',
-                    style: TextStyle(color: AegisColor.textPrimary)),
+                    style: TextStyle(color: ShoalColor.textPrimary)),
                 onTap: () {
                   Navigator.pop(sheet);
                   _edit(context);
@@ -721,23 +721,23 @@ class _Bubble extends StatelessWidget {
               ),
             ListTile(
               leading: const Icon(Icons.delete_outline_rounded,
-                  color: AegisColor.textPrimary),
+                  color: ShoalColor.textPrimary),
               title: const Text('Delete for me',
-                  style: TextStyle(color: AegisColor.textPrimary)),
+                  style: TextStyle(color: ShoalColor.textPrimary)),
               onTap: () {
                 Navigator.pop(sheet);
-                engine.deleteMessage(aegisId, message.id, forBoth: false);
+                engine.deleteMessage(shoalId, message.id, forBoth: false);
               },
             ),
             if (mine)
               ListTile(
                 leading: const Icon(Icons.delete_forever_rounded,
-                    color: AegisColor.danger),
+                    color: ShoalColor.danger),
                 title: const Text('Delete for everyone',
-                    style: TextStyle(color: AegisColor.danger)),
+                    style: TextStyle(color: ShoalColor.danger)),
                 onTap: () {
                   Navigator.pop(sheet);
-                  engine.deleteMessage(aegisId, message.id, forBoth: true);
+                  engine.deleteMessage(shoalId, message.id, forBoth: true);
                 },
               ),
           ],
@@ -751,26 +751,26 @@ class _Bubble extends StatelessWidget {
     final newText = await showDialog<String>(
       context: context,
       builder: (dialog) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Edit message',
-            style: TextStyle(color: AegisColor.textPrimary)),
+            style: TextStyle(color: ShoalColor.textPrimary)),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLines: null,
-          style: const TextStyle(color: AegisColor.textPrimary),
+          style: const TextStyle(color: ShoalColor.textPrimary),
           decoration: const InputDecoration(hintText: 'Message'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialog),
             child: const Text('Cancel',
-                style: TextStyle(color: AegisColor.textSecondary)),
+                style: TextStyle(color: ShoalColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialog, controller.text),
             child: const Text('Save',
-                style: TextStyle(color: AegisColor.accent)),
+                style: TextStyle(color: ShoalColor.accent)),
           ),
         ],
       ),
@@ -778,7 +778,7 @@ class _Bubble extends StatelessWidget {
     controller.dispose();
     final trimmed = newText?.trim();
     if (trimmed != null && trimmed.isNotEmpty && trimmed != message.text) {
-      await engine.editMessage(aegisId, message.id, trimmed);
+      await engine.editMessage(shoalId, message.id, trimmed);
     }
   }
 
@@ -788,7 +788,7 @@ class _Bubble extends StatelessWidget {
     final failed = mine && message.status == 3;
     // Both surfaces are dark now, so message text is the same primary colour on
     // either side — no more dark-on-gradient special case.
-    const onBubble = AegisColor.textPrimary;
+    const onBubble = ShoalColor.textPrimary;
     final isImage = message.kind == MsgKind.image && message.complete;
     // Metadata belongs to the run, not to every line in it. A failed send is
     // the exception: that has to be visible on the message it belongs to.
@@ -806,7 +806,7 @@ class _Bubble extends StatelessWidget {
             onDoubleTap: () {
               HapticFeedback.mediumImpact();
               final liked = message.reactions.any((r) => r.fromMe);
-              engine.react(aegisId, message.id, liked ? '' : '❤️');
+              engine.react(shoalId, message.id, liked ? '' : '❤️');
             },
             child: Container(
               constraints: BoxConstraints(
@@ -814,38 +814,38 @@ class _Bubble extends StatelessWidget {
                 // tablet or desktop the text doesn't run into long, hard-to-
                 // track lines.
                 maxWidth: (MediaQuery.sizeOf(context).width * 0.78)
-                    .clamp(0.0, AegisLayout.maxMessageWidth),
+                    .clamp(0.0, ShoalLayout.maxMessageWidth),
               ),
               margin: EdgeInsets.only(
                 // Air between runs, near-contact within one.
-                top: firstInGroup ? AegisSpace.s3 : 2,
+                top: firstInGroup ? ShoalSpace.s3 : 2,
                 bottom: lastInGroup ? 0 : 0,
               ),
               // An image fills its container; everything else keeps the inset.
               padding: isImage
                   ? const EdgeInsets.all(3)
                   : const EdgeInsets.fromLTRB(
-                      AegisSpace.s3, AegisSpace.s2, AegisSpace.s3, AegisSpace.s2),
+                      ShoalSpace.s3, ShoalSpace.s2, ShoalSpace.s3, ShoalSpace.s2),
               decoration: BoxDecoration(
                 // Your own messages get a quietly tinted surface; the peer's
                 // get the plain one with a hairline. No gradients: the accent
                 // is reserved for actions and affirmative state, so it keeps
                 // meaning something.
-                color: mine ? AegisColor.surfaceAccent : AegisColor.surface,
+                color: mine ? ShoalColor.surfaceAccent : ShoalColor.surface,
                 border: Border.all(
-                  color: mine ? AegisColor.accentMuted : AegisColor.border,
+                  color: mine ? ShoalColor.accentMuted : ShoalColor.border,
                 ),
                 // The outer corner squares off inside a run, so consecutive
                 // messages read as one column rather than separate cards.
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(
-                      mine || firstInGroup ? AegisRadius.md : AegisRadius.xs),
+                      mine || firstInGroup ? ShoalRadius.md : ShoalRadius.xs),
                   topRight: Radius.circular(
-                      !mine || firstInGroup ? AegisRadius.md : AegisRadius.xs),
+                      !mine || firstInGroup ? ShoalRadius.md : ShoalRadius.xs),
                   bottomLeft: Radius.circular(
-                      mine || lastInGroup ? AegisRadius.md : AegisRadius.xs),
+                      mine || lastInGroup ? ShoalRadius.md : ShoalRadius.xs),
                   bottomRight: Radius.circular(
-                      !mine || lastInGroup ? AegisRadius.md : AegisRadius.xs),
+                      !mine || lastInGroup ? ShoalRadius.md : ShoalRadius.xs),
                 ),
               ),
               child: Column(
@@ -856,7 +856,7 @@ class _Bubble extends StatelessWidget {
                     AttachmentContent(
                       message: message,
                       engine: engine,
-                      aegisId: aegisId,
+                      shoalId: shoalId,
                       mine: mine,
                     ),
                   // Text, or an attachment's caption when it has one.
@@ -871,13 +871,13 @@ class _Bubble extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Text(
                           message.text,
-                          style: AegisType.body.copyWith(color: onBubble),
+                          style: ShoalType.body.copyWith(color: onBubble),
                         ),
                       ),
                     ),
                   // Metadata is drawn once per run — see `showMeta`.
                   if (showMeta) ...[
-                    const SizedBox(height: AegisSpace.s1),
+                    const SizedBox(height: ShoalSpace.s1),
                     Padding(
                       padding: EdgeInsets.only(right: isImage ? 5 : 0),
                       child: Row(
@@ -885,23 +885,23 @@ class _Bubble extends StatelessWidget {
                         children: [
                           if (failed) ...[
                             const Icon(Icons.error_outline_rounded,
-                                size: 12, color: AegisColor.danger),
-                            const SizedBox(width: AegisSpace.s1),
+                                size: 12, color: ShoalColor.danger),
+                            const SizedBox(width: ShoalSpace.s1),
                             Text(
                               'Not sent · tap to retry',
-                              style: AegisType.meta
-                                  .copyWith(color: AegisColor.danger),
+                              style: ShoalType.meta
+                                  .copyWith(color: ShoalColor.danger),
                             ),
-                            const SizedBox(width: AegisSpace.s1),
+                            const SizedBox(width: ShoalSpace.s1),
                           ],
                           if (message.edited)
-                            const Text('Edited · ', style: AegisType.meta),
+                            const Text('Edited · ', style: ShoalType.meta),
                           Text(
                             formatClock(message.timestampMs.toInt()),
-                            style: AegisType.meta,
+                            style: ShoalType.meta,
                           ),
                           if (mine && !failed) ...[
-                            const SizedBox(width: AegisSpace.s1),
+                            const SizedBox(width: ShoalSpace.s1),
                             _StatusTick(status: message.status),
                           ],
                         ],
@@ -915,7 +915,7 @@ class _Bubble extends StatelessWidget {
           ReactionChips(
             message: message,
             engine: engine,
-            aegisId: aegisId,
+            shoalId: shoalId,
             mine: mine,
           ),
         ],
@@ -938,12 +938,12 @@ class _JumpToLatest extends StatelessWidget {
       ignoring: !visible,
       child: AnimatedOpacity(
         opacity: visible ? 1 : 0,
-        duration: AegisMotion.fast,
-        curve: AegisMotion.enter,
+        duration: ShoalMotion.fast,
+        curve: ShoalMotion.enter,
         child: AnimatedScale(
           scale: visible ? 1 : 0.8,
-          duration: AegisMotion.fast,
-          curve: AegisMotion.enter,
+          duration: ShoalMotion.fast,
+          curve: ShoalMotion.enter,
           child: GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
@@ -953,14 +953,14 @@ class _JumpToLatest extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: AegisColor.surfaceElevated,
+                color: ShoalColor.surfaceElevated,
                 shape: BoxShape.circle,
-                border: Border.all(color: AegisColor.accent.withValues(alpha: 0.35)),
-                boxShadow: AegisElevation.raised,
+                border: Border.all(color: ShoalColor.accent.withValues(alpha: 0.35)),
+                boxShadow: ShoalElevation.raised,
               ),
               child: const Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: AegisColor.accent,
+                color: ShoalColor.accent,
               ),
             ),
           ),
@@ -990,11 +990,11 @@ class _BubbleEntranceState extends State<_BubbleEntrance>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
-    duration: AegisMotion.medium,
+    duration: ShoalMotion.medium,
   )..forward();
 
   late final Animation<double> _fade =
-      CurvedAnimation(parent: _c, curve: AegisMotion.enter);
+      CurvedAnimation(parent: _c, curve: ShoalMotion.enter);
 
   @override
   void dispose() {
@@ -1036,7 +1036,7 @@ class _StatusTick extends StatelessWidget {
       child: Icon(
         delivered ? Icons.done_all_rounded : Icons.check_rounded,
         size: 13,
-        color: read ? AegisColor.accent : AegisColor.textMuted,
+        color: read ? ShoalColor.accent : ShoalColor.textMuted,
       ),
     );
   }
@@ -1052,18 +1052,18 @@ class _DaySeparator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: AegisSpace.s5),
+        margin: const EdgeInsets.symmetric(vertical: ShoalSpace.s5),
         padding: const EdgeInsets.symmetric(
-            horizontal: AegisSpace.s2, vertical: 3),
+            horizontal: ShoalSpace.s2, vertical: 3),
         decoration: BoxDecoration(
-          color: AegisColor.surface,
-          borderRadius: BorderRadius.circular(AegisRadius.xs),
-          border: Border.all(color: AegisColor.border),
+          color: ShoalColor.surface,
+          borderRadius: BorderRadius.circular(ShoalRadius.xs),
+          border: Border.all(color: ShoalColor.border),
         ),
         child: Text(
           formatDayLabel(ms),
           style: const TextStyle(
-            color: AegisColor.textSecondary,
+            color: ShoalColor.textSecondary,
             fontSize: 11,
             fontWeight: FontWeight.w600,
           ),
@@ -1213,39 +1213,39 @@ class _ComposerState extends State<_Composer> {
       return (
         icon: Icons.delete_outline_rounded,
         label: 'Release to discard the recording',
-        background: AegisColor.danger,
-        foreground: AegisColor.textPrimary,
+        background: ShoalColor.danger,
+        foreground: ShoalColor.textPrimary,
       );
     }
     if (_mode == _ComposerMode.handsFree) {
       return (
         icon: Icons.arrow_upward_rounded,
         label: 'Send voice message',
-        background: AegisColor.accent,
-        foreground: AegisColor.textOnAccent,
+        background: ShoalColor.accent,
+        foreground: ShoalColor.textOnAccent,
       );
     }
     if (_mode == _ComposerMode.holding) {
       return (
         icon: Icons.mic_rounded,
         label: 'Recording. Release to send, slide left to discard',
-        background: AegisColor.accent,
-        foreground: AegisColor.textOnAccent,
+        background: ShoalColor.accent,
+        foreground: ShoalColor.textOnAccent,
       );
     }
     if (_hasText) {
       return (
         icon: Icons.arrow_upward_rounded,
         label: 'Send message',
-        background: AegisColor.accent,
-        foreground: AegisColor.textOnAccent,
+        background: ShoalColor.accent,
+        foreground: ShoalColor.textOnAccent,
       );
     }
     return (
       icon: Icons.mic_rounded,
       label: 'Record a voice message. Tap to record hands-free, or hold to talk',
-      background: AegisColor.accent,
-      foreground: AegisColor.textOnAccent,
+      background: ShoalColor.accent,
+      foreground: ShoalColor.textOnAccent,
     );
   }
 
@@ -1271,24 +1271,24 @@ class _ComposerState extends State<_Composer> {
     // Growing while recording is the one place the composer changes size, and
     // it is what tells you the button is now "live".
     final size = _recording
-        ? AegisLayout.minTouchTarget + AegisSpace.s3
-        : AegisLayout.minTouchTarget;
+        ? ShoalLayout.minTouchTarget + ShoalSpace.s3
+        : ShoalLayout.minTouchTarget;
 
     return DecoratedBox(
       // A hairline, not a shadow: the composer is a sibling of the message
       // list, not something floating over it.
       decoration: const BoxDecoration(
-        color: AegisColor.background,
-        border: Border(top: BorderSide(color: AegisColor.border)),
+        color: ShoalColor.background,
+        border: Border(top: BorderSide(color: ShoalColor.border)),
       ),
       child: SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
-            AegisSpace.s3,
-            AegisSpace.s2,
-            AegisSpace.s3,
-            AegisSpace.s2,
+            ShoalSpace.s3,
+            ShoalSpace.s2,
+            ShoalSpace.s3,
+            ShoalSpace.s2,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -1299,11 +1299,11 @@ class _ComposerState extends State<_Composer> {
                   label: 'Attach a file, photo or document',
                   onTap: widget.onAttach,
                 ),
-                const SizedBox(width: AegisSpace.s2),
+                const SizedBox(width: ShoalSpace.s2),
                 Expanded(
                   child: TextField(
                     controller: widget.controller,
-                    style: AegisType.body,
+                    style: ShoalType.body,
                     minLines: 1,
                     maxLines: 5,
                     textCapitalization: TextCapitalization.sentences,
@@ -1330,7 +1330,7 @@ class _ComposerState extends State<_Composer> {
                         : null,
                   ),
                 ),
-              const SizedBox(width: AegisSpace.s2),
+              const SizedBox(width: ShoalSpace.s2),
               Semantics(
                 button: true,
                 label: action.label,
@@ -1360,11 +1360,11 @@ class _ComposerState extends State<_Composer> {
                     // a primary action that doesn't acknowledge the touch reads
                     // as a dropped tap.
                     scale: _pressed ? 0.92 : 1,
-                    duration: AegisMotion.of(context, AegisMotion.fast),
-                    curve: AegisMotion.enter,
+                    duration: ShoalMotion.of(context, ShoalMotion.fast),
+                    curve: ShoalMotion.enter,
                     child: AnimatedContainer(
-                      duration: AegisMotion.of(context, AegisMotion.fast),
-                      curve: AegisMotion.enter,
+                      duration: ShoalMotion.of(context, ShoalMotion.fast),
+                      curve: ShoalMotion.enter,
                       width: size,
                       height: size,
                       decoration: BoxDecoration(
@@ -1386,7 +1386,7 @@ class _ComposerState extends State<_Composer> {
 
 /// A secondary button in the composer row.
 ///
-/// Sized to [AegisLayout.minTouchTarget] and labelled for assistive technology
+/// Sized to [ShoalLayout.minTouchTarget] and labelled for assistive technology
 /// — a bare icon in a GestureDetector announces nothing at all.
 class _ComposerIconButton extends StatelessWidget {
   final IconData icon;
@@ -1409,7 +1409,7 @@ class _ComposerIconButton extends StatelessWidget {
         // keyboard-focus feedback come from the framework instead of being
         // reinvented (and forgotten) here.
         child: Material(
-          color: AegisColor.surfaceElevated,
+          color: ShoalColor.surfaceElevated,
           shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -1418,9 +1418,9 @@ class _ComposerIconButton extends StatelessWidget {
               onTap();
             },
             child: SizedBox(
-              width: AegisLayout.minTouchTarget,
-              height: AegisLayout.minTouchTarget,
-              child: Icon(icon, color: AegisColor.textPrimary, size: 22),
+              width: ShoalLayout.minTouchTarget,
+              height: ShoalLayout.minTouchTarget,
+              child: Icon(icon, color: ShoalColor.textPrimary, size: 22),
             ),
           ),
         ),
@@ -1448,33 +1448,33 @@ class _RecordingBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       // Matches the enlarged record button so the row stays on one baseline.
-      height: AegisLayout.minTouchTarget + AegisSpace.s3,
-      padding: const EdgeInsets.only(left: AegisSpace.s3),
+      height: ShoalLayout.minTouchTarget + ShoalSpace.s3,
+      padding: const EdgeInsets.only(left: ShoalSpace.s3),
       decoration: BoxDecoration(
-        color: AegisColor.surfaceElevated,
-        borderRadius: BorderRadius.circular(AegisRadius.md),
+        color: ShoalColor.surfaceElevated,
+        borderRadius: BorderRadius.circular(ShoalRadius.md),
         border: Border.all(
-          color: cancelling ? AegisColor.danger : AegisColor.border,
+          color: cancelling ? ShoalColor.danger : ShoalColor.border,
         ),
       ),
       child: Row(
         children: [
           const _RecordingDot(),
-          const SizedBox(width: AegisSpace.s2),
+          const SizedBox(width: ShoalSpace.s2),
           ValueListenableBuilder<Duration>(
             valueListenable: recorder.elapsed,
             builder: (context, d, _) => Text(
               formatDuration(d),
-              style: AegisType.meta.copyWith(color: AegisColor.textSecondary),
+              style: ShoalType.meta.copyWith(color: ShoalColor.textSecondary),
             ),
           ),
-          const SizedBox(width: AegisSpace.s3),
+          const SizedBox(width: ShoalSpace.s3),
           Expanded(
             child: cancelling
                 ? Text(
                     'Release to discard',
                     textAlign: TextAlign.right,
-                    style: AegisType.meta.copyWith(color: AegisColor.danger),
+                    style: ShoalType.meta.copyWith(color: ShoalColor.danger),
                   )
                 : ValueListenableBuilder<List<double>>(
                     valueListenable: recorder.waveform,
@@ -1493,12 +1493,12 @@ class _RecordingBar extends StatelessWidget {
               onTap: onDiscard!,
             )
           else if (!cancelling) ...[
-            const SizedBox(width: AegisSpace.s2),
+            const SizedBox(width: ShoalSpace.s2),
             const Icon(Icons.keyboard_arrow_left_rounded,
-                size: 16, color: AegisColor.textMuted),
+                size: 16, color: ShoalColor.textMuted),
             const Padding(
-              padding: EdgeInsets.only(right: AegisSpace.s3),
-              child: Text('slide to discard', style: AegisType.meta),
+              padding: EdgeInsets.only(right: ShoalSpace.s3),
+              child: Text('slide to discard', style: ShoalType.meta),
             ),
           ],
         ],
@@ -1531,7 +1531,7 @@ class _RecordingDotState extends State<_RecordingDot>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (AegisMotion.reduced(context)) {
+    if (ShoalMotion.reduced(context)) {
       _c.stop();
       _c.value = 1;
     } else if (!_c.isAnimating) {
@@ -1554,7 +1554,7 @@ class _RecordingDotState extends State<_RecordingDot>
         height: 9,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: AegisColor.danger,
+            color: ShoalColor.danger,
             shape: BoxShape.circle,
           ),
         ),
@@ -1575,7 +1575,7 @@ class _LiveWavePainter extends CustomPainter {
     final count = (size.width / slot).floor().clamp(1, levels.length);
     final shown = levels.sublist(levels.length - count);
     final paint = Paint()
-      ..color = AegisColor.accent
+      ..color = ShoalColor.accent
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 2;
     for (var i = 0; i < shown.length; i++) {
@@ -1621,7 +1621,7 @@ class _ChatEmpty extends StatelessWidget {
 /// password to reveal it. On success the engine notifies and the parent chat
 /// screen rebuilds unlocked.
 class _ChatLock extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final Contact contact;
   const _ChatLock({required this.engine, required this.contact});
 
@@ -1647,7 +1647,7 @@ class _ChatLockState extends State<_ChatLock> {
       _error = null;
     });
     try {
-      await widget.engine.unlockChat(widget.contact.aegisId, _pw.text);
+      await widget.engine.unlockChat(widget.contact.shoalId, _pw.text);
       // Success: the engine notifies and the parent rebuilds unlocked.
     } catch (_) {
       if (mounted) {
@@ -1668,13 +1668,13 @@ class _ChatLockState extends State<_ChatLock> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.lock_rounded, size: 56, color: AegisColor.accent),
+            const Icon(Icons.lock_rounded, size: 56, color: ShoalColor.accent),
             const SizedBox(height: 16),
             const Text(
               'This chat is locked',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: AegisColor.textPrimary,
+                color: ShoalColor.textPrimary,
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
               ),
@@ -1684,7 +1684,7 @@ class _ChatLockState extends State<_ChatLock> {
               'Enter this conversation’s password to open it. Its history stays '
               'sealed until you do.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+              style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 20),
             TextField(
@@ -1692,13 +1692,13 @@ class _ChatLockState extends State<_ChatLock> {
               autofocus: true,
               obscureText: true,
               enabled: !_busy,
-              style: const TextStyle(color: AegisColor.textPrimary),
+              style: const TextStyle(color: ShoalColor.textPrimary),
               textInputAction: TextInputAction.go,
               onSubmitted: (_) => _unlock(),
               decoration: InputDecoration(
                 hintText: 'Password',
                 prefixIcon:
-                    const Icon(Icons.lock_rounded, color: AegisColor.textSecondary),
+                    const Icon(Icons.lock_rounded, color: ShoalColor.textSecondary),
                 errorText: _error,
               ),
             ),

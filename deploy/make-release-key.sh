@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create the signing key Aegis releases are signed with, once, and print exactly
+# Create the signing key Shoal releases are signed with, once, and print exactly
 # what to put in GitHub's repository secrets.
 #
 # WHY THIS IS NOT OPTIONAL
@@ -22,18 +22,18 @@
 #
 # Usage:
 #
-#     deploy/make-release-key.sh            # writes ./aegis-release.jks
-#     deploy/make-release-key.sh /path/to/aegis-release.jks
+#     deploy/make-release-key.sh            # writes ./shoal-release.jks
+#     deploy/make-release-key.sh /path/to/shoal-release.jks
 #
 # Then follow the four secrets it prints. Run it ONCE and keep the file: losing
 # it means users can no longer update, only uninstall and reinstall from scratch.
 set -euo pipefail
 
-KEYSTORE="${1:-aegis-release.jks}"
-ALIAS="${AEGIS_KEY_ALIAS:-aegis}"
+KEYSTORE="${1:-shoal-release.jks}"
+ALIAS="${SHOAL_KEY_ALIAS:-shoal}"
 # 10000 days ~ 27 years. Android wants a key that outlives the app; a key that
 # expires strands every installed user on the version they have.
-DAYS="${AEGIS_KEY_DAYS:-10000}"
+DAYS="${SHOAL_KEY_DAYS:-10000}"
 
 if [ -e "$KEYSTORE" ]; then
   echo "refusing to overwrite $KEYSTORE -- it may be the key your users already"
@@ -61,7 +61,7 @@ keytool -genkeypair \
   -alias "$ALIAS" \
   -keyalg RSA -keysize 4096 -validity "$DAYS" \
   -storepass "$PASSWORD" -keypass "$PASSWORD" \
-  -dname "CN=Aegis, OU=Aegis, O=Aegis, L=, ST=, C=" \
+  -dname "CN=Shoal, OU=Shoal, O=Shoal, L=, ST=, C=" \
   >/dev/null
 
 B64="$(base64 -w0 "$KEYSTORE" 2>/dev/null || base64 "$KEYSTORE" | tr -d '\n')"
@@ -75,7 +75,7 @@ cat <<INFO
 
   BACK IT UP NOW, somewhere you will still have in five years, and keep the
   passphrase below with it. There is no way to recreate this key: lose it and
-  every installed copy of Aegis is stranded on the version it has.
+  every installed copy of Shoal is stranded on the version it has.
 
   Set these four repository secrets (Settings -> Secrets and variables ->
   Actions -> New repository secret), or with the gh CLI:
