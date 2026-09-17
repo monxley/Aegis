@@ -338,7 +338,7 @@ impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
     fn deliver(&self, payload: Vec<u8>) {
         let Some(envelope) = Envelope::from_bytes(&payload) else {
             eprintln!(
-                "aegis: delivery dropped — undecodable envelope ({} bytes)",
+                "shoal: delivery dropped — undecodable envelope ({} bytes)",
                 payload.len()
             );
             return;
@@ -351,12 +351,12 @@ impl<S: MailboxStore + Send> Deliver for MailboxDeliver<S> {
             Ok(mut store) => {
                 if let Err(e) = store.put(envelope) {
                     eprintln!(
-                        "aegis: DELIVERY FAILED — mailbox put error: {e} \
+                        "shoal: DELIVERY FAILED — mailbox put error: {e} \
                         (is the data disk full or read-only?)"
                     );
                 }
             }
-            Err(_) => eprintln!("aegis: delivery dropped — mailbox lock poisoned"),
+            Err(_) => eprintln!("shoal: delivery dropped — mailbox lock poisoned"),
         }
     }
     fn fetch(&self, cursor: usize) -> Option<(usize, Vec<Envelope>)> {
