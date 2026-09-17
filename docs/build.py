@@ -18,8 +18,8 @@ import re
 import sys
 
 HERE = pathlib.Path(__file__).parent
-BASE = "https://monxley.github.io/Aegis"
-REPO = "https://github.com/monxley/Aegis"
+BASE = "https://monxley.github.io/shoal"
+REPO = "https://github.com/monxley/shoal"
 
 
 def _png_size(path):
@@ -514,7 +514,7 @@ LANGS = {
     },
 }
 
-NODE_CMD = ("curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/"
+NODE_CMD = ("curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/"
             "deploy/install.sh | sudo bash")
 
 

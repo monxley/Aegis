@@ -9,10 +9,10 @@ Categories:
   - Security
 License: Apache-2.0
 AuthorName: monxley
-WebSite: https://monxley.github.io/Aegis/
-SourceCode: https://github.com/monxley/Aegis
-IssueTracker: https://github.com/monxley/Aegis/issues
-Changelog: https://github.com/monxley/Aegis/releases
+WebSite: https://monxley.github.io/shoal/
+SourceCode: https://github.com/monxley/shoal
+IssueTracker: https://github.com/monxley/shoal/issues
+Changelog: https://github.com/monxley/shoal/releases
 
 # No AntiFeatures are declared, and that is a considered answer rather than an
 # omission. The source is Apache-2.0 throughout with no proprietary

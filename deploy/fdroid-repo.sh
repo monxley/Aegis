@@ -33,7 +33,7 @@ set -euo pipefail
 APK_DIR="${1:?usage: fdroid-repo.sh <apk-dir> <output-dir>}"
 OUT="${2:?usage: fdroid-repo.sh <apk-dir> <output-dir>}"
 
-REPO_URL="${FDROID_REPO_URL:-https://monxley.github.io/Aegis/fdroid/repo}"
+REPO_URL="${FDROID_REPO_URL:-https://monxley.github.io/shoal/fdroid/repo}"
 KEYSTORE="${KEYSTORE:?set KEYSTORE to the .jks that signs the index}"
 KEY_ALIAS="${KEY_ALIAS:?set KEY_ALIAS}"
 KEYSTORE_PASSWORD="${KEYSTORE_PASSWORD:?set KEYSTORE_PASSWORD}"
@@ -181,7 +181,7 @@ cat > "$OUT/index.html" <<HTML
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Shoal on F-Droid</title>
 <meta name="description" content="Add the Shoal F-Droid repository to get signed updates without Google Play.">
-<link rel="canonical" href="https://monxley.github.io/Aegis/fdroid/">
+<link rel="canonical" href="https://monxley.github.io/shoal/fdroid/">
 <link rel="stylesheet" href="../assets/site.css">
 </head>
 <body>
@@ -198,7 +198,7 @@ the repository: if it ever differs, the repository is not this one. Compare it
 with the certificate on any release APK &mdash;
 <code>apksigner verify --print-certs</code> prints the same value.</p>
 <p class="cta"><a class="btn primary" href="../">Shoal</a>
-<a class="btn" href="https://github.com/monxley/Aegis">Source</a></p>
+<a class="btn" href="https://github.com/monxley/shoal">Source</a></p>
 <aside class="alpha"><strong>Alpha software.</strong> Shoal has not had an
 external security audit. The protocol and its implementation may contain flaws.</aside>
 </section>

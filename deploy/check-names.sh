@@ -16,18 +16,33 @@ ok()   { printf '   ok  %s\n' "$*"; }
 
 # --- 1. The GitHub repository slug -------------------------------------------
 #
-# The in-app updater asks GitHub for releases by `owner/repo`. Rename that
-# string and the update check queries a repository that does not exist: no
-# error, no update offered, ever. A blanket product rename hits it every time,
-# because the repository keeps its own name until someone renames it on GitHub.
-slug_wrong=$(grep -rn "monxley/Shoal" --exclude-dir=.git --exclude-dir=target \
+# The in-app updater asks GitHub for releases by `owner/repo`. Point that string
+# at a repository that does not exist and the update check quietly returns
+# nothing: no error, no update offered, ever.
+#
+# This check has been inverted once already. While the product was renamed but
+# the repository was not, the correct slug was the OLD one, and writing the new
+# name here broke the updater twice. The repository is now monxley/shoal, so the
+# old name is the wrong one -- GitHub redirects it, which is exactly why nothing
+# would look broken until the redirect went away.
+slug_wrong=$(grep -rn "monxley/Aegis\|monxley\.github\.io/Aegis" \
+  --exclude-dir=.git --exclude-dir=target \
   --exclude-dir=.dart_tool --exclude-dir=build \
   --exclude=check-names.sh . 2>/dev/null || true)
 if [ -n "$slug_wrong" ]; then
-  note "the GitHub repository is monxley/Aegis, but these point at monxley/Shoal:"
+  note "the GitHub repository is monxley/shoal, but these still say monxley/Aegis:"
   printf '%s\n' "$slug_wrong" >&2
 else
   ok "every GitHub URL points at the repository that exists"
+fi
+
+# The updater's slug is the one that fails silently, so assert it by name rather
+# than trusting the sweep above to have covered it.
+upd=$(grep -hoE "repo = '[^']+'" app/lib/updater.dart 2>/dev/null | sed "s/repo = '//; s/'//")
+if [ "$upd" = "monxley/shoal" ]; then
+  ok "the updater queries $upd"
+else
+  note "the updater queries '$upd', which is not monxley/shoal"
 fi
 
 # --- 2. Method channels, both sides ------------------------------------------
@@ -65,12 +80,12 @@ fi
 
 # --- 4. Nothing calls itself by the old name ---------------------------------
 #
-# Deliberate exceptions, each for a reason: the repository keeps its name until
-# it is renamed on GitHub, the published v0.3.0 tag is history, the mix node's
-# log lines are protocol-level, and the social accounts are real and live.
+# Deliberate exceptions, each for a reason: the published v0.3.0 tag is history
+# and cannot be rewritten, the mix node's log lines are protocol-level, and the
+# social accounts are real and live until they are renamed by hand.
 stragglers=$(grep -rni "aegis" --exclude-dir=.git --exclude-dir=target \
   --exclude-dir=.dart_tool --exclude-dir=build --exclude-dir=fdroid . 2>/dev/null \
-  | grep -viE "monxley/Aegis|monxley.github.io/Aegis|V0\.3\.0-Aegis|aegis: (delivery|DELIVERY)|t\.me/aegis_private|instagram\.com/aegis\.private|check-names\.sh" || true)
+  | grep -viE "V0\.3\.0-Aegis|aegis: (delivery|DELIVERY)|t\.me/aegis_private|instagram\.com/aegis\.private|check-names\.sh" || true)
 if [ -n "$stragglers" ]; then
   note "the old name survives in $(printf '%s\n' "$stragglers" | wc -l) place(s):"
   printf '%s\n' "$stragglers" | head -20 >&2

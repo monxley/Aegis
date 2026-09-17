@@ -35,7 +35,7 @@ class UpdateInfo {
 /// clients — so an available update is surfaced prominently, not silently.
 class Updater {
   /// `owner/repo` on GitHub.
-  static const String repo = 'monxley/Aegis';
+  static const String repo = 'monxley/shoal';
 
   /// The running build's version (`versionName`), e.g. `0.1.0`.
   static Future<String> currentVersion() async {

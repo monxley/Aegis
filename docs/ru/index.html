@@ -8,10 +8,10 @@
 <meta name="keywords" content="анонимный мессенджер, постквантовое шифрование, мессенджер без номера телефона, защита метаданных, миксеть, мессенджер с открытым исходным кодом, луковая маршрутизация, ML-KEM">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta name="theme-color" content="#0a0d12">
-<link rel="canonical" href="https://monxley.github.io/Aegis/ru/">
-<link rel="alternate" hreflang="en" href="https://monxley.github.io/Aegis/">
-<link rel="alternate" hreflang="ru" href="https://monxley.github.io/Aegis/ru/">
-<link rel="alternate" hreflang="x-default" href="https://monxley.github.io/Aegis/">
+<link rel="canonical" href="https://monxley.github.io/shoal/ru/">
+<link rel="alternate" hreflang="en" href="https://monxley.github.io/shoal/">
+<link rel="alternate" hreflang="ru" href="https://monxley.github.io/shoal/ru/">
+<link rel="alternate" hreflang="x-default" href="https://monxley.github.io/shoal/">
 <link rel="icon" href="../assets/icon.png" type="image/png">
 <link rel="apple-touch-icon" href="../assets/icon.png">
 <link rel="stylesheet" href="../assets/site.css">
@@ -19,8 +19,8 @@
 <meta property="og:site_name" content="Shoal">
 <meta property="og:title" content="Shoal — анонимный постквантовый мессенджер">
 <meta property="og:description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
-<meta property="og:url" content="https://monxley.github.io/Aegis/ru/">
-<meta property="og:image" content="https://monxley.github.io/Aegis/brand/og.png">
+<meta property="og:url" content="https://monxley.github.io/shoal/ru/">
+<meta property="og:image" content="https://monxley.github.io/shoal/brand/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Shoal — post-quantum private messenger">
@@ -29,22 +29,22 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Shoal — анонимный постквантовый мессенджер">
 <meta name="twitter:description" content="Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.">
-<meta name="twitter:image" content="https://monxley.github.io/Aegis/brand/og.png">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Shoal","applicationCategory":"CommunicationApplication","operatingSystem":"Android","url":"https://monxley.github.io/Aegis/ru/","inLanguage":"ru","description":"Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/monxley/Aegis/releases","softwareHelp":"https://github.com/monxley/Aegis/blob/main/SHOAL_PROTOCOL.md","codeRepository":"https://github.com/monxley/Aegis"},{"@type":"FAQPage","inLanguage":"ru","mainEntity":[{"@type":"Question","name":"Нужен ли номер телефона или почта?","acceptedAnswer":{"@type":"Answer","text":"Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже."}},{"@type":"Question","name":"Что здесь постквантового?","acceptedAnswer":{"@type":"Answer","text":"Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую."}},{"@type":"Question","name":"Могут ли серверы прочитать мои сообщения?","acceptedAnswer":{"@type":"Answer","text":"Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес."}},{"@type":"Question","name":"Чем это отличается от Signal?","acceptedAnswer":{"@type":"Answer","text":"Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Shoal нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное."}},{"@type":"Question","name":"Есть ли он в Google Play?","acceptedAnswer":{"@type":"Answer","text":"Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта."}},{"@type":"Question","name":"Это правда бесплатно?","acceptedAnswer":{"@type":"Answer","text":"Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому."}},{"@type":"Question","name":"На каких платформах работает?","acceptedAnswer":{"@type":"Answer","text":"Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android."}}]}]}</script>
+<meta name="twitter:image" content="https://monxley.github.io/shoal/brand/og.png">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SoftwareApplication","name":"Shoal","applicationCategory":"CommunicationApplication","operatingSystem":"Android","url":"https://monxley.github.io/shoal/ru/","inLanguage":"ru","description":"Мессенджер с открытым кодом без номера и без аккаунта. Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст сообщений, и то, кто с кем переписывается.","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"downloadUrl":"https://github.com/monxley/shoal/releases","softwareHelp":"https://github.com/monxley/shoal/blob/main/SHOAL_PROTOCOL.md","codeRepository":"https://github.com/monxley/shoal"},{"@type":"FAQPage","inLanguage":"ru","mainEntity":[{"@type":"Question","name":"Нужен ли номер телефона или почта?","acceptedAnswer":{"@type":"Answer","text":"Нет. Личность — это пара ключей, создаваемая на вашем устройстве при первом запуске. Регистрации нет, аккаунта на чьём-либо сервере тоже."}},{"@type":"Question","name":"Что здесь постквантового?","acceptedAnswer":{"@type":"Answer","text":"Рукопожатие согласует ключ сразу через X25519 и ML-KEM-768 (FIPS 203), а сессия по ходу работы подмешивает новые инкапсуляции ML-KEM. Противнику, который копит трафик сейчас, чтобы расшифровать его потом на квантовом компьютере, придётся сломать и решётчатую схему, и кривую."}},{"@type":"Question","name":"Могут ли серверы прочитать мои сообщения?","acceptedAnswer":{"@type":"Answer","text":"Нет. Узел хранит запечатанные конверты, к которым у него нет ключа, и не знает отправителя. Он также не может понять, какие конверты принадлежат одному получателю: каждое сообщение уходит на новый одноразовый адрес."}},{"@type":"Question","name":"Чем это отличается от Signal?","acceptedAnswer":{"@type":"Answer","text":"Signal очень хорошо шифрует содержимое, но требует номер телефона и работает на своих серверах. В Shoal нет ни номера, ни центральной личности, а трафик идёт через миксеть Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не только сказанное."}},{"@type":"Question","name":"Есть ли он в Google Play?","acceptedAnswer":{"@type":"Answer","text":"Нет. APK публикуется в GitHub Releases вместе с его SHA-256, и вы ставите его сами. Каждый выпуск подписан одним и тем же ключом: если отпечаток сертификата изменился, APK пришёл не от этого проекта."}},{"@type":"Question","name":"Это правда бесплатно?","acceptedAnswer":{"@type":"Answer","text":"Да. Apache-2.0, без аккаунтов, без платежей, без телеметрии и без рекламы. Можно прочитать каждую строку и собрать самому."}},{"@type":"Question","name":"На каких платформах работает?","acceptedAnswer":{"@type":"Answer","text":"Сегодня — Android. Ядро на Rust, интерфейс на Flutter, так что другие платформы возможны; собирается и тестируется пока только Android."}}]}]}</script>
 </head>
 <body>
 <a class="skip" href="#main">Перейти к содержанию</a>
 
 <header class="site">
-  <a class="brand" href="https://monxley.github.io/Aegis/ru/">
+  <a class="brand" href="https://monxley.github.io/shoal/ru/">
     <img src="../assets/icon.png" alt="" width="32" height="32">
     <span>Shoal</span>
   </a>
   <nav aria-label="Пять слоёв, одно сообщение"><a href="#how">Как устроено</a><a href="#crypto">Криптография</a><a href="#features">Возможности</a><a href="#fdroid">F-Droid</a><a href="#node">Свой узел</a><a href="#limits">Границы</a><a href="#faq">Вопросы</a></nav>
   <div class="head-actions">
-    <a class="lang" href="https://monxley.github.io/Aegis/" hreflang="en" lang="en"
+    <a class="lang" href="https://monxley.github.io/shoal/" hreflang="en" lang="en"
        title="Read this page in English">English</a>
-    <a class="ghost" href="https://github.com/monxley/Aegis" rel="noopener">GitHub</a>
+    <a class="ghost" href="https://github.com/monxley/shoal" rel="noopener">GitHub</a>
   </div>
 </header>
 
@@ -57,8 +57,8 @@
     <span class="accent">Не связать.</span></h1>
   <p class="lead">Shoal — анонимный мессенджер со сквозным шифрованием. Без номера телефона, без почты, без аккаунта на чьём-либо сервере. Узлы, через которые идут сообщения, не могут их прочитать и не знают, между кем они.</p>
   <p class="cta">
-    <a class="btn primary" href="https://github.com/monxley/Aegis/releases/latest" rel="noopener">Скачать для Android</a>
-    <a class="btn" href="https://github.com/monxley/Aegis" rel="noopener">Открыть исходный код</a>
+    <a class="btn primary" href="https://github.com/monxley/shoal/releases/latest" rel="noopener">Скачать для Android</a>
+    <a class="btn" href="https://github.com/monxley/shoal" rel="noopener">Открыть исходный код</a>
   </p>
   <p class="fine">Бесплатно и с открытым кодом, Apache-2.0. APK ставится вручную — в Google Play его нет.</p>
   <aside class="alpha">
@@ -113,7 +113,7 @@
 <section id="node">
   <h2>Поднять свой узел</h2>
   <p class="lead">Сеть — это те, кто её держит. Узел совмещает слепой почтовый ящик и микс: хранит запечатанные конверты, к которым у него нет ключа, и пересылает луковичные пакеты, из которых видно только предыдущий и следующий шаг. Одна команда на любом VPS:</p>
-  <pre><code>curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | sudo bash</code></pre>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh | sudo bash</code></pre>
   <p>Скрипт соберёт бинарник, заведёт системного пользователя и запустит systemd-юнит. Откройте порты 5077 и 5078. Повторный запуск той же команды обновляет узел на месте и сохраняет его личность.</p>
 </section>
 
@@ -132,7 +132,7 @@
 
 <footer class="site">
   <p class="tagline">Реализуй, не изобретай.</p>
-  <ul class="flinks"><li><a href="https://github.com/monxley/Aegis">Исходный код</a></li><li><a href="https://github.com/monxley/Aegis/releases">Выпуски</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/SHOAL_PROTOCOL.md">Описание протокола</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/docs/CRYPTO_MATH.md">Криптографические детали</a></li><li><a href="https://github.com/monxley/Aegis/blob/main/SECURITY_AUDIT.md">Заметки по безопасности</a></li></ul>
+  <ul class="flinks"><li><a href="https://github.com/monxley/shoal">Исходный код</a></li><li><a href="https://github.com/monxley/shoal/releases">Выпуски</a></li><li><a href="https://github.com/monxley/shoal/blob/main/SHOAL_PROTOCOL.md">Описание протокола</a></li><li><a href="https://github.com/monxley/shoal/blob/main/docs/CRYPTO_MATH.md">Криптографические детали</a></li><li><a href="https://github.com/monxley/shoal/blob/main/SECURITY_AUDIT.md">Заметки по безопасности</a></li></ul>
   <p class="fine">Открытый код под Apache License 2.0.</p>
 </footer>
 </body>

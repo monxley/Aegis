@@ -9,10 +9,10 @@
 
 <sub>No phone numbers · no central account · Monero-style stealth addressing · a blind, replicated relay</sub>
 
-[![Release](https://img.shields.io/github/v/release/monxley/Aegis?label=release&color=f0972a)](https://github.com/monxley/Aegis/releases/latest)
+[![Release](https://img.shields.io/github/v/release/monxley/shoal?label=release&color=f0972a)](https://github.com/monxley/shoal/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Website](https://img.shields.io/badge/website-monxley.github.io%2FAegis-4fd1c5)](https://monxley.github.io/Aegis/)
-[![CI](https://github.com/monxley/Aegis/actions/workflows/ci.yml/badge.svg)](https://github.com/monxley/Aegis/actions/workflows/ci.yml)
+[![Website](https://img.shields.io/badge/website-monxley.github.io%2Fshoal-f0972a)](https://monxley.github.io/shoal/)
+[![CI](https://github.com/monxley/shoal/actions/workflows/ci.yml/badge.svg)](https://github.com/monxley/shoal/actions/workflows/ci.yml)
 
 </div>
 
@@ -24,9 +24,9 @@ reuses Ciphra's blind, replicated server as a store-and-forward relay.
 
 ## Install
 
-**[v1.0.0](https://github.com/monxley/Aegis/releases/latest)** — Android, signed,
-sideloaded. Not on Google Play. Website: **[English](https://monxley.github.io/Aegis/)**
-· **[Русский](https://monxley.github.io/Aegis/ru/)**
+**[v1.0.0](https://github.com/monxley/shoal/releases/latest)** — Android, signed,
+sideloaded. Not on Google Play. Website: **[English](https://monxley.github.io/shoal/)**
+· **[Русский](https://monxley.github.io/shoal/ru/)**
 
 ### F-Droid (recommended)
 
@@ -34,7 +34,7 @@ Add the project's own repository and Shoal updates like any other app — no Goo
 account, no Play Services, no re-sideloading each time:
 
 ```
-https://monxley.github.io/Aegis/fdroid/repo?fingerprint=ad4a315c9f6f92e7684d38d999e07594d287b312d06239bf5015809fa00a7b66
+https://monxley.github.io/shoal/fdroid/repo?fingerprint=ad4a315c9f6f92e7684d38d999e07594d287b312d06239bf5015809fa00a7b66
 ```
 
 F-Droid pins that fingerprint when you add the repository. If it ever differs,
@@ -48,7 +48,7 @@ signature and no upgrade path from these APKs.)*
 ### Direct APK
 
 Download `app-release.apk` from the
-[latest release](https://github.com/monxley/Aegis/releases/latest), then check it
+[latest release](https://github.com/monxley/shoal/releases/latest), then check it
 before you trust it:
 
 ```sh
@@ -83,7 +83,7 @@ Everything below `Build & run it yourself` builds the same app from source. The
 console-only path, for a plain Linux box with no GUI:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/build-apk.sh | bash
 ```
 
 ## Status
@@ -355,7 +355,7 @@ Only [Rust](https://rustup.rs) (stable) is required — nothing from crates.io; 
 one external dependency (Ciphra) is fetched as a git dependency.
 
 ```sh
-git clone https://github.com/monxley/Aegis
+git clone https://github.com/monxley/shoal
 cd Shoal
 
 cargo test --all        # run every layer's test vectors + end-to-end tests
@@ -401,7 +401,7 @@ Android SDK/NDK, and Rust **under `$HOME` with no root**, generates the bindings
 cross-compiles the engine, and emits an installable APK:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/build-apk.sh | bash
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/build-apk.sh | bash
 ```
 
 and stand up a node just as headlessly (`deploy/install.sh`, see step 2). The

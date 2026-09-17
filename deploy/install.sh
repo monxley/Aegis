@@ -3,7 +3,7 @@
 # Zero-config: it auto-detects this VPS's public IP and uses the built-in seed
 # nodes, so the usual case is just:
 #
-#   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh | sudo bash
 #
 # Override anything if you need to:
 #   PUBLIC_HOST  the address others reach this VPS at   (default: auto-detected)
@@ -20,7 +20,7 @@ DEFAULT_BOOTSTRAP="135.181.125.178:5078"
 MAILBOX_PORT="${MAILBOX_PORT:-5077}"
 MIX_PORT="${MIX_PORT:-5078}"
 DATA_DIR="${DATA_DIR:-/var/lib/shoal}"
-REPO="${REPO:-https://github.com/monxley/Aegis}"
+REPO="${REPO:-https://github.com/monxley/shoal}"
 
 log() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 
