@@ -27,11 +27,11 @@ No GUI, no Docker — just SSH into the box and run:
 ```sh
 # First seed node of a new network:
 curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
-  | sudo PUBLIC_HOST=your.host bash
+  | sudo PUBLIC_HOST=YOUR_HOST bash
 
 # Any other node joins an existing one:
 curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
-  | sudo PUBLIC_HOST=node2.host BOOTSTRAP=seed.host:5078 bash
+  | sudo PUBLIC_HOST=YOUR_HOST BOOTSTRAP=SEED_HOST:5078 bash
 ```
 
 It installs Rust if needed, builds `shoal-relay-server`, creates a service user,
@@ -47,10 +47,10 @@ unit — a restart rather than `enable --now`, so a re-run actually picks up the
 new binary instead of silently keeping the running one.
 
 ```sh
-# Update a node in place. Pass the same PUBLIC_HOST/BOOTSTRAP you installed with;
-# the unit file is rewritten from them, so anything you omit reverts to default.
-curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
-  | sudo PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 bash
+# Update a node in place. Safe to paste as-is: with neither variable set the
+# script detects the public address itself. Set them only to CHANGE them -- the
+# unit file is rewritten from them, so anything you pass replaces what is there.
+curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh | sudo bash
 ```
 
 Then confirm it came back on the new code:
@@ -74,7 +74,7 @@ To update a **Docker** node instead:
 
 ```sh
 git -C /path/to/Shoal pull
-PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 \
+PUBLIC_HOST=YOUR_HOST BOOTSTRAP=SEED_HOST:5078 \
   docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
@@ -225,10 +225,10 @@ alone, so the node keeps its identity and its queued envelopes.
 
 ```sh
 # The first seed node of a new network (no bootstrap yet):
-PUBLIC_HOST=seed.example docker compose -f deploy/docker-compose.yml up -d
+PUBLIC_HOST=YOUR_HOST docker compose -f deploy/docker-compose.yml up -d
 
 # Every other node points --bootstrap at an existing node's mix port:
-PUBLIC_HOST=node2.example BOOTSTRAP=seed.example:5078 \
+PUBLIC_HOST=YOUR_HOST BOOTSTRAP=SEED_HOST:5078 \
   docker compose -f deploy/docker-compose.yml up -d
 ```
 

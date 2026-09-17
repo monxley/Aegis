@@ -104,14 +104,14 @@ migrate_from_aegis_rootless() {
 # address nobody can resolve, so it silently drops out of the network. Leaving
 # PUBLIC_HOST unset is strictly better: the script then detects the real one.
 case "${PUBLIC_HOST:-}" in
-  your.host|host|example.com|example.org|my.host|changeme|YOUR_HOST|node.example)
+  YOUR_HOST|your.host|node2.host|host|example.com|example.org|my.host|changeme|node.example|seed.example|node2.example)
     echo "PUBLIC_HOST=$PUBLIC_HOST is the placeholder from the docs, not a host." >&2
     echo "Pass your node's real public address, or omit PUBLIC_HOST entirely and" >&2
     echo "let the script detect it." >&2
     exit 1 ;;
 esac
 case "${BOOTSTRAP:-}" in
-  seed.host*|seed.example*|node2.host*|bootstrap.example*)
+  SEED_HOST*|seed.host*|seed.example*|node2.host*|bootstrap.example*)
     echo "BOOTSTRAP=$BOOTSTRAP is the placeholder from the docs, not a node." >&2
     echo "Pass the mix address of a node that actually exists, or omit BOOTSTRAP" >&2
     echo "if this is the first node of the network." >&2
