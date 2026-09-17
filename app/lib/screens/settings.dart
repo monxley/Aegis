@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -30,10 +31,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _bioSupported = false;
   bool _bioEnabled = false;
 
+  /// Bumped on every setState, so a pushed section rebuilds with this screen.
+  ///
+  /// The cards were written against this State: they read _busy, _bioEnabled,
+  /// _version and call setState on it. Moving them behind a route left them
+  /// building in a place the parent's setState cannot reach, which would have
+  /// shown a switch that never flips and a button that never stops spinning --
+  /// the kind of bug that looks like the *feature* is broken.
+  ///
+  /// Overriding setState catches every existing call site rather than asking
+  /// seventeen handlers to remember a second notification.
+  final ValueNotifier<int> _rev = ValueNotifier<int>(0);
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _rev.value++;
+  }
+
   @override
   void initState() {
     super.initState();
     _loadBiometrics();
+  }
+
+  @override
+  void dispose() {
+    _rev.dispose();
+    super.dispose();
   }
 
   String _version = '';
@@ -245,7 +270,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           children: [
-            _sectionHeader('Account'),
+            ..._accountCards(),
+            const SizedBox(height: 22),
+            // The real account's locks are hidden in the decoy, so an attacker
+            // there cannot change or discard the real vault -- and the row is
+            // gone entirely rather than present and empty, which would say
+            // there is something behind it.
+            if (!e.isDecoy)
+              _menuRow(
+                icon: Icons.lock_rounded,
+                title: 'Security & locks',
+                subtitle: 'App password, duress password, biometrics, auto-lock',
+                cards: _securityCards,
+              ),
+            _menuRow(
+              icon: Icons.privacy_tip_rounded,
+              title: 'Privacy & backup',
+              subtitle: 'Recovery phrase, notifications, background operation',
+              cards: _privacyCards,
+            ),
+            _menuRow(
+              icon: Icons.hub_rounded,
+              title: 'Network & device',
+              subtitle: 'Proxy and Tor, disguise, connection, run a node',
+              cards: _networkCards,
+            ),
+            _menuRow(
+              icon: Icons.warning_amber_rounded,
+              title: 'Danger zone',
+              subtitle: 'Panic wipe, reset identity',
+              tone: AegisColor.danger,
+              cards: _dangerCards,
+            ),
+            _menuRow(
+              icon: Icons.info_outline_rounded,
+              title: 'About',
+              subtitle: 'Community, version, updates',
+              cards: _aboutCards,
+            ),
+            const SizedBox(height: 24),
+            const Center(
+              child: Text(
+                'All cryptography runs on this device. Aegis never sees your '
+                'messages, keys, or contacts.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One line in the settings menu. Everything that used to be a screenful of
+  /// expanded cards is now a name, a summary of what is inside, and a chevron.
+  ///
+  /// The old page put seventeen cards on one scroll, so "panic wipe" and "check
+  /// for updates" had the same visual weight and the same distance from the
+  /// top: a thousand pixels. Grouping is not decoration here -- it is what makes
+  /// a control findable when it is needed in a hurry.
+  Widget _menuRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required List<Widget> Function() cards,
+    Color tone = AegisColor.textPrimary,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AegisColor.surface,
+        borderRadius: BorderRadius.circular(AegisRadius.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AegisRadius.md),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => _SettingsSectionPage(
+                title: title,
+                revision: _rev,
+                cards: cards,
+              ),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: tone),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(title,
+                          style: AegisType.heading.copyWith(color: tone)),
+                      const SizedBox(height: 2),
+                      Text(subtitle,
+                          style: AegisType.meta,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded,
+                    size: 20, color: AegisColor.textMuted),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _accountCards() {
+    final e = widget.engine;
+    return [
             _card(
               icon: Icons.badge_rounded,
               title: 'Your profile',
@@ -253,8 +396,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             // The real account's lock/duress settings are hidden in the decoy so
             // an attacker there can't change or discard the real vault.
+    ];
+  }
+
+  List<Widget> _securityCards() {
+    final e = widget.engine;
+    return [
             if (!e.isDecoy) ...[
-            _sectionHeader('Security & locks'),
             const SizedBox(height: 14),
             _card(
               icon: Icons.lock_rounded,
@@ -464,7 +612,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
             ],
-            _sectionHeader('Privacy & backup'),
+    ];
+  }
+
+  List<Widget> _privacyCards() {
+    final e = widget.engine;
+    return [
             const SizedBox(height: 14),
             _card(
               icon: Icons.key_rounded,
@@ -584,7 +737,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-            _sectionHeader('Network & device'),
+    ];
+  }
+
+  List<Widget> _networkCards() {
+    final e = widget.engine;
+    return [
             const SizedBox(height: 14),
             _card(
               icon: Icons.vpn_lock_rounded,
@@ -736,7 +894,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-            _sectionHeader('Danger zone'),
+    ];
+  }
+
+  List<Widget> _dangerCards() {
+    final e = widget.engine;
+    return [
             const SizedBox(height: 14),
             _card(
               icon: Icons.local_fire_department_rounded,
@@ -788,7 +951,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ],
-            _sectionHeader('About'),
+    ];
+  }
+
+  List<Widget> _aboutCards() {
+    return [
             const SizedBox(height: 14),
             _card(
               icon: Icons.groups_rounded,
@@ -868,21 +1035,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 24),
-            const Center(
-              child: Text(
-                'All cryptography runs on this device. Aegis never sees your '
-                'messages, keys, or contacts.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+            )
+    ];
   }
+
 
   Future<void> _showRecoveryPhrase() async {
     final String phrase;
@@ -1224,12 +1380,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// A gradient, letter-spaced section label to break the settings list into
   /// groups. Carries its own top spacing so it can be dropped between cards.
-  Widget _sectionHeader(String label) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
-      child: Text(label.toUpperCase(), style: AegisType.label),
-    );
-  }
 }
 
 /// The profile card body: this device's Aegis ID and a one-tap copy of the full
@@ -1316,6 +1466,43 @@ class _ProfileCard extends StatelessWidget {
           style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
         ),
       ],
+    );
+  }
+}
+
+
+/// One group of settings, on its own page.
+///
+/// It renders cards owned by [_SettingsScreenState] and rebuilds from that
+/// screen's revision counter, so a toggle flipped here shows its new state
+/// here rather than only after going back.
+class _SettingsSectionPage extends StatelessWidget {
+  final String title;
+  final ValueListenable<int> revision;
+  final List<Widget> Function() cards;
+
+  const _SettingsSectionPage({
+    required this.title,
+    required this.revision,
+    required this.cards,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ReadingColumn(
+        child: AnimatedBuilder(
+          animation: revision,
+          builder: (context, _) => ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            children: [
+              ...cards(),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
