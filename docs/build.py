@@ -41,7 +41,7 @@ def _png_size(path):
 OG_W, OG_H = _png_size(HERE / "brand" / "og.png")
 
 # Every claim below is checked against the repository, not written from
-# impression: the five layers are the ones in docs/screenshots/hero.jpg, the
+# impression: the five layers are the ones in the key visual, the
 # primitives are those in crates/shoal-crypto, and nothing is described as
 # implemented that README.md's roadmap does not mark implemented.
 
@@ -158,6 +158,17 @@ LANGS = {
             "shape of construction Signal deployed for the same reason."
         ),
         "features_h2": "What you get",
+        "pillars": [
+            ("lock", "Private by design",
+             "No phone number, no email, no account on anyone's server. Your "
+             "identity is a key pair generated on your device."),
+            ("broadcast", "Resilient by nature",
+             "No central server to seize. Anyone can run a node, and clients "
+             "learn the rest of the network by gossip."),
+            ("chevrons", "Ready for tomorrow",
+             "ML-KEM-768 and ML-DSA-65 today, so traffic captured now does "
+             "not become readable once a quantum computer exists."),
+        ],
         "features": [
             ("No phone number, no account",
              "Your identity is a key pair generated on your device. Nothing to "
@@ -390,6 +401,17 @@ LANGS = {
             "той же формы и по той же причине."
         ),
         "features_h2": "Что внутри",
+        "pillars": [
+            ("lock", "Приватность по замыслу",
+             "Ни номера телефона, ни почты, ни аккаунта на чьём-либо сервере. "
+             "Личность — пара ключей, созданная на вашем устройстве."),
+            ("broadcast", "Устойчивость по природе",
+             "Нет центрального сервера, который можно изъять. Ноду может "
+             "поднять любой, остальную сеть клиент узнаёт по gossip."),
+            ("chevrons", "Готовность к завтра",
+             "ML-KEM-768 и ML-DSA-65 уже сегодня: перехваченный сейчас трафик "
+             "не станет читаемым, когда появится квантовый компьютер."),
+        ],
         "features": [
             ("Без номера и без аккаунта",
              "Личность — это пара ключей, созданная на вашем устройстве. "
@@ -585,6 +607,16 @@ def page(lang, d):
         f"<li><h3>{e(t)}</h3><p>{e(b)}</p></li>" for t, b in d["features"]
     )
 
+    # The three pillars of the key visual. The glyphs are decorative -- the
+    # heading beside each one already says what it means -- so they carry an
+    # empty alt rather than a description a screen reader would read twice.
+    pillars = "".join(
+        f'<li><img src="{root}assets/glyphs/{g}.png" alt="" width="52" '
+        f'height="52" loading="lazy" decoding="async">'
+        f"<div><h3>{e(t)}</h3><p>{e(b)}</p></div></li>"
+        for g, t, b in d["pillars"]
+    )
+
     shots = "".join(
         f'<figure><img src="{root}screenshots/{f}" alt="{e(alt)}" '
         f'width="1968" height="2184" loading="lazy" decoding="async"></figure>'
@@ -678,6 +710,10 @@ def page(lang, d):
     <span class="ring r5"></span><span class="core"></span>
   </div>
  </div>
+</section>
+
+<section class="pillars">
+  <ul>{pillars}</ul>
 </section>
 
 <section id="how">
@@ -798,8 +834,8 @@ def main():
 
     # Both languages must offer the same page, or hreflang is a lie.
     en, ru = LANGS["en"], LANGS["ru"]
-    for field in ("nav", "layers", "crypto_rows", "features", "shots",
-                  "limits", "faq"):
+    for field in ("nav", "layers", "pillars", "crypto_rows", "features",
+                  "shots", "limits", "faq"):
         if len(en[field]) != len(ru[field]):
             sys.exit(f"EN and RU differ in '{field}': "
                      f"{len(en[field])} vs {len(ru[field])}")
