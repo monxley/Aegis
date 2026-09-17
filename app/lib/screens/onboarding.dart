@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../design/states.dart';
+import '../brand.dart';
 import '../engine.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -258,7 +259,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
+      body: ScaleField(
+        child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           child: Column(
@@ -327,6 +329,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
