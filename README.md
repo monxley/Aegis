@@ -16,7 +16,7 @@
 
 </div>
 
-![Shoal — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
+![Shoal — your message among many: anonymous, post-quantum, private by design](docs/brand/keyvisual.png)
 
 Shoal is a Session-class messenger — no phone numbers, no central account — that
 borrows Monero / CryptoNote *stealth addressing* for recipient unlinkability and
