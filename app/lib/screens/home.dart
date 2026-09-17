@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../brand.dart';
 import '../engine.dart';
 import '../theme.dart';
 import 'chats.dart';
@@ -43,13 +44,27 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final e = widget.engine;
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: [
-          ChatsScreen(engine: e),
-          ContactsScreen(engine: e),
-          SettingsScreen(engine: e),
-        ],
+      // One field behind all three tabs. Drawn here rather than per-screen so
+      // there is a single animation for the whole shell, and so switching tabs
+      // does not restart the sweep.
+      body: ListenableBuilder(
+        listenable: e,
+        builder: (context, child) => ScaleField(
+          pulse: ScalePulse.of(e.relayReachable),
+          // Fainter than the splash: this one sits under real content all day.
+          opacity: 0.038,
+          tile: 104,
+          fadeTo: 0.95,
+          child: child!,
+        ),
+        child: IndexedStack(
+          index: _index,
+          children: [
+            ChatsScreen(engine: e),
+            ContactsScreen(engine: e),
+            SettingsScreen(engine: e),
+          ],
+        ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,

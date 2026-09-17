@@ -80,6 +80,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Transparent so HomeShell's scale field shows through; the
+      // field is drawn once, behind all three tabs, rather than by
+      // each of them.
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: _searching
             ? TextField(
