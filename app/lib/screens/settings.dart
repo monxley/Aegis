@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -386,6 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   List<Widget> _accountCards() {
+    final e = widget.engine;
     return [
             _card(
               icon: Icons.badge_rounded,
@@ -1378,12 +1380,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// A gradient, letter-spaced section label to break the settings list into
   /// groups. Carries its own top spacing so it can be dropped between cards.
-  Widget _sectionHeader(String label) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 22, 6, 8),
-      child: Text(label.toUpperCase(), style: AegisType.label),
-    );
-  }
 }
 
 /// The profile card body: this device's Aegis ID and a one-tap copy of the full

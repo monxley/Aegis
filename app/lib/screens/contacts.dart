@@ -342,19 +342,19 @@ class _NoContactsYet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.all(AegisSpace.s6),
+        padding: EdgeInsets.all(AegisSpace.s6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.people_outline_rounded,
+            Icon(Icons.people_outline_rounded,
                 size: 48, color: AegisColor.textMuted),
-            const SizedBox(height: AegisSpace.s4),
+            SizedBox(height: AegisSpace.s4),
             Text('No contacts yet',
                 style: AegisType.heading, textAlign: TextAlign.center),
-            const SizedBox(height: AegisSpace.s2),
-            const Text(
+            SizedBox(height: AegisSpace.s2),
+            Text(
               'Add someone by their Aegis ID, or share yours so they can add '
               'you. There is no directory to search and no phone number to '
               'look up — that is the point.',
