@@ -374,7 +374,10 @@ class _AmberCell extends StatelessWidget {
         // The asset is white, so a single colour filter puts the flare's colour
         // in the theme instead of in the PNG.
         ColorFiltered(
-          colorFilter: ColorFilter.mode(ShoalColor.accent, BlendMode.srcIn),
+          colorFilter: const ColorFilter.mode(
+            ShoalColor.accent,
+            BlendMode.srcIn,
+          ),
           child: Image.asset(
             Brand.scaleCell,
             fit: BoxFit.contain,
