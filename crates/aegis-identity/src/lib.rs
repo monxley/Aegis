@@ -161,7 +161,7 @@ mod tests {
     fn aegis_id_round_trips() {
         let id = Identity::from_secret_bytes(seed(10), seed(20), seed((10 ^ 20) ^ 0x5a)).aegis_id();
         let encoded = id.encode();
-        assert!(encoded.starts_with("aegis:"));
+        assert!(encoded.starts_with("shoal:"));
         let decoded = AegisId::decode(&encoded).unwrap();
         assert_eq!(id, decoded);
         assert_eq!(decoded.view_public(), ViewPublicKey(id.view_public().0));
@@ -190,7 +190,7 @@ mod tests {
         let encoded = Identity::from_secret_bytes(seed(1), seed(2), seed((1 ^ 2) ^ 0x5a))
             .aegis_id()
             .encode();
-        // Flip one character in the payload region (after the "aegis:" prefix).
+        // Flip one character in the payload region (after the "shoal:" prefix).
         let mut chars: Vec<char> = encoded.chars().collect();
         let idx = 10;
         chars[idx] = if chars[idx] == 'a' { 'b' } else { 'a' };

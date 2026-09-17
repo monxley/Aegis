@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/brand/lockup.png" alt="AEGIS — post-quantum private messenger" width="560">
+<img src="docs/brand/lockup.png" alt="SHOAL — post-quantum private messenger" width="560">
 
 **An anonymous, end-to-end-encrypted, post-quantum messenger built on the
 [Ciphra](https://github.com/monxley/Ciphra) cryptographic core.**
@@ -16,9 +16,9 @@
 
 </div>
 
-![Aegis — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
+![Shoal — can't intercept, can't read, can't link; the five layers](docs/screenshots/hero.jpg)
 
-Aegis is a Session-class messenger — no phone numbers, no central account — that
+Shoal is a Session-class messenger — no phone numbers, no central account — that
 borrows Monero / CryptoNote *stealth addressing* for recipient unlinkability and
 reuses Ciphra's blind, replicated server as a store-and-forward relay.
 
@@ -30,7 +30,7 @@ sideloaded. Not on Google Play. Website: **[English](https://monxley.github.io/A
 
 ### F-Droid (recommended)
 
-Add the project's own repository and Aegis updates like any other app — no Google
+Add the project's own repository and Shoal updates like any other app — no Google
 account, no Play Services, no re-sideloading each time:
 
 ```
@@ -97,7 +97,7 @@ the hood: identity & stealth addressing, the post-quantum session core (PQXDH
 handshake + Double Ratchet), ML-DSA-65 prekey-bundle signing (authenticity), an
 ongoing post-quantum ratchet, blind store-and-forward delivery with sealed-sender
 envelopes, **Sphinx onion routing** with a non-malleable **LIONESS** payload, and
-**Loopix** mixing + cover traffic. `AegisClient` ties them into one messenger API,
+**Loopix** mixing + cover traffic. `ShoalClient` ties them into one messenger API,
 and it runs over a **live Ciphra blind server** (`aegis-relay`). `aegis-api`
 wraps it into a UI-facing engine (identity, contacts, chat history), and a
 **Flutter app** (`app/`) drives that engine over `flutter_rust_bridge` —
@@ -120,7 +120,7 @@ implementation of a *reviewed spec*.
 ```console
 $ cargo test --all
 aegis-crypto  : 36 ok   # RFC 7748/8439/5869/4231, FIPS 180-4/202/203/204, ML-KEM + ML-DSA
-aegis-identity: 19 ok   # stealth addressing, identity signing, Aegis ID key binding
+aegis-identity: 19 ok   # stealth addressing, identity signing, Shoal ID key binding
 aegis-session : 24 ok   # PQXDH, Double Ratchet, PQ ratchet, signed bundles, e2e authenticity
 aegis-mailbox : 10 ok   # sealed-sender envelopes, blind relay, full-stack message delivery
 aegis-net     : 23 ok   # Sphinx (LIONESS payload) + Loopix Poisson mixing & cover traffic
@@ -152,20 +152,20 @@ The Android app — Android-first, anonymous by default, private under pressure.
 
 ## The core, from Rust
 
-`AegisClient` is the whole messenger behind one type — one identity backs the
-shareable Aegis ID, the view key, the handshake key, and the signing key; PQXDH
+`ShoalClient` is the whole messenger behind one type — one identity backs the
+shareable Shoal ID, the view key, the handshake key, and the signing key; PQXDH
 sessions and the Double Ratchet are established and reused automatically; every
 message goes out as a sealed-sender envelope over a blind relay.
 
 ```rust
-use aegis_client::AegisClient;
+use aegis_client::ShoalClient;
 use aegis_mailbox::InMemoryStore;
 
-let mut alice = AegisClient::generate();
-let mut bob   = AegisClient::generate();
+let mut alice = ShoalClient::generate();
+let mut bob   = ShoalClient::generate();
 let mut relay = InMemoryStore::new();          // a blind store-and-forward relay
 
-// Alice starts a conversation from Bob's published Aegis ID + prekey bundle.
+// Alice starts a conversation from Bob's published Shoal ID + prekey bundle.
 alice.start_conversation(&mut relay, &bob.aegis_id(), &bob.bundle(), b"hi bob").unwrap();
 
 // Bob scans the relay (which learns neither who it is for nor from) and reads it.
@@ -180,7 +180,7 @@ assert_eq!(alice.receive(&relay)[0].message, b"hi alice");
 ### Project map
 
 ```
-Aegis/
+Shoal/
 ├── AEGIS_PROTOCOL.md        # protocol design (all 5 layers)
 ├── docs/CRYPTO_MATH.md      # exact mathematics + security assumptions
 └── crates/
@@ -188,7 +188,7 @@ Aegis/
     │   └── src/             #   x25519 · ml_kem · ml_dsa · aead(chacha20+poly1305)
     │                        #   keccak · sha256 · hmac/hkdf · rand
     ├── aegis-identity/      # Phase 0 — Layer 1
-    │   └── src/             #   identity.rs (keys, signing, Aegis ID) · stealth.rs
+    │   └── src/             #   identity.rs (keys, signing, Shoal ID) · stealth.rs
     ├── aegis-session/       # Phases 1–1.6 — Layers 2–3
     │   └── src/             #   bundle.rs (signed prekeys) · pqxdh.rs · ratchet.rs (PQ)
     ├── aegis-mailbox/       # Phase 2 — Layer 4a
@@ -202,9 +202,9 @@ Aegis/
     ├── aegis-mix/           # the mixnet: networked Sphinx mix nodes + MixnetStore
     │   └── src/             #   MixService (forward/deliver) · MixnetStore (onion send)
     ├── aegis-client/        # the messenger: one identity, one API over all layers
-    │   └── src/             #   lib.rs (AegisClient) · wire.rs (envelope inner format)
-    └── aegis-api/           # UI-facing engine (AegisApp): identity, contacts, chat, poll
-        └── src/             #   lib.rs (AegisApp) · wire.rs (prekey-bundle byte format)
+    │   └── src/             #   lib.rs (ShoalClient) · wire.rs (envelope inner format)
+    └── aegis-api/           # UI-facing engine (ShoalApp): identity, contacts, chat, poll
+        └── src/             #   lib.rs (ShoalApp) · wire.rs (prekey-bundle byte format)
 
 app/                         # Flutter interface (Android-first, Linux next)
 ├── rust/                    #   flutter_rust_bridge crate wrapping aegis-api
@@ -220,22 +220,22 @@ dependency) for the live blind-server client — still nothing from crates.io.
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Identity, Aegis IDs, stealth addressing | ✅ implemented |
+| 0 | Identity, Shoal IDs, stealth addressing | ✅ implemented |
 | 1 | PQXDH handshake + post-quantum Double Ratchet | ✅ implemented |
-| 1.5 | ML-DSA-65 prekey-bundle signing, Aegis ID key binding (authenticity, G8) | ✅ implemented |
+| 1.5 | ML-DSA-65 prekey-bundle signing, Shoal ID key binding (authenticity, G8) | ✅ implemented |
 | 1.6 | Ongoing PQ ratchet — ML-KEM re-encapsulation into the root KDF (§4) | ✅ implemented |
 | 2 | Blind store-and-forward delivery, sealed sender | ✅ implemented |
 | 3 | Sphinx onion routing (fixed-size layered packets) | ✅ implemented |
 | 3.5 | Loopix mixing — Poisson delays + cover traffic (§6.2) | ✅ implemented |
 | — | Hardening: non-malleable LIONESS onion payload (anti-tagging) | ✅ implemented |
 | — | `aegis-relay`: `MailboxStore` over a live Ciphra blind server | ✅ implemented |
-| — | `AegisClient`: one-identity messenger API over all layers | ✅ implemented |
+| — | `ShoalClient`: one-identity messenger API over all layers | ✅ implemented |
 | — | `aegis-api` + Flutter app: UI engine and Android/Linux interface | ✅ implemented |
 | — | `aegis-relay-server`: run your own blind relay (persistent, pinnable) | ✅ implemented |
 | — | Session persistence: sessions, contacts & history survive a restart | ✅ implemented |
 | — | `aegis-mix`: networked Sphinx mixnet + onion-routed send path (`MixnetStore`) | ✅ implemented |
 | — | Node auto-discovery: gossiped directory, clients bootstrap onto the net | ✅ implemented |
-| — | `AegisApp::create_on_network`: zero-setup, auto-discover + route over mixnet | ✅ implemented |
+| — | `ShoalApp::create_on_network`: zero-setup, auto-discover + route over mixnet | ✅ implemented |
 | — | Opt-in node: any client can also be a mix forwarder (in-app toggle) | ✅ implemented |
 | — | Loopix mix delays + client cover traffic | ✅ implemented |
 | — | Cross-provider mail sharding (recipient's provider from its view key) | ✅ implemented |
@@ -276,11 +276,11 @@ dependency) for the live blind-server client — still nothing from crates.io.
 | — | Auto-lock (inactivity / on background) + wipe after N failed unlock attempts; block a contact | ✅ implemented |
 
 All five protocol layers have a working, tested implementation with a
-non-malleable **LIONESS** onion payload; `AegisClient` unifies them into one
+non-malleable **LIONESS** onion payload; `ShoalClient` unifies them into one
 messenger, and `aegis-relay` runs a full conversation over a **live Ciphra blind
 server** (an in-process `ciphra-server` in the test). On top, `aegis-api` exposes
 a UI-facing engine and a **Flutter app** (`app/`) provides the interface.
-Conversations **survive a restart**: `AegisApp` serializes its sessions (the
+Conversations **survive a restart**: `ShoalApp` serializes its sessions (the
 Double Ratchet, including skipped-message keys), contacts, and history, and the
 app restores them on launch. The **mixnet** (`aegis-mix`) turns `aegis-net`'s
 Sphinx routing into a networked layer: `MixnetStore` onion-routes each send
@@ -298,7 +298,7 @@ switcher; toggleable in Settings), a **duress password** opens an empty decoy ac
 real one — which stays encrypted and hidden — and a **panic wipe** (hold to
 confirm) erases everything from the lock screen or Settings. It can also
 **disguise** itself — the launcher icon and name become an ordinary calculator,
-notes, or weather app (Android `activity-alias` swapped at runtime), while Aegis
+notes, or weather app (Android `activity-alias` swapped at runtime), while Shoal
 opens as normal behind the decoy. The app keeps
 receiving **24/7**: an Android foreground service (on by default, opt-out in
 Settings) holds the process alive so the poll loop drains the mailbox even in
@@ -336,7 +336,7 @@ peel). A recipient issues SURBs routed back to its own node and onion-routes a
 fetch request to its provider; the provider answers each with an envelope routed
 back through a SURB, so it **never learns who is asking** (`aegis-mix` proves the
 whole flow end to end in a test: the recipient recovers and opens its mail with
-its view key). `AegisApp::create_on_network_with_receive` wires it into the app:
+its view key). `ShoalApp::create_on_network_with_receive` wires it into the app:
 on a reachable device with node mode on, the app runs its own node and polls
 through the mixnet, so the provider never learns who is polling (an integration
 test drives two apps end to end). This needs the recipient reachable, so it pairs
@@ -345,7 +345,7 @@ poll-through-mixnet circuit lands.
 
 ## Build & run it yourself
 
-Aegis is two things: a **Rust core** (the crypto + protocol, buildable anywhere
+Shoal is two things: a **Rust core** (the crypto + protocol, buildable anywhere
 Rust runs) and a **Flutter app** on top of it. You can exercise the core from a
 terminal in seconds; the app needs the Flutter toolchain.
 
@@ -356,7 +356,7 @@ one external dependency (Ciphra) is fetched as a git dependency.
 
 ```sh
 git clone https://github.com/monxley/Aegis
-cd Aegis
+cd Shoal
 
 cargo test --all        # run every layer's test vectors + end-to-end tests
 cargo build --release    # build all crates
@@ -386,7 +386,7 @@ The process holds no data keys; everything it stores or serves is ciphertext.
 Then both participants point their client at it:
 
 ```rust
-let mut me = aegis_api::AegisApp::create_with_relay(seed, "relay.example:5077".into())?;
+let mut me = aegis_api::ShoalApp::create_with_relay(seed, "relay.example:5077".into())?;
 ```
 
 In the app, put `relay.example:5077` in the **relay** field on first launch.
@@ -437,7 +437,7 @@ cd ..
 
 # 4. Plug in a phone (USB debugging on) or start an emulator, then:
 flutter devices        # confirm your phone is listed
-flutter run --release  # builds the APK, installs it, and launches Aegis
+flutter run --release  # builds the APK, installs it, and launches Shoal
 ```
 
 To leave an installed APK you can sideload later:
@@ -488,7 +488,7 @@ KEY_ALIAS=aegis KEY_PASSWORD=… \
 ```
 
 **Package name.** The app installs as `io.github.monxley.aegis`. Override with
-`AEGIS_APPLICATION_ID` if you publish under your own domain — but note that
+`SHOAL_APPLICATION_ID` if you publish under your own domain — but note that
 changing it makes a *different* app as far as Android is concerned, so existing
 installs stay put rather than updating.
 
@@ -553,13 +553,13 @@ messages show **sent · delivered · read** ticks. See
 | Delivery | Ciphra blind server + sealed sender | sender anonymity, no plaintext |
 | Network | Sphinx onion routing → Loopix mixnet | traffic-analysis resistance |
 
-Every cryptographic *primitive* Aegis needs (ChaCha20-Poly1305, X25519,
+Every cryptographic *primitive* Shoal needs (ChaCha20-Poly1305, X25519,
 ML-KEM-768, ML-DSA-65, HKDF/HMAC/SHA-3) already exists and is test-vector-verified
-in Ciphra. Aegis is protocol-assembly on top of that core.
+in Ciphra. Shoal is protocol-assembly on top of that core.
 
 ## Guiding rule
 
-**Implement, don't invent.** Aegis writes well-studied protocols from scratch on
+**Implement, don't invent.** Shoal writes well-studied protocols from scratch on
 Ciphra's primitives. It does not design new cryptography. See
 [AEGIS_PROTOCOL.md §1](AEGIS_PROTOCOL.md).
 
@@ -567,9 +567,9 @@ Ciphra's primitives. It does not design new cryptography. See
 
 [Apache-2.0](LICENSE)
 
-## Support Aegis
+## Support Shoal
 
-Aegis is free, open, and built to keep private conversations private. If it's
+Shoal is free, open, and built to keep private conversations private. If it's
 worth something to you, a donation funds the work — especially the external
 security audit that stands between the code and a real release.
 

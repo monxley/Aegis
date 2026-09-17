@@ -54,7 +54,7 @@ class AegisLockupVertical extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Aegis',
+      label: 'Shoal',
       child: Image.asset(
         Brand.lockupVertical,
         width: width,

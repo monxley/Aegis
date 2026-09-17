@@ -73,7 +73,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
           const Text(
-            'Send all Aegis traffic through a proxy — the mixnet and the mailbox '
+            'Send all Shoal traffic through a proxy — the mixnet and the mailbox '
             'both honour it. Tor routes over the Tor network (via Orbot); SOCKS5 '
             'uses any proxy you run. If the proxy isn’t reachable, the app can’t '
             'connect until it is.',

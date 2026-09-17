@@ -90,7 +90,7 @@ class Updater {
           Uri.parse('https://api.github.com/repos/$repo/releases/latest');
       final req = await client.getUrl(uri);
       req.headers.set(HttpHeaders.acceptHeader, 'application/vnd.github+json');
-      req.headers.set(HttpHeaders.userAgentHeader, 'Aegis-Updater');
+      req.headers.set(HttpHeaders.userAgentHeader, 'Shoal-Updater');
       final resp = await req.close();
       if (resp.statusCode != 200) return null;
       final body = await resp.transform(utf8.decoder).join();

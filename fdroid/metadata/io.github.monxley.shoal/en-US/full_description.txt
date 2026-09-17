@@ -1,4 +1,4 @@
-Aegis is an anonymous, end-to-end-encrypted messenger. There is no phone number,
+Shoal is an anonymous, end-to-end-encrypted messenger. There is no phone number,
 no email and no account on anyone's server: your identity is a key pair made on
 your device the first time you open the app.
 
@@ -39,12 +39,12 @@ FEATURES
 
 HONEST LIMITS
 
-Aegis is alpha software and has not had an external security audit. The protocol
+Shoal is alpha software and has not had an external security audit. The protocol
 and its implementation may contain flaws. Anonymity depends on how many people
 use the network at the same time, and while that number is small so is the
 protection. A truly global, long-running traffic-analysis adversary remains an
 open problem in the field: this is strong resistance, not impossibility. And if
-someone controls your device while Aegis is unlocked, no protocol helps.
+someone controls your device while Shoal is unlocked, no protocol helps.
 
 The app checks GitHub Releases for newer versions and offers to open the
 download page, because a sideloaded build has no other way to stay current.

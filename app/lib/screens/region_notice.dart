@@ -60,14 +60,14 @@ Future<void> maybeShowRegionNotice(
       backgroundColor: AegisColor.surface,
       icon: const Icon(Icons.travel_explore_rounded,
           color: AegisColor.warning, size: 28),
-      title: const Text('Если Aegis не подключается'),
+      title: const Text('Если Shoal не подключается'),
       content: const SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Узлы сети Aegis могут быть недоступны из некоторых сетей и '
+              'Узлы сети Shoal могут быть недоступны из некоторых сетей и '
               'стран. Тогда в шапке видно «no connection», и сообщения не '
               'уходят.',
               style: TextStyle(

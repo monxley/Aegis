@@ -6,7 +6,7 @@ import 'dart:typed_data';
 /// post-quantum bundle is a few KB — too large for a QR code — so sharing is by
 /// copy/paste.)
 ///
-/// Format: `<aegis:…>#<base64url(bundle)>`. The Aegis ID keeps its `aegis:`
+/// Format: `<shoal:…>#<base64url(bundle)>`. The Aegis ID keeps its `shoal:`
 /// prefix so a token is self-describing.
 class ShareCode {
   final String aegisId;
@@ -20,8 +20,8 @@ class ShareCode {
   static ShareCode decode(String token) {
     final t = token.trim();
     final hash = t.indexOf('#');
-    if (hash <= 0 || !t.startsWith('aegis:')) {
-      throw const FormatException('not an Aegis share code');
+    if (hash <= 0 || !t.startsWith('shoal:')) {
+      throw const FormatException('not a Shoal share code');
     }
     final id = t.substring(0, hash);
     final bundle = base64Url.decode(t.substring(hash + 1));

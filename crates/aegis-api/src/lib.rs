@@ -19,7 +19,7 @@
 //! // only exercises the identity/contact API, not delivery across two relays.)
 //! alice.add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle()).unwrap();
 //! assert_eq!(alice.contacts()[0].name, "Bob");
-//! assert!(alice.my_aegis_id().starts_with("aegis:"));
+//! assert!(alice.my_aegis_id().starts_with("shoal:"));
 //! ```
 
 pub mod vault;
@@ -1001,7 +1001,7 @@ impl AegisApp {
         }
     }
 
-    /// This user's shareable Aegis ID (`aegis:…`).
+    /// This user's shareable Aegis ID (`shoal:…`).
     pub fn my_aegis_id(&self) -> String {
         self.client.aegis_id().encode()
     }
@@ -2568,7 +2568,7 @@ mod tests {
         let mut alice = AegisApp::create_in_memory(vec![1u8; 32]).unwrap();
         let bob = AegisApp::create_in_memory(vec![2u8; 32]).unwrap();
 
-        assert!(alice.my_aegis_id().starts_with("aegis:"));
+        assert!(alice.my_aegis_id().starts_with("shoal:"));
         alice
             .add_contact("Bob".into(), bob.my_aegis_id(), bob.my_bundle())
             .unwrap();
@@ -2588,7 +2588,7 @@ mod tests {
             Err(AppError::BadContact)
         ));
         assert!(matches!(
-            a.send("aegis:whoever".into(), "hi".into()),
+            a.send("shoal:whoever".into(), "hi".into()),
             Err(AppError::UnknownContact)
         ));
     }

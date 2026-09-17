@@ -26,7 +26,7 @@
 set -euo pipefail
 
 APK="${1:?usage: smoke-test-apk.sh <path to apk>}"
-PKG="${AEGIS_APPLICATION_ID:-io.github.monxley.aegis}"
+PKG="${SHOAL_APPLICATION_ID:-io.github.monxley.shoal}"
 SETTLE="${SETTLE:-25}"          # seconds to let it boot, load the engine, draw
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$*"; }
