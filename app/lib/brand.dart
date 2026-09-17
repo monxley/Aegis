@@ -363,8 +363,8 @@ class _AmberCell extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   colors: [
-                    ShoalColor.accent.withValues(alpha: 0.30),
-                    ShoalColor.accent.withValues(alpha: 0.0),
+                    ShoalColor.markAccent.withValues(alpha: 0.30),
+                    ShoalColor.markAccent.withValues(alpha: 0.0),
                   ],
                 ),
               ),
@@ -375,7 +375,7 @@ class _AmberCell extends StatelessWidget {
         // in the theme instead of in the PNG.
         ColorFiltered(
           colorFilter: const ColorFilter.mode(
-            ShoalColor.accent,
+            ShoalColor.markAccent,
             BlendMode.srcIn,
           ),
           child: Image.asset(
