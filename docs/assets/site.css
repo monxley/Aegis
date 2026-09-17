@@ -1,7 +1,11 @@
 /* Shoal site.
  *
- * Palette taken from the brand hero (docs/screenshots/hero.jpg): near-black
- * navy, amber accent, steel text, monospace for anything technical.
+ * Palette taken from the brand key visual: near-black navy ground, a steel
+ * shoal, and amber for the one fish that is not part of it.
+ *
+ * That split is the whole palette rule. Silver is "the many" -- body copy,
+ * code, anything technical -- and amber is "the one", so it marks exactly one
+ * thing per view and nothing else. An accent used twice stops being an accent.
  *
  * No web fonts, no JavaScript, no third-party anything. Partly because it is
  * the fastest a page can be -- Core Web Vitals are a ranking signal and an
@@ -18,7 +22,8 @@
   --muted: #8b98a9;
   --accent: #f0972a;
   --accent-soft: #ffb35c;
-  --teal: #4fd1c5;
+  --steel: #9fb0c4;
+  --steel-dim: #8391a4;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
@@ -91,10 +96,10 @@ header.site nav a, .head-actions a {
 header.site nav a:hover, .head-actions a:hover { color: var(--text); }
 .head-actions { display: flex; gap: .85rem; align-items: center; }
 .head-actions .lang {
-  color: var(--teal); font-family: var(--mono); font-size: .82rem;
+  color: var(--steel); font-family: var(--mono); font-size: .82rem;
   border: 1px solid var(--line-2); border-radius: 999px; padding: .2rem .7rem;
 }
-.head-actions .lang:hover { border-color: var(--teal); color: var(--teal); }
+.head-actions .lang:hover { border-color: var(--steel); color: var(--steel); }
 
 /* ---------- layout ---------- */
 
@@ -155,7 +160,7 @@ section:last-child { border-bottom: 0; }
 }
 .layer-body h3 { margin: 0 0 .15rem; }
 .layer-tech {
-  font-family: var(--mono); font-size: .84rem; color: var(--teal);
+  font-family: var(--mono); font-size: .84rem; color: var(--steel);
   margin: 0 0 .5rem;
 }
 .layer-body p:last-child { margin: 0; color: var(--muted); font-size: .96rem; }
@@ -178,7 +183,7 @@ thead th {
   text-transform: uppercase; color: var(--muted); font-weight: 600;
 }
 tbody th { font-weight: 500; color: var(--text); }
-tbody td:first-of-type code { color: var(--teal); }
+tbody td:first-of-type code { color: var(--steel); }
 tbody td:last-child { color: var(--muted); font-family: var(--mono); font-size: .86rem; }
 
 /* ---------- grids ---------- */
@@ -215,7 +220,7 @@ pre {
   border-radius: 10px; padding: 1rem 1.15rem; overflow-x: auto;
   margin: 1.8rem 0; font-size: .88rem; line-height: 1.6;
 }
-pre code { color: var(--teal); white-space: pre; }
+pre code { color: var(--steel); white-space: pre; }
 
 /* ---------- faq ---------- */
 
@@ -273,7 +278,46 @@ footer.site {
    Everything here is switched off wholesale under
    prefers-reduced-motion at the bottom of this block. */
 
-.hero { position: relative; }
+.hero { position: relative; isolation: isolate; }
+
+/* The three pillars of the key visual. A glyph, a heading, a sentence -- and
+ * no amber anywhere, because the hero above already spends the one accent this
+ * view is allowed. */
+.pillars { border-bottom: 1px solid var(--line); padding: 2.6rem 0; }
+.pillars ul {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 1.6rem 2.2rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 760px) { .pillars ul { grid-template-columns: repeat(3, 1fr); } }
+.pillars li { display: flex; gap: .95rem; align-items: flex-start; }
+.pillars img { flex: none; width: 52px; height: 52px; opacity: .8; }
+.pillars h3 {
+  margin: .1rem 0 .35rem; font-size: .82rem; font-family: var(--mono);
+  letter-spacing: .13em; text-transform: uppercase; color: var(--steel);
+  font-weight: 600;
+}
+.pillars p { margin: 0; font-size: .95rem; color: var(--muted); }
+
+
+/* The scale field: the mark's own lattice continued past its diamond, so the
+ * ground and the logo are provably the same shape. It is a 320x268 tile drawn
+ * from one fish of the mark -- 8 KB, and seamless, rather than a photograph.
+ * Kept faint: it is a texture, not a picture, and the hero has to stay
+ * readable on top of it. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: -1.5rem -50vw 0;
+  background: url("scales.png") repeat;
+  background-size: 140px auto;
+  opacity: .05;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 88%);
+          mask-image: linear-gradient(180deg, #000, transparent 88%);
+}
+@media (prefers-contrast: more) { .hero::before { display: none; } }
 
 @media (min-width: 980px) {
   .hero {
@@ -309,15 +353,20 @@ footer.site {
   border: 1px solid var(--line-2);
   transform-style: preserve-3d;
 }
-.ring.r1 { width: 300px; height: 300px; border-color: rgba(240,151,42,.55);
+/* Five hops, drawn as five rings of the same steel, with amber only at the
+ * centre. The rings used to alternate amber and teal, which read as five
+ * different things; they are five of the same thing, and the one that is not
+ * is the message in the middle. That is the palette rule and the protocol
+ * both. */
+.ring.r1 { width: 300px; height: 300px; border-color: rgba(159,176,196,.34);
            animation: ring-1 22s linear infinite; }
-.ring.r2 { width: 244px; height: 244px; border-color: rgba(79,209,197,.45);
+.ring.r2 { width: 244px; height: 244px; border-color: rgba(159,176,196,.30);
            border-style: dashed; animation: ring-2 27s linear infinite; }
-.ring.r3 { width: 188px; height: 188px; border-color: rgba(240,151,42,.35);
+.ring.r3 { width: 188px; height: 188px; border-color: rgba(159,176,196,.26);
            animation: ring-3 19s linear infinite; }
-.ring.r4 { width: 132px; height: 132px; border-color: rgba(79,209,197,.35);
+.ring.r4 { width: 132px; height: 132px; border-color: rgba(159,176,196,.22);
            border-style: dashed; animation: ring-4 31s linear infinite; }
-.ring.r5 { width: 76px; height: 76px; border-color: rgba(240,151,42,.6);
+.ring.r5 { width: 76px; height: 76px; border-color: rgba(240,151,42,.65);
            animation: ring-5 15s linear infinite; }
 
 /* The message at the centre: the one thing all five layers are around. */
