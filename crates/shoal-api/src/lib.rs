@@ -1,0 +1,3598 @@
+//! # shoal-api — the app-facing Shoal engine
+//!
+//! Everything a user interface needs, behind one type. A UI (the Flutter app in
+//! [`app/`](../../../app), bound through `flutter_rust_bridge`) never touches
+//! keys or protocol state — it calls [`ShoalApp`], which owns an
+//! [`shoal_client::ShoalClient`], a relay connection, a contact book, and the
+//! conversation history.
+//!
+//! ```
+//! use shoal_api::ShoalApp;
+//!
+//! // Two users, each with a local demo relay of their own would not connect;
+//! // here both share one in-memory relay to show the flow end to end.
+//! let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+//! let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+//!
+//! // They exchange Shoal IDs + bundles out of band (paste / QR), then add each
+//! // other as contacts. (In a real deployment both share ONE relay; this doctest
+//! // only exercises the identity/contact API, not delivery across two relays.)
+//! alice.add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle()).unwrap();
+//! assert_eq!(alice.contacts()[0].name, "Bob");
+//! assert!(alice.my_shoal_id().starts_with("shoal:"));
+//! ```
+
+pub mod vault;
+mod wire;
+
+/// The 24-word recovery phrase for a master seed (re-exported for the UI).
+pub use shoal_crypto::mnemonic;
+
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use shoal_client::{ClientError, ShoalClient};
+use shoal_crypto::aead;
+use shoal_identity::ShoalId;
+use shoal_mailbox::{Envelope, InMemoryStore, MailboxError, MailboxStore};
+use shoal_mix::MixnetStore;
+use shoal_relay::CiphraStore;
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Version tag on exported app state; bump on a format change. v2 adds the
+/// per-message id and delivery status; v1 blobs still load (id 0, status sent).
+/// v8 adds attachment metadata and reactions to every message.
+const APP_STATE_VERSION: u8 = 8;
+
+/// PBKDF2 iterations for a per-chat password (heavy, like the notes password —
+/// a rarely-typed human secret deserves real stretching).
+const CHAT_ITERATIONS: u32 = 314_159;
+/// AAD binding a per-chat history blob to its purpose.
+const CHAT_HISTORY_AAD: &[u8] = b"shoal-chat-history-v1";
+
+// --- app-level message framing (inside the E2E plaintext) ----------------
+//
+// Every plaintext the ratchet carries is `kind(1) ‖ id(8) ‖ ttl_secs(4) ‖
+// content`: the kind byte tells a chat message from a receipt or a
+// disappearing-timer control, the id matches a receipt to its message, and
+// ttl_secs is the disappearing-message lifetime (0 = never).
+const MSG_TEXT: u8 = 0;
+const MSG_DELIVERED: u8 = 1;
+const MSG_READ: u8 = 2;
+const MSG_TIMER: u8 = 3; // sets the conversation's disappearing timer
+const MSG_DELETE: u8 = 4; // asks the peer to delete this conversation too
+const MSG_EDIT: u8 = 5; // new text for a previously-sent message (id matches)
+const MSG_DELETE_ONE: u8 = 6; // asks the peer to delete a single message (by id)
+const MSG_REACTION: u8 = 7; // an emoji reaction on a message: `target(8) ‖ emoji`
+const MSG_ATTACH_META: u8 = 8; // opens an attachment transfer (see `AttachMeta`)
+const MSG_ATTACH_CHUNK: u8 = 9; // one slice of it: `att_id(8) ‖ index(4) ‖ data`
+
+// --- attachments ---------------------------------------------------------
+//
+// A voice note or file is far larger than one packet: the mixnet carries
+// fixed-size Sphinx payloads ([`shoal_net::PAYLOAD_LEN`] = 4096) and the client
+// pads every plaintext up to a length bucket, so the largest plaintext that
+// still fits an onion packet after ratchet + envelope overhead is the 1024
+// bucket. Attachments are therefore **split into chunks** that each ride in
+// their own packet, and reassembled by the receiver.
+//
+// Budget for one chunk, working down from the 1024-byte bucket:
+//   1024 - 4 (pad length prefix) - 13 (frame header) - 12 (att_id + index) = 995
+// [`CHUNK_DATA`] leaves margin under that.
+const CHUNK_DATA: usize = 960;
+
+/// How many chunks one `pump_attachment` call sends before returning. Small
+/// enough that the engine lock is released often (the UI stays responsive
+/// during a large upload), large enough that the per-call overhead stays
+/// negligible against the network cost of the packets themselves.
+const CHUNK_BATCH: usize = 16;
+
+/// Ceiling on an attachment, so one send can't queue an unbounded number of
+/// packets (and a hostile peer can't make us buffer forever). 8 MiB ≈ 8700
+/// chunks — generous for a voice note or a photo, bounded for everything else.
+const MAX_ATTACHMENT: usize = 8 * 1024 * 1024;
+
+/// What a [`ChatMessage`] carries. Text is the default; the others additionally
+/// have attachment metadata and bytes.
+pub const KIND_TEXT: u8 = 0;
+pub const KIND_FILE: u8 = 1;
+pub const KIND_VOICE: u8 = 2;
+pub const KIND_IMAGE: u8 = 3;
+
+/// Delivery status of one of *our* sent messages (mirrored to the UI as ticks).
+const STATUS_SENT: u8 = 0;
+const STATUS_DELIVERED: u8 = 1;
+const STATUS_READ: u8 = 2;
+/// The network send failed (relay unreachable, no route, session error). The
+/// message is kept locally and retried automatically on the next poll, so a
+/// transient failure never silently loses it.
+const STATUS_FAILED: u8 = 3;
+
+fn frame(kind: u8, id: u64, ttl_secs: u32, content: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(13 + content.len());
+    v.push(kind);
+    v.extend_from_slice(&id.to_le_bytes());
+    v.extend_from_slice(&ttl_secs.to_le_bytes());
+    v.extend_from_slice(content);
+    v
+}
+
+fn parse_frame(bytes: &[u8]) -> Option<(u8, u64, u32, &[u8])> {
+    if bytes.len() < 13 {
+        return None;
+    }
+    let id = u64::from_le_bytes(bytes[1..9].try_into().ok()?);
+    let ttl = u32::from_le_bytes(bytes[9..13].try_into().ok()?);
+    Some((bytes[0], id, ttl, &bytes[13..]))
+}
+
+/// AAD binding a sealed attachment file to its purpose, so an attachment blob
+/// can't be swapped in for a state blob or a notes blob.
+const ATTACH_AAD: &[u8] = b"shoal-attachment-v1";
+
+/// Append `s` to `out` as `len(2 LE) ‖ utf8`, for the attachment metadata frame.
+fn push_short_str(out: &mut Vec<u8>, s: &str) {
+    let b = s.as_bytes();
+    let n = b.len().min(u16::MAX as usize);
+    out.extend_from_slice(&(n as u16).to_le_bytes());
+    out.extend_from_slice(&b[..n]);
+}
+
+/// Read a string written by [`push_short_str`], returning it and the rest.
+fn take_short_str(buf: &[u8]) -> Option<(String, &[u8])> {
+    let n = u16::from_le_bytes(buf.get(..2)?.try_into().ok()?) as usize;
+    let s = String::from_utf8_lossy(buf.get(2..2 + n)?).into_owned();
+    Some((s, &buf[2 + n..]))
+}
+
+/// Parse a [`MSG_ATTACH_META`] body:
+/// `kind(1) ‖ total_len(4) ‖ chunks(4) ‖ duration_ms(4) ‖ name ‖ mime`.
+/// Returns `(kind, total_len, chunks, duration_ms, name, mime)`.
+#[allow(clippy::type_complexity)]
+fn parse_attach_meta(content: &[u8]) -> Option<(u8, usize, u32, u32, String, String)> {
+    if content.len() < 13 {
+        return None;
+    }
+    let kind = content[0];
+    let total_len = u32::from_le_bytes(content[1..5].try_into().ok()?) as usize;
+    let chunks = u32::from_le_bytes(content[5..9].try_into().ok()?);
+    let duration_ms = u32::from_le_bytes(content[9..13].try_into().ok()?);
+    let (name, rest) = take_short_str(&content[13..])?;
+    let (mime, _) = take_short_str(rest)?;
+    Some((kind, total_len, chunks, duration_ms, name, mime))
+}
+
+/// One-line description of a message for the chat list. An attachment has no
+/// text of its own, so it is described by what it is rather than shown blank.
+fn preview_text(m: &ChatMessage) -> String {
+    if m.kind == KIND_TEXT || !m.text.is_empty() {
+        return m.text.clone();
+    }
+    match m.kind {
+        KIND_VOICE => "🎤 Voice message".to_string(),
+        KIND_IMAGE => "📷 Photo".to_string(),
+        _ if m.file_name.is_empty() => "📎 File".to_string(),
+        _ => format!("📎 {}", m.file_name),
+    }
+}
+
+/// Set (or, for an empty `emoji`, clear) one side's reaction on a message.
+/// Each side has at most one reaction, so reacting again replaces it.
+fn set_reaction(reactions: &mut Vec<Reaction>, from_me: bool, emoji: &str) {
+    reactions.retain(|r| r.from_me != from_me);
+    if !emoji.is_empty() {
+        reactions.push(Reaction {
+            emoji: emoji.to_string(),
+            from_me,
+        });
+    }
+}
+
+fn rand_u64() -> u64 {
+    let mut b = [0u8; 8];
+    shoal_crypto::fill_random(&mut b);
+    u64::from_le_bytes(b)
+}
+
+/// A little length-prefixing writer for [`ShoalApp::export_state`].
+struct StateWriter(Vec<u8>);
+
+impl StateWriter {
+    fn new() -> Self {
+        StateWriter(Vec::new())
+    }
+    fn push_u8(&mut self, v: u8) {
+        self.0.push(v);
+    }
+    fn push_u32(&mut self, v: u32) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
+    fn push_u64(&mut self, v: u64) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
+    fn push_bytes(&mut self, b: &[u8]) {
+        self.push_u32(b.len() as u32);
+        self.0.extend_from_slice(b);
+    }
+    fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+/// Parsed app state (see [`ShoalApp::export_state`]).
+struct AppState {
+    client: Vec<u8>,
+    contacts: Vec<StoredContact>,
+    history: HashMap<String, Vec<ChatMessage>>,
+    disappearing: HashMap<String, u32>,
+    /// Password-protected chats, all starting **locked** (their history stays
+    /// sealed until unlocked with the per-chat password).
+    locked_chats: HashMap<String, LockedChat>,
+}
+
+/// A bounds-checked reader for [`ShoalApp::restore_state`].
+struct StateReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> StateReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        StateReader { buf, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+    fn bytes(&mut self) -> Option<&'a [u8]> {
+        let n = self.u32()? as usize;
+        self.take(n)
+    }
+    fn string(&mut self) -> Option<String> {
+        String::from_utf8(self.bytes()?.to_vec()).ok()
+    }
+}
+
+fn parse_app_state(blob: &[u8]) -> Option<AppState> {
+    let mut r = StateReader::new(blob);
+    let version = r.u8()?;
+    if !(1..=APP_STATE_VERSION).contains(&version) {
+        return None;
+    }
+    let client = r.bytes()?.to_vec();
+
+    let contact_count = r.u32()? as usize;
+    let mut contacts = Vec::with_capacity(contact_count);
+    for _ in 0..contact_count {
+        let name = r.string()?;
+        let shoal_id = r.string()?;
+        let bundle = r.bytes()?.to_vec();
+        // v4 adds the pinned flag; earlier versions default it off.
+        let pinned = if version >= 4 { r.u8()? != 0 } else { false };
+        // v5 adds the blocked flag.
+        let blocked = if version >= 5 { r.u8()? != 0 } else { false };
+        contacts.push(StoredContact {
+            name,
+            shoal_id,
+            bundle,
+            pinned,
+            blocked,
+        });
+    }
+
+    let convo_count = r.u32()? as usize;
+    let mut history = HashMap::with_capacity(convo_count);
+    for _ in 0..convo_count {
+        let shoal_id = r.string()?;
+        let msg_count = r.u32()? as usize;
+        let mut msgs = Vec::with_capacity(msg_count);
+        for _ in 0..msg_count {
+            msgs.push(read_msg(&mut r, version)?);
+        }
+        history.insert(shoal_id, msgs);
+    }
+
+    // v3: per-conversation disappearing timers.
+    let mut disappearing = HashMap::new();
+    if version >= 3 {
+        let n = r.u32()? as usize;
+        for _ in 0..n {
+            let shoal_id = r.string()?;
+            let secs = r.u32()?;
+            disappearing.insert(shoal_id, secs);
+        }
+    }
+
+    // v7: password-protected chats. Each restores **locked**: its history stays
+    // sealed under the per-chat password until unlocked.
+    let mut locked_chats = HashMap::new();
+    if version >= 7 {
+        let n = r.u32()? as usize;
+        for _ in 0..n {
+            let shoal_id = r.string()?;
+            let salt: [u8; 16] = r.bytes()?.try_into().ok()?;
+            let iters = r.u32()?;
+            let history_ct = r.bytes()?.to_vec();
+            let pending = deserialize_msgs(r.bytes()?, version)?;
+            // v8 records the layout version of the sealed blob itself; a v7
+            // state's blobs are, by definition, v7.
+            let blob_version = if version >= 8 { r.u8()? } else { 7 };
+            locked_chats.insert(
+                shoal_id,
+                LockedChat {
+                    salt,
+                    iters,
+                    version: blob_version,
+                    history_ct,
+                    pending,
+                },
+            );
+        }
+    }
+
+    Some(AppState {
+        client,
+        contacts,
+        history,
+        disappearing,
+        locked_chats,
+    })
+}
+
+/// A contact in the address book.
+#[derive(Clone, Debug)]
+pub struct Contact {
+    pub name: String,
+    pub shoal_id: String,
+    /// Whether this chat is pinned to the top of the list.
+    pub pinned: bool,
+    /// Whether this contact is blocked (their messages are dropped silently).
+    pub blocked: bool,
+    /// Preview of the last message (None if the chat is empty) — so the chat
+    /// list needs no per-contact history clone.
+    pub last_text: Option<String>,
+    /// Whether that last message was sent by us (for the "You: " prefix).
+    pub last_from_me: bool,
+    /// Timestamp (Unix ms) of the last message, 0 if none.
+    pub last_ts: u64,
+}
+
+/// A node visible in the gossiped directory (for the network view).
+#[derive(Clone, Debug)]
+pub struct NodeSummary {
+    /// Hex node id (`SHA-256(public)[..16]`).
+    pub id: String,
+    /// `host:port` others route onion traffic to.
+    pub mix_addr: String,
+    /// `host:port` of this node's blind mailbox, if it is also a provider.
+    pub provider_addr: Option<String>,
+    /// Whether this node runs a mailbox (a provider) or is a pure forwarder.
+    pub is_provider: bool,
+}
+
+/// One message in a conversation history.
+#[derive(Clone, Debug)]
+pub struct ChatMessage {
+    pub from_me: bool,
+    pub text: String,
+    pub timestamp_ms: u64,
+    /// Per-message id, so a delivery receipt can be matched back to it.
+    pub id: u64,
+    /// For our own sent messages: [`STATUS_SENT`] / `_DELIVERED` / `_READ`.
+    /// Meaningless for received messages.
+    pub status: u8,
+    /// Unix-ms after which this message is deleted locally (0 = never), for
+    /// disappearing messages.
+    pub expires_at_ms: u64,
+    /// Whether this message was edited after it was first sent (shown as an
+    /// "edited" marker in the UI).
+    pub edited: bool,
+    /// [`KIND_TEXT`] / `_FILE` / `_VOICE` / `_IMAGE`. For anything but text the
+    /// attachment fields below are meaningful and `text` holds the caption
+    /// (usually empty).
+    pub kind: u8,
+    /// Original file name, for a file/image attachment.
+    pub file_name: String,
+    /// MIME type as reported by the sender (advisory — never trusted to decide
+    /// how bytes are handled).
+    pub mime: String,
+    /// Attachment size in bytes.
+    pub file_size: u64,
+    /// Voice-note length in milliseconds (0 for other kinds).
+    pub duration_ms: u32,
+    /// Where the (encrypted) attachment bytes live on this device, once they
+    /// have been persisted. Empty while a transfer is still in flight.
+    pub path: String,
+    /// Chunks expected / already present, so the UI can show transfer progress.
+    /// `transfer_have == transfer_total` means the attachment is complete.
+    pub transfer_total: u32,
+    pub transfer_have: u32,
+    /// Emoji reactions on this message, ours and the peer's.
+    pub reactions: Vec<Reaction>,
+}
+
+/// One emoji reaction on a message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reaction {
+    /// The emoji itself (a short grapheme cluster; length-capped on receipt).
+    pub emoji: String,
+    /// Whether *we* are the one who reacted (so the UI can highlight it and a
+    /// tap can toggle it off).
+    pub from_me: bool,
+}
+
+impl ChatMessage {
+    /// A plain outgoing/incoming text message with every attachment field at
+    /// its default — the common case, so callers don't repeat it.
+    fn text(from_me: bool, text: String, timestamp_ms: u64, id: u64, status: u8) -> ChatMessage {
+        ChatMessage {
+            from_me,
+            text,
+            timestamp_ms,
+            id,
+            status,
+            expires_at_ms: 0,
+            edited: false,
+            kind: KIND_TEXT,
+            file_name: String::new(),
+            mime: String::new(),
+            file_size: 0,
+            duration_ms: 0,
+            path: String::new(),
+            transfer_total: 0,
+            transfer_have: 0,
+            reactions: Vec::new(),
+        }
+    }
+
+    /// Whether every chunk of this message's attachment has arrived.
+    pub fn complete(&self) -> bool {
+        self.kind == KIND_TEXT || self.transfer_have >= self.transfer_total
+    }
+}
+
+/// An outgoing attachment whose chunks are still being sent. Held so the upload
+/// can be driven a batch at a time instead of monopolising the engine lock.
+struct OutgoingAttachment {
+    shoal_id: String,
+    peer: ShoalId,
+    bundle: Vec<u8>,
+    ttl: u32,
+    bytes: Vec<u8>,
+    /// Index of the next chunk to send.
+    next: usize,
+    total: usize,
+}
+
+/// An attachment transfer that is still being reassembled from chunks.
+struct PendingAttachment {
+    /// Which conversation (and therefore which [`ChatMessage`]) it belongs to.
+    shoal_id: String,
+    /// Slots for every chunk; `None` until that index arrives, so out-of-order
+    /// and duplicate chunks are both handled.
+    chunks: Vec<Option<Vec<u8>>>,
+    /// Declared total size, used to reject a peer that over-sends.
+    total_len: usize,
+}
+
+/// A private note in the local-only "Notes" chat. These never touch the network
+/// — they are stored only on this device, encrypted at rest.
+#[derive(Clone, Debug)]
+pub struct Note {
+    /// Stable id, so a note can be edited or deleted.
+    pub id: u64,
+    pub text: String,
+    pub timestamp_ms: u64,
+}
+
+/// AAD tag binding the inner (seed-key) notes layer to its purpose.
+const NOTES_AAD: &[u8] = b"shoal-notes-v1";
+/// AAD tag for the outer (password) layer of the notes blob.
+const NOTES_PW_AAD: &[u8] = b"shoal-notes-pw-v1";
+/// PBKDF2 iterations for the notes password — deliberately heavy (this is a
+/// human-typed secret and unlocking notes is rare, so we spend real work on it).
+const NOTES_ITERATIONS: u32 = 314_159;
+
+/// The in-memory state for a set/unlocked notes password: the salt + iteration
+/// count (persisted in the blob) and the derived key (never persisted).
+#[derive(Clone)]
+struct NotesPw {
+    salt: [u8; 16],
+    iters: u32,
+    key: [u8; 32],
+}
+
+/// A password-protected chat that is currently **unlocked** this session: we
+/// hold its derived key, so its history lives in `history` (plaintext in memory)
+/// and is re-sealed under this key when persisted.
+#[derive(Clone)]
+struct ChatPw {
+    salt: [u8; 16],
+    iters: u32,
+    key: [u8; 32],
+}
+
+/// A password-protected chat that is currently **locked** (the password hasn't
+/// been entered this session): its history stays sealed, and any messages that
+/// arrive meanwhile are buffered in `pending` (protected only by the outer
+/// seed-key state seal until the chat is unlocked and they merge in).
+#[derive(Clone)]
+struct LockedChat {
+    salt: [u8; 16],
+    iters: u32,
+    /// The password-sealed serialized history (`nonce ‖ ciphertext`).
+    history_ct: Vec<u8>,
+    /// Messages received while locked, to be merged in on unlock.
+    pending: Vec<ChatMessage>,
+    /// App-state version the sealed blob was written with, so it is parsed in
+    /// the field layout of its own era rather than today's.
+    version: u8,
+}
+
+/// Serialize a message list (count-prefixed) — used for the per-chat history
+/// blob and its pending buffer. Always the current on-disk field layout.
+fn serialize_msgs(msgs: &[ChatMessage]) -> Vec<u8> {
+    let mut w = StateWriter::new();
+    w.push_u32(msgs.len() as u32);
+    for m in msgs {
+        write_msg(&mut w, m);
+    }
+    w.into_bytes()
+}
+
+/// Inverse of [`serialize_msgs`]. `version` is the app-state version the blob
+/// was written with — a v7 blob has no attachment/reaction fields, so it must
+/// not be read as if it did.
+fn deserialize_msgs(bytes: &[u8], version: u8) -> Option<Vec<ChatMessage>> {
+    let mut r = StateReader::new(bytes);
+    let n = r.u32()? as usize;
+    let mut v = Vec::with_capacity(n);
+    for _ in 0..n {
+        v.push(read_msg(&mut r, version)?);
+    }
+    Some(v)
+}
+
+/// Write one message. Shared by the sealed per-chat blobs and the plain history
+/// section of the app state, so the two can never drift apart.
+fn write_msg(w: &mut StateWriter, m: &ChatMessage) {
+    w.push_u8(m.from_me as u8);
+    w.push_bytes(m.text.as_bytes());
+    w.push_u64(m.timestamp_ms);
+    w.push_u64(m.id);
+    w.push_u8(m.status);
+    w.push_u64(m.expires_at_ms);
+    w.push_u8(m.edited as u8); // v6
+                               // v8: attachments + reactions.
+    w.push_u8(m.kind);
+    w.push_bytes(m.file_name.as_bytes());
+    w.push_bytes(m.mime.as_bytes());
+    w.push_u64(m.file_size);
+    w.push_u32(m.duration_ms);
+    w.push_bytes(m.path.as_bytes());
+    w.push_u32(m.transfer_total);
+    w.push_u32(m.transfer_have);
+    w.push_u32(m.reactions.len() as u32);
+    for rx in &m.reactions {
+        w.push_bytes(rx.emoji.as_bytes());
+        w.push_u8(rx.from_me as u8);
+    }
+}
+
+/// Read one message written by [`write_msg`], defaulting anything the given
+/// state `version` predates.
+fn read_msg(r: &mut StateReader, version: u8) -> Option<ChatMessage> {
+    let from_me = r.u8()? != 0;
+    let text = r.string()?;
+    let timestamp_ms = r.u64()?;
+    // v2 adds id + status; v1 defaults them. v3 adds expiry.
+    let (id, status) = if version >= 2 {
+        (r.u64()?, r.u8()?)
+    } else {
+        (0, STATUS_SENT)
+    };
+    let expires_at_ms = if version >= 3 { r.u64()? } else { 0 };
+    let edited = if version >= 6 { r.u8()? != 0 } else { false };
+
+    let mut m = ChatMessage::text(from_me, text, timestamp_ms, id, status);
+    m.expires_at_ms = expires_at_ms;
+    m.edited = edited;
+    if version < 8 {
+        return Some(m); // pre-attachment state: everything else keeps its default
+    }
+    m.kind = r.u8()?;
+    m.file_name = r.string()?;
+    m.mime = r.string()?;
+    m.file_size = r.u64()?;
+    m.duration_ms = r.u32()?;
+    m.path = r.string()?;
+    m.transfer_total = r.u32()?;
+    m.transfer_have = r.u32()?;
+    let n = r.u32()? as usize;
+    let mut reactions = Vec::with_capacity(n.min(64));
+    for _ in 0..n {
+        reactions.push(Reaction {
+            emoji: r.string()?,
+            from_me: r.u8()? != 0,
+        });
+    }
+    m.reactions = reactions;
+    // The outgoing-chunk queue lives only in memory, so an upload that was
+    // still in flight when the app closed cannot resume itself. Mark it failed
+    // rather than restoring a message stuck at "Sending…" with no way forward:
+    // failed messages offer a retry, which re-queues the payload from storage.
+    if m.from_me && m.kind != KIND_TEXT && m.transfer_have < m.transfer_total {
+        m.status = STATUS_FAILED;
+    }
+    Some(m)
+}
+
+/// Seal `plain` under `key` as `nonce(12) ‖ ciphertext`.
+fn seal_blob(plain: &[u8], key: &[u8; 32], aad: &[u8]) -> Vec<u8> {
+    let mut nonce = [0u8; 12];
+    shoal_crypto::fill_random(&mut nonce);
+    let mut out = nonce.to_vec();
+    out.extend_from_slice(&shoal_crypto::aead::seal(key, &nonce, plain, aad));
+    out
+}
+
+/// Open a blob produced by [`seal_blob`]. `None` on a wrong key / tamper.
+fn open_blob(blob: &[u8], key: &[u8; 32], aad: &[u8]) -> Option<Vec<u8>> {
+    if blob.len() < 12 {
+        return None;
+    }
+    let nonce: [u8; 12] = blob[..12].try_into().ok()?;
+    shoal_crypto::aead::open(key, &nonce, &blob[12..], aad)
+}
+
+/// Derive the notes-encryption key from the master seed (HKDF-SHA256). Distinct
+/// from every messaging key, so it can't be confused with session material.
+fn derive_notes_key(seed: &[u8; 32]) -> [u8; 32] {
+    let prk = shoal_crypto::hmac::hkdf_extract(b"shoal/notes/salt/v1", seed);
+    let mut key = [0u8; 32];
+    shoal_crypto::hmac::hkdf_expand(&prk, b"shoal/notes/key/v1", &mut key);
+    key
+}
+
+/// Derive the at-rest key for the app-state blob (contacts, history, sessions)
+/// from the master seed. Encrypting the state means a file-stealer gets only
+/// ciphertext even when no app password is set.
+fn derive_state_key(seed: &[u8; 32]) -> [u8; 32] {
+    let prk = shoal_crypto::hmac::hkdf_extract(b"shoal/state/salt/v1", seed);
+    let mut key = [0u8; 32];
+    shoal_crypto::hmac::hkdf_expand(&prk, b"shoal/state/key/v1", &mut key);
+    key
+}
+
+/// First byte of an encrypted state blob — distinguishes it from a legacy
+/// plaintext blob (whose first byte is the state version, 1..=4).
+const STATE_SEAL_MAGIC: u8 = 0xE1;
+/// AAD binding the state ciphertext to its purpose.
+const STATE_AAD: &[u8] = b"shoal-state-v1";
+
+/// Stretch a notes password into a 32-byte key (PBKDF2-HMAC-SHA256).
+fn derive_pw_key(password: &str, salt: &[u8; 16], iters: u32) -> [u8; 32] {
+    let mut key = [0u8; 32];
+    shoal_crypto::pbkdf2_sha256(password.as_bytes(), salt, iters, &mut key);
+    key
+}
+
+/// Whether a persisted notes blob is password-protected (needs `unlock_notes`).
+pub fn notes_blob_encrypted(blob: &[u8]) -> bool {
+    blob.len() >= 2 && blob[0] == 2 && blob[1] == 1
+}
+
+/// The outcome of a [`ShoalApp::poll`]: the newly-arrived messages plus whether
+/// any state changed at all (so the UI can skip a rebuild on an idle poll).
+#[derive(Clone, Debug)]
+pub struct PollResult {
+    pub messages: Vec<IncomingMessage>,
+    pub changed: bool,
+}
+
+/// A message just delivered by [`ShoalApp::poll`].
+#[derive(Clone, Debug)]
+pub struct IncomingMessage {
+    pub from_shoal_id: String,
+    /// The contact name, if the sender is in the address book.
+    pub from_name: Option<String>,
+    pub text: String,
+}
+
+/// Errors surfaced to the UI.
+#[derive(Debug)]
+pub enum AppError {
+    /// The master seed was not 32 bytes.
+    BadSeed,
+    /// Could not reach the relay.
+    Relay(String),
+    /// The Shoal ID or bundle was malformed.
+    BadContact,
+    /// No such contact.
+    UnknownContact,
+    /// A protocol error (bad bundle, MITM, encryption failure, …).
+    Protocol(String),
+    /// The notes are protected by a separate password and need unlocking.
+    NotesLocked,
+}
+
+impl core::fmt::Display for AppError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            AppError::BadSeed => f.write_str("master seed must be 32 bytes"),
+            AppError::Relay(e) => write!(f, "relay error: {e}"),
+            AppError::BadContact => f.write_str("malformed Shoal ID or bundle"),
+            AppError::UnknownContact => f.write_str("no such contact"),
+            AppError::Protocol(e) => write!(f, "protocol error: {e}"),
+            AppError::NotesLocked => f.write_str("notes are locked"),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<ClientError> for AppError {
+    fn from(e: ClientError) -> Self {
+        match e {
+            ClientError::Relay => AppError::Relay("mailbox".into()),
+            other => AppError::Protocol(other.to_string()),
+        }
+    }
+}
+
+/// The relay backing a client: a local in-memory store, a single live Ciphra
+/// server, or the **mixnet** (onion-routed sends + provider reads).
+enum Store {
+    Memory(InMemoryStore),
+    Ciphra(Box<CiphraStore>),
+    Mixnet(Box<MixnetStore<CiphraStore>>),
+}
+
+impl MailboxStore for Store {
+    fn put(&mut self, envelope: Envelope) -> Result<(), MailboxError> {
+        match self {
+            Store::Memory(s) => s.put(envelope),
+            Store::Ciphra(s) => s.put(envelope),
+            Store::Mixnet(s) => s.put(envelope),
+        }
+    }
+    fn fetch_since(&self, cursor: usize) -> Result<(usize, Vec<Envelope>), MailboxError> {
+        match self {
+            Store::Memory(s) => s.fetch_since(cursor),
+            Store::Ciphra(s) => s.fetch_since(cursor),
+            Store::Mixnet(s) => s.fetch_since(cursor),
+        }
+    }
+    fn put_for(
+        &mut self,
+        recipient: &shoal_mailbox::RecipientKey,
+        envelope: Envelope,
+    ) -> Result<(), MailboxError> {
+        // Forward to the mixnet's sharded routing; others use the default.
+        match self {
+            Store::Memory(s) => s.put_for(recipient, envelope),
+            Store::Ciphra(s) => s.put_for(recipient, envelope),
+            Store::Mixnet(s) => s.put_for(recipient, envelope),
+        }
+    }
+}
+
+struct StoredContact {
+    name: String,
+    shoal_id: String,
+    bundle: Vec<u8>,
+    /// Pinned chats sort above the rest. The contacts Vec keeps the invariant
+    /// "all pinned first, then unpinned", each in manual order.
+    pinned: bool,
+    /// Blocked: incoming messages from this contact are dropped silently.
+    blocked: bool,
+}
+
+/// The whole messenger behind one object: identity, relay, contacts, history.
+pub struct ShoalApp {
+    client: ShoalClient,
+    store: Store,
+    contacts: Vec<StoredContact>,
+    history: HashMap<String, Vec<ChatMessage>>,
+    /// Ids of received messages we have already sent a read receipt for, so
+    /// re-opening a chat doesn't re-send. In-memory only (re-sending after a
+    /// restart is harmless — a read receipt is idempotent).
+    read_acked: std::collections::HashSet<u64>,
+    /// Per-conversation disappearing-message timer (shoal_id → lifetime in
+    /// seconds, 0/absent = off). Synced to the peer via [`MSG_TIMER`].
+    disappearing: HashMap<String, u32>,
+    /// The local-only "Notes" self-chat. Never sent anywhere; persisted
+    /// separately and encrypted at rest under [`ShoalApp::notes_key`].
+    notes: Vec<Note>,
+    /// Symmetric key (derived from the master seed) for the inner notes layer.
+    notes_key: [u8; 32],
+    /// Symmetric key (derived from the master seed) that encrypts the app-state
+    /// blob at rest, so history/contacts are never stored in the clear.
+    state_key: [u8; 32],
+    /// When set, notes get a second encryption layer under a password-derived
+    /// key (device seed **and** the notes password are both required to read
+    /// them). `None` = seed-only.
+    notes_pw: Option<NotesPw>,
+    /// Per-chat passwords that have been **unlocked** this session (shoal_id →
+    /// derived key). Their history is in `history` and re-sealed under this key
+    /// when persisted.
+    chat_pw: HashMap<String, ChatPw>,
+    /// Per-chat passwords still **locked** this session — history sealed, new
+    /// messages buffered until unlocked.
+    locked_chats: HashMap<String, LockedChat>,
+    /// Completed attachment payloads (att_id → plaintext bytes) waiting to be
+    /// persisted by the UI layer. Deliberately **not** part of the exported
+    /// state: the state blob is rewritten on every change, and folding
+    /// multi-megabyte files into it would make every keystroke expensive. The
+    /// UI drains these with [`ShoalApp::take_attachment`] and stores each one as
+    /// its own sealed file, keeping only the path in the message.
+    attachments: HashMap<u64, Vec<u8>>,
+    /// Attachment transfers still being reassembled from chunks.
+    incoming_attachments: HashMap<u64, PendingAttachment>,
+    /// Attachment uploads whose chunks are still being pushed out.
+    outgoing_attachments: HashMap<u64, OutgoingAttachment>,
+}
+
+fn seed_array(seed: Vec<u8>) -> Result<[u8; 32], AppError> {
+    seed.try_into().map_err(|_| AppError::BadSeed)
+}
+
+impl ShoalApp {
+    /// Create an app with a **local in-memory relay** (demos and tests).
+    pub fn create_in_memory(master_seed: Vec<u8>) -> Result<ShoalApp, AppError> {
+        let seed = seed_array(master_seed)?;
+        Ok(Self::from_parts(
+            ShoalClient::from_master_seed(seed),
+            Store::Memory(InMemoryStore::new()),
+            &seed,
+        ))
+    }
+
+    /// Create an app connected to a **live Ciphra blind server** at `relay_addr`
+    /// (e.g. `"relay.example:5077"`). Trust-on-first-use for now.
+    pub fn create_with_relay(
+        master_seed: Vec<u8>,
+        relay_addr: String,
+    ) -> Result<ShoalApp, AppError> {
+        let seed = seed_array(master_seed)?;
+        let client = ShoalClient::from_master_seed(seed);
+        let store = CiphraStore::connect(relay_addr.as_str(), None)
+            .map_err(|e| AppError::Relay(e.to_string()))?;
+        Ok(Self::from_parts(
+            client,
+            Store::Ciphra(Box::new(store)),
+            &seed,
+        ))
+    }
+
+    /// Create an app that **auto-discovers the mixnet** and routes over it — the
+    /// zero-setup path. Given one or more `bootstrap` node addresses, it asks the
+    /// network for the current node set, then onion-routes every send through a
+    /// random path of mixes to a provider (so no single node links the sender to
+    /// the message) and polls that provider for mail. The user runs nothing.
+    ///
+    /// All clients on the same bootstrap converge on the same provider (the
+    /// lowest-id one), so messages land where the recipient polls. Sharding mail
+    /// across providers and receive-path anonymity are later increments.
+    pub fn create_on_network(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+    ) -> Result<ShoalApp, AppError> {
+        let seed = seed_array(master_seed)?;
+        let client = ShoalClient::from_master_seed(seed);
+        let nodes = discover_network(&bootstrap)?;
+
+        // The provider set (sorted by id so all clients agree) shards the mail;
+        // this user reads from its own shard, chosen from its view key.
+        let mut providers: Vec<_> = nodes.iter().filter(|n| n.is_provider()).cloned().collect();
+        providers.sort_by_key(|n| n.id);
+        if providers.is_empty() {
+            return Err(AppError::Relay("network has no provider".into()));
+        }
+        let pool: Vec<_> = nodes.clone(); // every node is a mix; exit excluded per route
+
+        let view = client.shoal_id().view_public();
+        let own_idx = shoal_mix::provider_index(&view.0, providers.len());
+        let own_provider = providers[own_idx].clone();
+        let provider_addr = own_provider
+            .provider_addr
+            .ok_or_else(|| AppError::Relay("provider has no mailbox address".into()))?;
+
+        let reader = CiphraStore::connect(provider_addr, None)
+            .map_err(|e| AppError::Relay(e.to_string()))?;
+        let store = MixnetStore::new(reader, providers, pool, own_provider, 2);
+        Ok(Self::from_parts(
+            client,
+            Store::Mixnet(Box::new(store)),
+            &seed,
+        ))
+    }
+
+    /// Like [`create_on_network`](Self::create_on_network) but with **anonymous
+    /// receive**: this device runs a reachable mix node (bound at `node_listen`,
+    /// e.g. `"0.0.0.0:5079"`) and polls its provider *through the mixnet* using
+    /// single-use reply blocks, so the provider never learns who is polling.
+    ///
+    /// Use this when the device is reachable (desktop/Linux, or a phone with a
+    /// forwarded port) — it needs to receive the SURB replies. Behind NAT without
+    /// a forwarded port, use [`create_on_network`](Self::create_on_network), whose
+    /// receive is a direct poll.
+    pub fn create_on_network_with_receive(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+        node_listen: String,
+    ) -> Result<ShoalApp, AppError> {
+        use std::net::ToSocketAddrs;
+
+        let seed = seed_array(master_seed)?;
+        let client = ShoalClient::from_master_seed(seed);
+        let nodes = discover_network(&bootstrap)?;
+
+        let mut providers: Vec<_> = nodes.iter().filter(|n| n.is_provider()).cloned().collect();
+        providers.sort_by_key(|n| n.id);
+        if providers.is_empty() {
+            return Err(AppError::Relay("network has no provider".into()));
+        }
+        let pool: Vec<_> = nodes.clone(); // every node is a mix; exit excluded per route
+        let view = client.shoal_id().view_public();
+        let own_provider = providers[shoal_mix::provider_index(&view.0, providers.len())].clone();
+        let provider_addr = own_provider
+            .provider_addr
+            .ok_or_else(|| AppError::Relay("provider has no mailbox address".into()))?;
+        let reader = CiphraStore::connect(provider_addr, None)
+            .map_err(|e| AppError::Relay(e.to_string()))?;
+
+        // Bring up our own reachable node with a SURB inbox for anonymous receive.
+        let inbox = shoal_mix::SurbInbox::new();
+        let mut node_seed = [0u8; 32];
+        shoal_crypto::fill_random(&mut node_seed);
+        let boots: Vec<std::net::SocketAddr> = bootstrap
+            .iter()
+            .filter_map(|b| b.to_socket_addrs().ok())
+            .flatten()
+            .collect();
+        let own_node =
+            shoal_mix::spawn_receiver(node_seed, node_listen.as_str(), &boots, inbox.clone(), None)
+                .map_err(|e| AppError::Relay(e.to_string()))?;
+
+        let store = MixnetStore::new(reader, providers, pool, own_provider, 2)
+            .with_anon_receive(inbox, own_node);
+        Ok(Self::from_parts(
+            client,
+            Store::Mixnet(Box::new(store)),
+            &seed,
+        ))
+    }
+
+    fn from_parts(client: ShoalClient, store: Store, seed: &[u8; 32]) -> Self {
+        ShoalApp {
+            client,
+            store,
+            contacts: Vec::new(),
+            history: HashMap::new(),
+            read_acked: std::collections::HashSet::new(),
+            disappearing: HashMap::new(),
+            notes: Vec::new(),
+            notes_key: derive_notes_key(seed),
+            state_key: derive_state_key(seed),
+            notes_pw: None,
+            chat_pw: HashMap::new(),
+            locked_chats: HashMap::new(),
+            attachments: HashMap::new(),
+            incoming_attachments: HashMap::new(),
+            outgoing_attachments: HashMap::new(),
+        }
+    }
+
+    /// This user's shareable Shoal ID (`shoal:…`).
+    pub fn my_shoal_id(&self) -> String {
+        self.client.shoal_id().encode()
+    }
+
+    /// This user's prekey bundle bytes, to publish next to the Shoal ID.
+    pub fn my_bundle(&self) -> Vec<u8> {
+        wire::encode_bundle(&self.client.bundle())
+    }
+
+    /// The **safety number** shared with the contact `shoal_id`: a short decimal
+    /// fingerprint both sides compute identically. If it matches theirs (compared
+    /// out of band), no one substituted a key — human-verified authentication.
+    pub fn safety_number(&self, shoal_id: String) -> Result<String, AppError> {
+        let peer = ShoalId::decode(&shoal_id).map_err(|_| AppError::BadContact)?;
+        Ok(shoal_identity::safety_number(
+            &self.client.shoal_id(),
+            &peer,
+        ))
+    }
+
+    /// Emit one cover-traffic packet into the mixnet (a decoy indistinguishable
+    /// from a real send), so an observer of this device cannot tell when it is
+    /// actually sending. Call on a Poisson schedule. No-op unless on the mixnet.
+    pub fn send_cover(&mut self) -> Result<(), AppError> {
+        if let Store::Mixnet(s) = &self.store {
+            s.send_cover().map_err(|e| AppError::Relay(e.0))?;
+        }
+        Ok(())
+    }
+
+    /// Add a contact from their Shoal ID and bundle bytes (both malformation
+    /// checked). Adding an existing Shoal ID updates its name.
+    pub fn add_contact(
+        &mut self,
+        name: String,
+        shoal_id: String,
+        bundle: Vec<u8>,
+    ) -> Result<(), AppError> {
+        ShoalId::decode(&shoal_id).map_err(|_| AppError::BadContact)?;
+        wire::decode_bundle(&bundle).ok_or(AppError::BadContact)?;
+        if let Some(existing) = self.contacts.iter_mut().find(|c| c.shoal_id == shoal_id) {
+            existing.name = name;
+            existing.bundle = bundle;
+        } else {
+            self.contacts.push(StoredContact {
+                name,
+                shoal_id,
+                bundle,
+                pinned: false,
+                blocked: false,
+            });
+        }
+        Ok(())
+    }
+
+    /// The nodes this client currently knows from the gossiped directory (empty
+    /// unless on the mixnet). For the network view and node selection.
+    pub fn network_nodes(&self) -> Vec<NodeSummary> {
+        let Store::Mixnet(s) = &self.store else {
+            return Vec::new();
+        };
+        s.nodes()
+            .iter()
+            .map(|n| NodeSummary {
+                id: hex(&n.id),
+                mix_addr: n.mix_addr.to_string(),
+                provider_addr: n.provider_addr.map(|a| a.to_string()),
+                is_provider: n.is_provider(),
+            })
+            .collect()
+    }
+
+    /// The address book, in display order (pinned chats first, then the rest,
+    /// each in the user's manual order).
+    pub fn contacts(&self) -> Vec<Contact> {
+        self.contacts
+            .iter()
+            .map(|c| {
+                let last = self.history.get(&c.shoal_id).and_then(|v| v.last());
+                Contact {
+                    name: c.name.clone(),
+                    shoal_id: c.shoal_id.clone(),
+                    pinned: c.pinned,
+                    blocked: c.blocked,
+                    last_text: last.map(preview_text),
+                    last_from_me: last.map(|m| m.from_me).unwrap_or(false),
+                    last_ts: last.map(|m| m.timestamp_ms).unwrap_or(0),
+                }
+            })
+            .collect()
+    }
+
+    /// Block or unblock a contact. A blocked contact's incoming messages are
+    /// dropped silently on [`poll`] (no history, no receipt, no notification).
+    pub fn set_blocked(&mut self, shoal_id: String, blocked: bool) -> Result<(), AppError> {
+        let c = self
+            .contacts
+            .iter_mut()
+            .find(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        c.blocked = blocked;
+        Ok(())
+    }
+
+    /// Pin or unpin a chat. Pinning moves it to the top of the pinned section;
+    /// unpinning drops it to the top of the unpinned section — keeping the
+    /// "pinned first" invariant the list relies on.
+    pub fn set_pinned(&mut self, shoal_id: String, pinned: bool) -> Result<(), AppError> {
+        let i = self
+            .contacts
+            .iter()
+            .position(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        if self.contacts[i].pinned == pinned {
+            return Ok(());
+        }
+        let mut c = self.contacts.remove(i);
+        c.pinned = pinned;
+        if pinned {
+            self.contacts.insert(0, c);
+        } else {
+            let after_pinned = self.contacts.iter().take_while(|x| x.pinned).count();
+            self.contacts.insert(after_pinned, c);
+        }
+        Ok(())
+    }
+
+    /// Move a chat one place up (`up = true`) or down within its pinned group,
+    /// so pinned chats never mix with unpinned ones. A no-op at a boundary.
+    pub fn move_chat(&mut self, shoal_id: String, up: bool) -> Result<(), AppError> {
+        let i = self
+            .contacts
+            .iter()
+            .position(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let j = if up {
+            i.checked_sub(1)
+        } else {
+            Some(i + 1).filter(|&j| j < self.contacts.len())
+        };
+        let Some(j) = j else { return Ok(()) };
+        // Only swap within the same pinned group.
+        if self.contacts[i].pinned != self.contacts[j].pinned {
+            return Ok(());
+        }
+        self.contacts.swap(i, j);
+        Ok(())
+    }
+
+    /// Forget a conversation locally: remove the contact, its history, and its
+    /// disappearing timer. Irreversible on this device.
+    pub fn delete_chat(&mut self, shoal_id: String) -> Result<(), AppError> {
+        self.remove_conversation(&shoal_id);
+        Ok(())
+    }
+
+    /// Delete a conversation for **both** sides: best-effort ask the peer to
+    /// delete it too (needs an existing session), then delete it here.
+    pub fn delete_chat_for_both(&mut self, shoal_id: String) -> Result<(), AppError> {
+        if let Ok(peer) = ShoalId::decode(&shoal_id) {
+            let payload = frame(MSG_DELETE, rand_u64(), 0, &[]);
+            let _ = self.client.send(&mut self.store, &peer, &payload);
+        }
+        self.remove_conversation(&shoal_id);
+        Ok(())
+    }
+
+    /// Edit one of **our own** already-sent messages: change its text locally
+    /// (marked "edited") and, best-effort, tell the peer to update its copy.
+    /// Errors if no own message with `id` exists in this conversation.
+    pub fn edit_message(
+        &mut self,
+        shoal_id: String,
+        id: u64,
+        new_text: String,
+    ) -> Result<(), AppError> {
+        let msgs = self
+            .history
+            .get_mut(&shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let m = msgs
+            .iter_mut()
+            .find(|m| m.from_me && m.id == id)
+            .ok_or(AppError::UnknownContact)?;
+        m.text = new_text.clone();
+        m.edited = true;
+        if let Ok(peer) = ShoalId::decode(&shoal_id) {
+            let payload = frame(MSG_EDIT, id, 0, new_text.as_bytes());
+            let _ = self.client.send(&mut self.store, &peer, &payload);
+        }
+        Ok(())
+    }
+
+    /// Delete a single message by `id`. `for_both` additionally asks the peer to
+    /// delete it (only meaningful for our own messages). Deleting only for me
+    /// works on any message. A no-op if the id isn't present.
+    pub fn delete_message(
+        &mut self,
+        shoal_id: String,
+        id: u64,
+        for_both: bool,
+    ) -> Result<(), AppError> {
+        if for_both {
+            if let Ok(peer) = ShoalId::decode(&shoal_id) {
+                let payload = frame(MSG_DELETE_ONE, id, 0, &[]);
+                let _ = self.client.send(&mut self.store, &peer, &payload);
+            }
+        }
+        if let Some(msgs) = self.history.get_mut(&shoal_id) {
+            msgs.retain(|m| m.id != id);
+        }
+        Ok(())
+    }
+
+    // --- per-chat password (lock an individual conversation) ------------------
+
+    /// Whether a chat has a password (locked or unlocked this session).
+    fn is_chat_protected(&self, shoal_id: &str) -> bool {
+        self.chat_pw.contains_key(shoal_id) || self.locked_chats.contains_key(shoal_id)
+    }
+
+    /// Whether this chat has a per-chat password set.
+    pub fn chat_has_password(&self, shoal_id: String) -> bool {
+        self.is_chat_protected(&shoal_id)
+    }
+
+    /// Whether this chat is currently locked (password not yet entered this
+    /// session). A locked chat's history is hidden until [`unlock_chat`].
+    pub fn chat_locked(&self, shoal_id: String) -> bool {
+        self.locked_chats.contains_key(&shoal_id)
+    }
+
+    /// Put a password on a conversation. The chat must be accessible now (not
+    /// locked). Its history is sealed under a key stretched from the password
+    /// (PBKDF2, [`CHAT_ITERATIONS`]) whenever it is persisted, so reading it
+    /// needs the device seed **and** this password.
+    pub fn set_chat_password(
+        &mut self,
+        shoal_id: String,
+        password: String,
+    ) -> Result<(), AppError> {
+        if self.locked_chats.contains_key(&shoal_id) {
+            return Err(AppError::NotesLocked);
+        }
+        let mut salt = [0u8; 16];
+        shoal_crypto::fill_random(&mut salt);
+        let key = derive_pw_key(&password, &salt, CHAT_ITERATIONS);
+        self.chat_pw.insert(
+            shoal_id,
+            ChatPw {
+                salt,
+                iters: CHAT_ITERATIONS,
+                key,
+            },
+        );
+        Ok(())
+    }
+
+    /// Remove a chat's password (the chat must be unlocked). Its history reverts
+    /// to seed-only encryption like every other chat.
+    pub fn remove_chat_password(&mut self, shoal_id: String) -> Result<(), AppError> {
+        if self.locked_chats.contains_key(&shoal_id) {
+            return Err(AppError::NotesLocked);
+        }
+        self.chat_pw.remove(&shoal_id);
+        Ok(())
+    }
+
+    /// Unlock a locked chat with its password: decrypt its history, merge any
+    /// messages that arrived while it was locked, and reveal it for this session.
+    /// Wrong password ⇒ [`AppError::NotesLocked`] and the chat stays locked.
+    pub fn unlock_chat(&mut self, shoal_id: String, password: String) -> Result<(), AppError> {
+        let locked = self
+            .locked_chats
+            .remove(&shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let key = derive_pw_key(&password, &locked.salt, locked.iters);
+        match open_blob(&locked.history_ct, &key, CHAT_HISTORY_AAD)
+            .and_then(|plain| deserialize_msgs(&plain, locked.version))
+        {
+            Some(mut msgs) => {
+                msgs.extend(locked.pending.iter().cloned());
+                self.history.insert(shoal_id.clone(), msgs);
+                self.chat_pw.insert(
+                    shoal_id,
+                    ChatPw {
+                        salt: locked.salt,
+                        iters: locked.iters,
+                        key,
+                    },
+                );
+                Ok(())
+            }
+            None => {
+                // Wrong password (or tampered blob) — leave it locked.
+                self.locked_chats.insert(shoal_id, locked);
+                Err(AppError::NotesLocked)
+            }
+        }
+    }
+
+    /// Drop every local trace of a conversation with `shoal_id`.
+    fn remove_conversation(&mut self, shoal_id: &str) {
+        self.contacts.retain(|c| c.shoal_id != shoal_id);
+        self.history.remove(shoal_id);
+        self.disappearing.remove(shoal_id);
+        self.chat_pw.remove(shoal_id);
+        self.locked_chats.remove(shoal_id);
+    }
+
+    // --- Notes (local-only, encrypted self-chat) ------------------------------
+
+    /// The private notes, oldest first. These never touch the network.
+    pub fn notes(&self) -> Vec<Note> {
+        self.notes.clone()
+    }
+
+    /// Append a note. Returns its id. Purely local — nothing is sent.
+    pub fn add_note(&mut self, text: String) -> u64 {
+        let id = rand_u64();
+        self.notes.push(Note {
+            id,
+            text,
+            timestamp_ms: now_ms(),
+        });
+        id
+    }
+
+    /// Replace the text of note `id` (no-op if it doesn't exist).
+    pub fn edit_note(&mut self, id: u64, text: String) {
+        if let Some(n) = self.notes.iter_mut().find(|n| n.id == id) {
+            n.text = text;
+        }
+    }
+
+    /// Delete note `id`.
+    pub fn delete_note(&mut self, id: u64) {
+        self.notes.retain(|n| n.id != id);
+    }
+
+    /// Whether a separate notes password is currently in effect (in memory).
+    pub fn notes_password_set(&self) -> bool {
+        self.notes_pw.is_some()
+    }
+
+    /// Set (or change) the notes password. From now on the notes blob is
+    /// double-encrypted: the inner layer under the seed key, the outer under a
+    /// key stretched from this password (PBKDF2, [`NOTES_ITERATIONS`]). Reading
+    /// the notes then needs **both** the device seed and this password. The
+    /// engine must have the notes loaded (unlocked) so re-export re-seals them.
+    pub fn set_notes_password(&mut self, password: String) {
+        let mut salt = [0u8; 16];
+        shoal_crypto::fill_random(&mut salt);
+        self.notes_pw = Some(NotesPw {
+            salt,
+            iters: NOTES_ITERATIONS,
+            key: derive_pw_key(&password, &salt, NOTES_ITERATIONS),
+        });
+    }
+
+    /// Remove the notes password (back to seed-only encryption).
+    pub fn remove_notes_password(&mut self) {
+        self.notes_pw = None;
+    }
+
+    /// Unlock a password-protected notes blob: stretch the password with the
+    /// blob's own salt/iterations, peel the outer layer, then the seed layer,
+    /// and load the notes. Remembers the key so the next export re-seals under
+    /// the same password. Errors on a wrong password.
+    pub fn unlock_notes(&mut self, password: String, blob: Vec<u8>) -> Result<(), AppError> {
+        if blob.len() < 34 || blob[0] != 2 || blob[1] != 1 {
+            return Err(AppError::Protocol(
+                "not a password-protected notes blob".into(),
+            ));
+        }
+        let salt: [u8; 16] = blob[2..18].try_into().unwrap();
+        let iters = u32::from_le_bytes(blob[18..22].try_into().unwrap());
+        let key = derive_pw_key(&password, &salt, iters);
+        let nonce: [u8; 12] = blob[22..34].try_into().unwrap();
+        let inner = aead::open(&key, &nonce, &blob[34..], NOTES_PW_AAD)
+            .ok_or_else(|| AppError::Protocol("wrong notes password".into()))?;
+        self.notes = self.open_seed_layer(&inner)?;
+        self.notes_pw = Some(NotesPw { salt, iters, key });
+        Ok(())
+    }
+
+    /// Panic-wipe the notes: drop them from memory and forget the password. The
+    /// caller also deletes the persisted blob.
+    pub fn wipe_notes(&mut self) {
+        self.notes.clear();
+        self.notes_pw = None;
+    }
+
+    /// Serialize the notes into an **encrypted** blob. The inner layer is always
+    /// ChaCha20-Poly1305 under the seed-derived key; if a notes password is set,
+    /// a second ChaCha20-Poly1305 layer wraps it under the password-stretched
+    /// key. Persist this on the device — a stealer gets only ciphertext.
+    pub fn export_notes(&self) -> Vec<u8> {
+        let inner = self.seal_seed_layer();
+        match &self.notes_pw {
+            None => {
+                let mut out = Vec::with_capacity(2 + inner.len());
+                out.push(2); // blob version
+                out.push(0); // flag: seed-only
+                out.extend_from_slice(&inner);
+                out
+            }
+            Some(pw) => {
+                let mut nonce = [0u8; 12];
+                shoal_crypto::fill_random(&mut nonce);
+                let sealed = aead::seal(&pw.key, &nonce, &inner, NOTES_PW_AAD);
+                let mut out = Vec::with_capacity(2 + 16 + 4 + 12 + sealed.len());
+                out.push(2); // blob version
+                out.push(1); // flag: password-protected
+                out.extend_from_slice(&pw.salt);
+                out.extend_from_slice(&pw.iters.to_le_bytes());
+                out.extend_from_slice(&nonce);
+                out.extend_from_slice(&sealed);
+                out
+            }
+        }
+    }
+
+    /// Restore notes from an [`export_notes`] blob. Loads them if the blob is
+    /// seed-only (v1, or v2 flag 0); returns [`AppError::NotesLocked`] if it is
+    /// password-protected (call [`unlock_notes`]); errors if malformed or if it
+    /// was written under a different identity's key.
+    pub fn restore_notes(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        match blob.first() {
+            // v1: seed-only, no flag byte — payload starts right after the tag.
+            Some(1) => {
+                self.notes = self.open_seed_layer(&blob[1..])?;
+                self.notes_pw = None;
+                Ok(())
+            }
+            Some(2) => match blob.get(1) {
+                Some(0) => {
+                    self.notes = self.open_seed_layer(&blob[2..])?;
+                    self.notes_pw = None;
+                    Ok(())
+                }
+                Some(1) => Err(AppError::NotesLocked),
+                _ => Err(AppError::Protocol("bad notes blob".into())),
+            },
+            _ => Err(AppError::Protocol("bad notes blob".into())),
+        }
+    }
+
+    /// Seal the current notes under the seed key: `nonce ‖ ciphertext`.
+    fn seal_seed_layer(&self) -> Vec<u8> {
+        let mut w = StateWriter::new();
+        w.push_u32(self.notes.len() as u32);
+        for n in &self.notes {
+            w.push_u64(n.id);
+            w.push_bytes(n.text.as_bytes());
+            w.push_u64(n.timestamp_ms);
+        }
+        let plain = w.into_bytes();
+        let mut nonce = [0u8; 12];
+        shoal_crypto::fill_random(&mut nonce);
+        let sealed = aead::seal(&self.notes_key, &nonce, &plain, NOTES_AAD);
+        let mut inner = Vec::with_capacity(12 + sealed.len());
+        inner.extend_from_slice(&nonce);
+        inner.extend_from_slice(&sealed);
+        inner
+    }
+
+    /// Open a seed-layer blob (`nonce ‖ ciphertext`) into notes.
+    fn open_seed_layer(&self, inner: &[u8]) -> Result<Vec<Note>, AppError> {
+        if inner.len() < 12 {
+            return Err(AppError::Protocol("truncated notes".into()));
+        }
+        let nonce: [u8; 12] = inner[..12].try_into().unwrap();
+        let plain = aead::open(&self.notes_key, &nonce, &inner[12..], NOTES_AAD)
+            .ok_or_else(|| AppError::Protocol("notes decryption failed".into()))?;
+        let mut r = StateReader::new(&plain);
+        let n = r
+            .u32()
+            .ok_or_else(|| AppError::Protocol("truncated notes".into()))? as usize;
+        let mut notes = Vec::with_capacity(n);
+        for _ in 0..n {
+            let id = r
+                .u64()
+                .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            let text = r
+                .string()
+                .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            let timestamp_ms = r
+                .u64()
+                .ok_or_else(|| AppError::Protocol("truncated notes".into()))?;
+            notes.push(Note {
+                id,
+                text,
+                timestamp_ms,
+            });
+        }
+        Ok(notes)
+    }
+
+    /// The conversation history with `shoal_id`, oldest first. Expired
+    /// disappearing messages are pruned first.
+    pub fn history(&mut self, shoal_id: String) -> Vec<ChatMessage> {
+        self.prune_expired();
+        self.history.get(&shoal_id).cloned().unwrap_or_default()
+    }
+
+    /// The disappearing-message lifetime for a conversation, in seconds (0 =
+    /// off).
+    pub fn disappearing_secs(&self, shoal_id: String) -> u32 {
+        self.disappearing.get(&shoal_id).copied().unwrap_or(0)
+    }
+
+    /// Set (and sync to the peer) the disappearing-message timer for a
+    /// conversation. `secs` 0 turns it off. Applies to messages sent from now
+    /// on; the peer honours it via a control message on the existing session.
+    pub fn set_disappearing(&mut self, shoal_id: String, secs: u32) -> Result<(), AppError> {
+        let peer = ShoalId::decode(&shoal_id).map_err(|_| AppError::BadContact)?;
+        if secs == 0 {
+            self.disappearing.remove(&shoal_id);
+        } else {
+            self.disappearing.insert(shoal_id, secs);
+        }
+        // Tell the peer (best-effort; needs an existing session).
+        let payload = frame(MSG_TIMER, rand_u64(), secs, &[]);
+        let _ = self.client.send(&mut self.store, &peer, &payload);
+        Ok(())
+    }
+
+    /// Delete any disappearing message whose lifetime has passed. Returns
+    /// whether anything was removed.
+    fn prune_expired(&mut self) -> bool {
+        let now = now_ms();
+        let mut changed = false;
+        for msgs in self.history.values_mut() {
+            let before = msgs.len();
+            msgs.retain(|m| m.expires_at_ms == 0 || m.expires_at_ms > now);
+            changed |= msgs.len() != before;
+        }
+        changed
+    }
+
+    /// Send `text` to the contact with `shoal_id`. Establishes the session on
+    /// first message, then reuses it.
+    ///
+    /// The local copy is stored **first, unconditionally** — optimistic echo —
+    /// then delivery is attempted. On a network failure (relay unreachable, no
+    /// route, session error) the message is kept with [`STATUS_FAILED`] and
+    /// retried automatically on the next [`poll`], instead of being silently
+    /// dropped. If the conversation has a disappearing timer, the message
+    /// carries it and expires. Only an unknown contact / bad bundle is an error.
+    pub fn send(&mut self, shoal_id: String, text: String) -> Result<(), AppError> {
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = ShoalId::decode(&contact.shoal_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let id = rand_u64();
+        let ttl = self.disappearing.get(&shoal_id).copied().unwrap_or(0);
+        let payload = frame(MSG_TEXT, id, ttl, text.as_bytes());
+        let ok = self.deliver(&peer, &bundle, &payload);
+
+        let now = now_ms();
+        let mut msg = ChatMessage::text(
+            true,
+            text,
+            now,
+            id,
+            if ok { STATUS_SENT } else { STATUS_FAILED },
+        );
+        msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+        self.history.entry(shoal_id).or_default().push(msg);
+        Ok(())
+    }
+
+    /// Send an attachment (voice note, image, or file) to `shoal_id`.
+    ///
+    /// The bytes are split into [`CHUNK_DATA`]-sized pieces, each delivered as
+    /// its own end-to-end-encrypted packet — the mixnet carries fixed-size
+    /// payloads, so nothing larger fits in a single message. A [`MSG_ATTACH_META`]
+    /// frame opens the transfer and the chunks follow; the receiver reassembles
+    /// them in [`poll`](Self::poll).
+    ///
+    /// The local copy is stored immediately (optimistic echo, like [`send`]) and
+    /// the payload is kept in memory for the UI to persist via
+    /// [`take_attachment`](Self::take_attachment). Returns the new message's id.
+    ///
+    /// `kind` is [`KIND_FILE`] / [`KIND_VOICE`] / [`KIND_IMAGE`]; `duration_ms`
+    /// is only meaningful for a voice note.
+    pub fn send_attachment(
+        &mut self,
+        shoal_id: String,
+        kind: u8,
+        file_name: String,
+        mime: String,
+        duration_ms: u32,
+        bytes: Vec<u8>,
+    ) -> Result<u64, AppError> {
+        if bytes.is_empty() || bytes.len() > MAX_ATTACHMENT {
+            return Err(AppError::Protocol("attachment too large".into()));
+        }
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = ShoalId::decode(&contact.shoal_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let id = rand_u64();
+        let ttl = self.disappearing.get(&shoal_id).copied().unwrap_or(0);
+        let total = bytes.len().div_ceil(CHUNK_DATA) as u32;
+
+        // Open the transfer: everything the receiver needs to allocate for it.
+        let mut meta = Vec::new();
+        meta.push(kind);
+        meta.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        meta.extend_from_slice(&total.to_le_bytes());
+        meta.extend_from_slice(&duration_ms.to_le_bytes());
+        push_short_str(&mut meta, &file_name);
+        push_short_str(&mut meta, &mime);
+        let ok = self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta));
+
+        let now = now_ms();
+        let mut msg = ChatMessage::text(
+            true,
+            String::new(),
+            now,
+            id,
+            if ok { STATUS_SENT } else { STATUS_FAILED },
+        );
+        msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+        msg.kind = kind;
+        msg.file_name = file_name;
+        msg.mime = mime;
+        msg.file_size = bytes.len() as u64;
+        msg.duration_ms = duration_ms;
+        msg.transfer_total = total;
+        // Climbs as `pump_attachment` sends each batch.
+        msg.transfer_have = 0;
+        // The chunks are *not* sent here. Pushing thousands of packets in one
+        // call would hold the engine lock for the whole upload, freezing every
+        // other engine call (including the UI's) until it finished. Instead the
+        // payload is queued and the caller pumps it a batch at a time, so the
+        // lock is released between batches and progress is observable.
+        //
+        // Only if the opening frame actually landed, though: without it the
+        // peer has nothing to attach the chunks to, so pumping them would be
+        // pure waste. The bytes still go into `attachments` below, so the UI
+        // persists them and `resend_attachment` can retry the whole transfer.
+        if ok {
+            self.outgoing_attachments.insert(
+                id,
+                OutgoingAttachment {
+                    shoal_id: shoal_id.clone(),
+                    peer,
+                    bundle,
+                    ttl,
+                    bytes: bytes.clone(),
+                    next: 0,
+                    total: total as usize,
+                },
+            );
+        }
+        self.attachments.insert(id, bytes);
+        self.history.entry(shoal_id).or_default().push(msg);
+        Ok(id)
+    }
+
+    /// Send the next batch of an attachment queued by
+    /// [`send_attachment`](Self::send_attachment).
+    ///
+    /// Returns `(sent, total)` chunks, or `None` once the transfer is finished
+    /// (or the id is unknown). Call it in a loop until it returns `None`:
+    /// each call takes and releases the engine lock, so a large upload no
+    /// longer blocks everything else for its whole duration.
+    pub fn pump_attachment(&mut self, id: u64) -> Option<(u32, u32)> {
+        let out = self.outgoing_attachments.get_mut(&id)?;
+        let (peer, bundle, ttl) = (out.peer.clone(), out.bundle.clone(), out.ttl);
+        let end = (out.next + CHUNK_BATCH).min(out.total);
+        let mut sent = Vec::with_capacity(end - out.next);
+        for i in out.next..end {
+            let start = i * CHUNK_DATA;
+            let stop = (start + CHUNK_DATA).min(out.bytes.len());
+            let mut content = Vec::with_capacity(4 + stop - start);
+            content.extend_from_slice(&(i as u32).to_le_bytes());
+            content.extend_from_slice(&out.bytes[start..stop]);
+            sent.push(content);
+        }
+        out.next = end;
+        let (shoal_id, next, total) = (out.shoal_id.clone(), out.next, out.total);
+
+        let mut ok = true;
+        for content in sent {
+            ok &= self.deliver(&peer, &bundle, &frame(MSG_ATTACH_CHUNK, id, ttl, &content));
+        }
+
+        // Mirror progress onto the message so the sender sees a bar too.
+        if let Some(msgs) = self.history.get_mut(&shoal_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.transfer_have = next as u32;
+                if !ok {
+                    m.status = STATUS_FAILED;
+                }
+            }
+        }
+        // A batch that could not be delivered means the relay is unreachable,
+        // and `next` has already moved past those chunks — so continuing would
+        // grind through the rest of an 8 MiB payload one doomed batch at a time
+        // and still end up FAILED, having skipped the chunks it lost. Stop
+        // here instead. Nothing is lost: `resend_attachment` re-queues the
+        // whole payload from `next: 0`, which is the only thing that could
+        // have repaired the gap anyway.
+        if !ok || next >= total {
+            self.outgoing_attachments.remove(&id);
+            return None;
+        }
+        Some((next as u32, total as u32))
+    }
+
+    /// Finish every queued attachment in one go. Convenience for tests and for
+    /// callers that don't need progress; the UI pumps incrementally instead.
+    pub fn flush_attachments(&mut self) {
+        let ids: Vec<u64> = self.outgoing_attachments.keys().copied().collect();
+        for id in ids {
+            while self.pump_attachment(id).is_some() {}
+        }
+    }
+
+    /// Retry a failed attachment send, given its bytes read back from storage.
+    /// The message keeps its id (so a later receipt still matches) and its
+    /// metadata; only delivery is repeated. A no-op if `id` isn't a failed
+    /// outgoing attachment in this conversation.
+    pub fn resend_attachment(
+        &mut self,
+        shoal_id: String,
+        id: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), AppError> {
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = ShoalId::decode(&contact.shoal_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let Some(m) = self.history.get(&shoal_id).and_then(|msgs| {
+            msgs.iter()
+                .find(|m| m.from_me && m.id == id && m.status == STATUS_FAILED)
+                .filter(|m| m.kind != KIND_TEXT)
+        }) else {
+            return Ok(());
+        };
+        let (kind, name, mime, duration_ms) =
+            (m.kind, m.file_name.clone(), m.mime.clone(), m.duration_ms);
+        let ttl = self.disappearing.get(&shoal_id).copied().unwrap_or(0);
+
+        let total = bytes.len().div_ceil(CHUNK_DATA) as u32;
+        let mut meta = Vec::new();
+        meta.push(kind);
+        meta.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        meta.extend_from_slice(&total.to_le_bytes());
+        meta.extend_from_slice(&duration_ms.to_le_bytes());
+        push_short_str(&mut meta, &name);
+        push_short_str(&mut meta, &mime);
+        if !self.deliver(&peer, &bundle, &frame(MSG_ATTACH_META, id, ttl, &meta)) {
+            // The peer never learned an attachment is coming, so its chunks
+            // would arrive with nothing to attach them to. Leave the message
+            // FAILED and queue nothing — the retry is still there to press.
+            return Ok(());
+        }
+        if let Some(msgs) = self.history.get_mut(&shoal_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
+                m.status = STATUS_SENT;
+                m.transfer_have = 0;
+                m.transfer_total = total;
+            }
+        }
+        // Queue the payload rather than pushing it here, for the same reason as
+        // a first send: the caller pumps it so the lock is released between
+        // batches. Replaces any half-finished attempt for this id.
+        self.outgoing_attachments.insert(
+            id,
+            OutgoingAttachment {
+                shoal_id,
+                peer,
+                bundle,
+                ttl,
+                bytes,
+                next: 0,
+                total: total as usize,
+            },
+        );
+        Ok(())
+    }
+
+    /// React to a message with an emoji, or clear our reaction by passing an
+    /// empty `emoji`. One reaction per person per message: reacting again
+    /// replaces ours. The change is mirrored to the peer.
+    pub fn react(
+        &mut self,
+        shoal_id: String,
+        target_id: u64,
+        emoji: String,
+    ) -> Result<(), AppError> {
+        // A reaction is a tiny, self-contained control frame; cap it so a peer
+        // can't smuggle a payload through the emoji field.
+        if emoji.chars().count() > 8 {
+            return Err(AppError::Protocol("reaction too long".into()));
+        }
+        let msgs = self
+            .history
+            .get_mut(&shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let m = msgs
+            .iter_mut()
+            .find(|m| m.id == target_id)
+            .ok_or(AppError::UnknownContact)?;
+        set_reaction(&mut m.reactions, true, &emoji);
+
+        if let Ok(peer) = ShoalId::decode(&shoal_id) {
+            let mut content = target_id.to_le_bytes().to_vec();
+            content.extend_from_slice(emoji.as_bytes());
+            let payload = frame(MSG_REACTION, rand_u64(), 0, &content);
+            let _ = self.client.send(&mut self.store, &peer, &payload);
+        }
+        Ok(())
+    }
+
+    /// Whether this conversation already holds a message with `id` — including
+    /// one buffered while the chat is locked. Used to make delivery idempotent.
+    fn has_message(&self, shoal_id: &str, id: u64) -> bool {
+        let in_history = self
+            .history
+            .get(shoal_id)
+            .is_some_and(|msgs| msgs.iter().any(|m| m.id == id));
+        let in_pending = self
+            .locked_chats
+            .get(shoal_id)
+            .is_some_and(|l| l.pending.iter().any(|m| m.id == id));
+        in_history || in_pending
+    }
+
+    /// File a received chunk into its transfer. Returns `None` if there is no
+    /// such transfer (or the index is out of range), else whether the transfer
+    /// is now complete. Duplicate chunks are ignored rather than double-counted.
+    fn store_chunk(&mut self, id: u64, index: usize, data: &[u8]) -> Option<bool> {
+        let pending = self.incoming_attachments.get_mut(&id)?;
+        let slot = pending.chunks.get_mut(index)?;
+        if slot.is_some() {
+            return Some(false); // already have it
+        }
+        *slot = Some(data.to_vec());
+        let have = pending.chunks.iter().filter(|c| c.is_some()).count() as u32;
+        let shoal_id = pending.shoal_id.clone();
+        let done = have as usize == pending.chunks.len();
+        // Mirror progress onto the message so the UI can show a progress bar.
+        let msgs = self
+            .history
+            .get_mut(&shoal_id)
+            .or_else(|| self.locked_chats.get_mut(&shoal_id).map(|l| &mut l.pending));
+        if let Some(msgs) = msgs {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.transfer_have = have;
+            }
+        }
+        Some(done)
+    }
+
+    /// Join a fully-received transfer into one buffer and move it to the
+    /// pending-persist map. Returns the attachment's display name, or `None` if
+    /// the reassembled bytes don't match the size the sender declared.
+    fn finish_attachment(&mut self, id: u64) -> Option<String> {
+        let pending = self.incoming_attachments.remove(&id)?;
+        let mut bytes = Vec::with_capacity(pending.total_len);
+        for chunk in &pending.chunks {
+            bytes.extend_from_slice(chunk.as_deref()?);
+        }
+        if bytes.len() != pending.total_len {
+            return None; // sender's declared size and its chunks disagree
+        }
+        self.attachments.insert(id, bytes);
+        let msgs = self
+            .history
+            .get(&pending.shoal_id)
+            .map(|m| m.as_slice())
+            .or_else(|| {
+                self.locked_chats
+                    .get(&pending.shoal_id)
+                    .map(|l| &l.pending[..])
+            })?;
+        let m = msgs.iter().find(|m| m.id == id)?;
+        Some(if m.file_name.is_empty() {
+            match m.kind {
+                KIND_VOICE => "Voice message".to_string(),
+                KIND_IMAGE => "Photo".to_string(),
+                _ => "File".to_string(),
+            }
+        } else {
+            m.file_name.clone()
+        })
+    }
+
+    /// Ids of completed attachments whose bytes are still only in memory. The UI
+    /// drains these after each [`poll`](Self::poll) and persists them.
+    pub fn pending_attachments(&self) -> Vec<u64> {
+        self.attachments.keys().copied().collect()
+    }
+
+    /// Take an attachment's bytes out of memory, **sealed** under the app's
+    /// state key so the caller can write them straight to disk without ever
+    /// holding a plaintext file. Pair with [`open_attachment`](Self::open_attachment).
+    pub fn take_attachment(&mut self, id: u64) -> Option<Vec<u8>> {
+        let plain = self.attachments.remove(&id)?;
+        Some(seal_blob(&plain, &self.state_key, ATTACH_AAD))
+    }
+
+    /// Decrypt an attachment blob produced by [`take_attachment`](Self::take_attachment)
+    /// — for playback or export. `None` if it is not ours or has been tampered with.
+    pub fn open_attachment(&self, blob: Vec<u8>) -> Option<Vec<u8>> {
+        open_blob(&blob, &self.state_key, ATTACH_AAD)
+    }
+
+    /// Record where a message's attachment was persisted, so it survives a
+    /// restart. A no-op if the message isn't found.
+    pub fn set_attachment_path(&mut self, shoal_id: String, id: u64, path: String) {
+        if let Some(msgs) = self.history.get_mut(&shoal_id) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.path = path;
+            }
+        }
+    }
+
+    /// Which conversation a pending/completed attachment belongs to, so the UI
+    /// can record its path against the right chat.
+    pub fn attachment_chat(&self, id: u64) -> Option<String> {
+        if let Some(p) = self.incoming_attachments.get(&id) {
+            return Some(p.shoal_id.clone());
+        }
+        self.history
+            .iter()
+            .find(|(_, msgs)| msgs.iter().any(|m| m.id == id && m.kind != KIND_TEXT))
+            .map(|(chat, _)| chat.clone())
+    }
+
+    /// Deliver an already-framed `payload` to `peer`, starting the session from
+    /// `bundle_bytes` if there isn't one yet. Returns whether it went out. Never
+    /// starts a conversation for anything but a genuine no-session case.
+    fn deliver(&mut self, peer: &ShoalId, bundle_bytes: &[u8], payload: &[u8]) -> bool {
+        match self.client.send(&mut self.store, peer, payload) {
+            Ok(()) => true,
+            Err(ClientError::NoSession) => match wire::decode_bundle(bundle_bytes) {
+                Some(bundle) => self
+                    .client
+                    .start_conversation(&mut self.store, peer, &bundle, payload)
+                    .is_ok(),
+                None => false,
+            },
+            Err(_) => false,
+        }
+    }
+
+    /// Retry delivery of a previously failed outgoing message, re-framed with
+    /// the same id (so a later receipt still matches) and the conversation's
+    /// current timer. Flips its status to [`STATUS_SENT`] on success. A no-op if
+    /// `id` isn't a failed outgoing message in this conversation.
+    pub fn resend(&mut self, shoal_id: String, id: u64) -> Result<(), AppError> {
+        let contact = self
+            .contacts
+            .iter()
+            .find(|c| c.shoal_id == shoal_id)
+            .ok_or(AppError::UnknownContact)?;
+        let peer = ShoalId::decode(&contact.shoal_id).map_err(|_| AppError::BadContact)?;
+        let bundle = contact.bundle.clone();
+
+        let ttl = self.disappearing.get(&shoal_id).copied().unwrap_or(0);
+        // Attachments are re-sent through `resend_attachment`, which needs the
+        // bytes back from storage — re-framing one as text would deliver an
+        // empty message, so leave it failed for the UI to retry explicitly.
+        let text = self.history.get(&shoal_id).and_then(|msgs| {
+            msgs.iter()
+                .find(|m| {
+                    m.from_me && m.id == id && m.status == STATUS_FAILED && m.kind == KIND_TEXT
+                })
+                .map(|m| m.text.clone())
+        });
+        let Some(text) = text else { return Ok(()) };
+
+        let payload = frame(MSG_TEXT, id, ttl, text.as_bytes());
+        if self.deliver(&peer, &bundle, &payload) {
+            if let Some(msgs) = self.history.get_mut(&shoal_id) {
+                if let Some(m) = msgs.iter_mut().find(|m| m.from_me && m.id == id) {
+                    m.status = STATUS_SENT;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-attempt every failed outgoing message across all conversations. Same
+    /// ids, so a message that actually did go out can't be duplicated. Best
+    /// effort — called from [`poll`] so delivery self-heals when the relay or a
+    /// route comes back.
+    fn retry_failed(&mut self) -> bool {
+        let pending: Vec<(String, u64)> = self
+            .history
+            .iter()
+            .flat_map(|(aid, msgs)| {
+                msgs.iter()
+                    .filter(|m| m.from_me && m.status == STATUS_FAILED)
+                    .map(|m| (aid.clone(), m.id))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut changed = false;
+        for (aid, id) in pending {
+            let _ = self.resend(aid.clone(), id);
+            if let Some(msgs) = self.history.get(&aid) {
+                changed |= msgs
+                    .iter()
+                    .any(|m| m.from_me && m.id == id && m.status == STATUS_SENT);
+            }
+        }
+        changed
+    }
+
+    /// Send a receipt (delivered/read) for message `id` back to `peer` on the
+    /// existing session. Best-effort: never starts a conversation, and a missing
+    /// session or transient relay error is swallowed (the receipt just retries
+    /// implicitly on the next event). Receipts carry no text.
+    fn send_receipt(&mut self, peer: &ShoalId, id: u64, kind: u8) {
+        let payload = frame(kind, id, 0, &[]);
+        let _ = self.client.send(&mut self.store, peer, &payload);
+    }
+
+    /// Advance the status of our sent message `id` in the conversation with
+    /// `shoal_id` (never downgrades). Returns whether the status actually moved.
+    fn advance_status(&mut self, shoal_id: &str, id: u64, status: u8) -> bool {
+        let mut changed = false;
+        if let Some(msgs) = self.history.get_mut(shoal_id) {
+            for m in msgs.iter_mut() {
+                if m.from_me && m.id == id && status > m.status {
+                    m.status = status;
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Mark the conversation with `shoal_id` as read: send a read receipt for
+    /// every received message we haven't acked yet. Call when the user opens the
+    /// chat. The peer's copies of those messages then show as read.
+    pub fn mark_read(&mut self, shoal_id: String) -> Result<(), AppError> {
+        let peer = ShoalId::decode(&shoal_id).map_err(|_| AppError::BadContact)?;
+        let ids: Vec<u64> = self
+            .history
+            .get(&shoal_id)
+            .map(|msgs| {
+                msgs.iter()
+                    .filter(|m| !m.from_me && !self.read_acked.contains(&m.id))
+                    .map(|m| m.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ids {
+            self.send_receipt(&peer, id, MSG_READ);
+            self.read_acked.insert(id);
+        }
+        Ok(())
+    }
+
+    /// Snapshot everything worth keeping across a restart: the live sessions and
+    /// mailbox cursor (from the client), the address book, and the conversation
+    /// history. The blob holds ratchet secrets and plaintext history — persist it
+    /// only in the app's private storage, never on the relay. Restore it into an
+    /// app built from the **same master seed** with [`restore_state`](Self::restore_state).
+    pub fn export_state(&self) -> Vec<u8> {
+        let mut w = StateWriter::new();
+        w.push_u8(APP_STATE_VERSION);
+        w.push_bytes(&self.client.export_state());
+
+        w.push_u32(self.contacts.len() as u32);
+        for c in &self.contacts {
+            w.push_bytes(c.name.as_bytes());
+            w.push_bytes(c.shoal_id.as_bytes());
+            w.push_bytes(&c.bundle);
+            w.push_u8(c.pinned as u8); // v4
+            w.push_u8(c.blocked as u8); // v5
+        }
+
+        // Password-protected chats are NOT written here in the clear — their
+        // history goes to the sealed v7 section below.
+        let plain: Vec<(&String, &Vec<ChatMessage>)> = self
+            .history
+            .iter()
+            .filter(|(id, _)| !self.is_chat_protected(id))
+            .collect();
+        w.push_u32(plain.len() as u32);
+        for (shoal_id, msgs) in plain {
+            w.push_bytes(shoal_id.as_bytes());
+            w.push_u32(msgs.len() as u32);
+            for m in msgs {
+                write_msg(&mut w, m);
+            }
+        }
+
+        // v3: per-conversation disappearing timers.
+        w.push_u32(self.disappearing.len() as u32);
+        for (shoal_id, secs) in &self.disappearing {
+            w.push_bytes(shoal_id.as_bytes());
+            w.push_u32(*secs);
+        }
+
+        // v7: password-protected chats. Unlocked ones seal their live history
+        // under the chat key now; locked ones carry their still-sealed blob and
+        // the buffered pending list.
+        w.push_u32((self.chat_pw.len() + self.locked_chats.len()) as u32);
+        for (id, pw) in &self.chat_pw {
+            let msgs: &[ChatMessage] = self.history.get(id).map(|m| m.as_slice()).unwrap_or(&[]);
+            w.push_bytes(id.as_bytes());
+            w.push_bytes(&pw.salt);
+            w.push_u32(pw.iters);
+            w.push_bytes(&seal_blob(&serialize_msgs(msgs), &pw.key, CHAT_HISTORY_AAD));
+            w.push_bytes(&serialize_msgs(&[]));
+            // Unlocked: we just re-sealed it in today's layout.
+            w.push_u8(APP_STATE_VERSION); // v8
+        }
+        for (id, lc) in &self.locked_chats {
+            w.push_bytes(id.as_bytes());
+            w.push_bytes(&lc.salt);
+            w.push_u32(lc.iters);
+            w.push_bytes(&lc.history_ct);
+            w.push_bytes(&serialize_msgs(&lc.pending));
+            // Still locked, so its blob can't be re-sealed — carry the layout
+            // version it was written with so unlock parses it correctly.
+            w.push_u8(lc.version); // v8
+        }
+        w.into_bytes()
+    }
+
+    /// Restore state produced by [`export_state`](Self::export_state). Returns
+    /// [`AppError::Protocol`] (leaving the app unchanged) if the blob is
+    /// malformed or from an unknown version.
+    pub fn restore_state(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        let parsed =
+            parse_app_state(&blob).ok_or_else(|| AppError::Protocol("bad state".into()))?;
+        if !self.client.import_state(&parsed.client) {
+            return Err(AppError::Protocol("bad session state".into()));
+        }
+        self.contacts = parsed.contacts;
+        self.history = parsed.history;
+        self.disappearing = parsed.disappearing;
+        // Protected chats come back locked; nothing is unlocked until the user
+        // enters the per-chat password this session.
+        self.locked_chats = parsed.locked_chats;
+        self.chat_pw.clear();
+        Ok(())
+    }
+
+    /// Like [`export_state`] but **encrypted at rest** under a seed-derived key
+    /// (ChaCha20-Poly1305). Persist this instead of the plaintext blob so a
+    /// stealer that grabs the file gets only ciphertext, even with no app
+    /// password set (the app password, when present, additionally locks the
+    /// seed, hence this key).
+    pub fn export_state_encrypted(&self) -> Vec<u8> {
+        let plain = self.export_state();
+        let mut nonce = [0u8; 12];
+        shoal_crypto::fill_random(&mut nonce);
+        let sealed = aead::seal(&self.state_key, &nonce, &plain, STATE_AAD);
+        let mut out = Vec::with_capacity(1 + 12 + sealed.len());
+        out.push(STATE_SEAL_MAGIC);
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&sealed);
+        out
+    }
+
+    /// Restore from an [`export_state_encrypted`] blob. Transparently accepts a
+    /// **legacy plaintext** blob too (older builds stored state unencrypted), so
+    /// upgrades migrate seamlessly — the caller just re-saves encrypted next
+    /// time. Errors if an encrypted blob can't be decrypted with this identity's
+    /// key.
+    pub fn restore_state_encrypted(&mut self, blob: Vec<u8>) -> Result<(), AppError> {
+        if blob.first() == Some(&STATE_SEAL_MAGIC) {
+            if blob.len() < 13 {
+                return Err(AppError::Protocol("truncated state blob".into()));
+            }
+            let nonce: [u8; 12] = blob[1..13].try_into().unwrap();
+            let plain = aead::open(&self.state_key, &nonce, &blob[13..], STATE_AAD)
+                .ok_or_else(|| AppError::Protocol("state decryption failed".into()))?;
+            self.restore_state(plain)
+        } else {
+            // Legacy: the blob is the plaintext state (first byte is its version).
+            self.restore_state(blob)
+        }
+    }
+
+    /// Poll the relay for new messages, decrypt them, append to history, and
+    /// return what arrived plus whether **anything** changed (new messages,
+    /// receipts advancing a tick, a timer sync, a delete, or a retry landing).
+    /// The UI can skip a rebuild when nothing changed. Call on a timer or push.
+    pub fn poll(&mut self) -> Result<PollResult, AppError> {
+        let received = self.client.receive(&self.store)?;
+        let mut out = Vec::with_capacity(received.len());
+        let mut changed = false;
+        for r in received {
+            let shoal_id = r.from.encode();
+            // Drop everything from a blocked contact — no history, no receipt,
+            // no notification.
+            if self
+                .contacts
+                .iter()
+                .any(|c| c.shoal_id == shoal_id && c.blocked)
+            {
+                continue;
+            }
+            let Some((kind, id, ttl, content)) = parse_frame(&r.message) else {
+                continue; // not a framed Shoal payload — ignore
+            };
+            match kind {
+                MSG_TEXT => {
+                    // Delivery is idempotent. The network can hand us the same
+                    // envelope more than once — a retried anonymous fetch, a
+                    // provider replaying its queue — and the ratchet's skipped
+                    // message keys let a repeat still decrypt. Without this
+                    // guard the same message is appended again and the user
+                    // sees it two or three times in the conversation.
+                    if self.has_message(&shoal_id, id) {
+                        continue;
+                    }
+                    let text = String::from_utf8_lossy(content).into_owned();
+                    let from_name = self
+                        .contacts
+                        .iter()
+                        .find(|c| c.shoal_id == shoal_id)
+                        .map(|c| c.name.clone());
+                    // Each message carries the conversation's timer, so it stays
+                    // in sync even if the explicit control couldn't be sent yet.
+                    if ttl == 0 {
+                        self.disappearing.remove(&shoal_id);
+                    } else {
+                        self.disappearing.insert(shoal_id.clone(), ttl);
+                    }
+                    let now = now_ms();
+                    let mut msg = ChatMessage::text(false, text.clone(), now, id, STATUS_SENT);
+                    msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+                    // If the chat is locked, buffer the message (its plaintext
+                    // history isn't in memory); it merges in on unlock.
+                    if let Some(locked) = self.locked_chats.get_mut(&shoal_id) {
+                        locked.pending.push(msg);
+                    } else {
+                        self.history.entry(shoal_id.clone()).or_default().push(msg);
+                    }
+                    // Confirm receipt to the sender (their copy turns "delivered").
+                    self.send_receipt(&r.from, id, MSG_DELIVERED);
+                    changed = true;
+                    // Don't surface a locked chat's text to the UI/notification —
+                    // it stays hidden until the chat is unlocked.
+                    if !self.locked_chats.contains_key(&shoal_id) {
+                        out.push(IncomingMessage {
+                            from_shoal_id: shoal_id,
+                            from_name,
+                            text,
+                        });
+                    }
+                }
+                MSG_DELIVERED => changed |= self.advance_status(&shoal_id, id, STATUS_DELIVERED),
+                MSG_READ => changed |= self.advance_status(&shoal_id, id, STATUS_READ),
+                MSG_TIMER => {
+                    // The peer set (or cleared) the disappearing timer for this
+                    // conversation — mirror it so our outgoing messages match.
+                    if ttl == 0 {
+                        self.disappearing.remove(&shoal_id);
+                    } else {
+                        self.disappearing.insert(shoal_id.clone(), ttl);
+                    }
+                    changed = true;
+                }
+                MSG_DELETE => {
+                    // The peer deleted this conversation for both of us — drop
+                    // our copy too.
+                    self.remove_conversation(&shoal_id);
+                    changed = true;
+                }
+                MSG_EDIT => {
+                    // The peer edited one of *their* messages — update our copy
+                    // of it (never our own, so a peer can't rewrite our text).
+                    let new_text = String::from_utf8_lossy(content).into_owned();
+                    if let Some(msgs) = self.history.get_mut(&shoal_id) {
+                        if let Some(m) = msgs.iter_mut().find(|m| !m.from_me && m.id == id) {
+                            m.text = new_text;
+                            m.edited = true;
+                            changed = true;
+                        }
+                    }
+                }
+                MSG_REACTION => {
+                    // The peer reacted to a message. `content` is
+                    // `target_id(8) ‖ emoji`; an empty emoji clears it.
+                    if content.len() >= 8 {
+                        let target = u64::from_le_bytes(content[..8].try_into().unwrap());
+                        let emoji = String::from_utf8_lossy(&content[8..]).into_owned();
+                        // Cap it the same way our own side is capped, so a
+                        // hostile peer can't stuff a payload into the field.
+                        if emoji.chars().count() <= 8 {
+                            if let Some(msgs) = self.history.get_mut(&shoal_id) {
+                                if let Some(m) = msgs.iter_mut().find(|m| m.id == target) {
+                                    set_reaction(&mut m.reactions, false, &emoji);
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                MSG_ATTACH_META => {
+                    // Same idempotence rule as a text message: a redelivered
+                    // meta frame must not open a second transfer for one file.
+                    if self.has_message(&shoal_id, id)
+                        || self.incoming_attachments.contains_key(&id)
+                    {
+                        continue;
+                    }
+                    // The peer is opening an attachment transfer: record the
+                    // placeholder message now, so the UI can show it arriving.
+                    if let Some((meta_kind, total_len, chunks, duration_ms, name, mime)) =
+                        parse_attach_meta(content)
+                    {
+                        // Bound what a peer can make us buffer.
+                        if total_len <= MAX_ATTACHMENT && chunks as usize <= MAX_ATTACHMENT {
+                            if ttl == 0 {
+                                self.disappearing.remove(&shoal_id);
+                            } else {
+                                self.disappearing.insert(shoal_id.clone(), ttl);
+                            }
+                            let now = now_ms();
+                            let mut msg =
+                                ChatMessage::text(false, String::new(), now, id, STATUS_SENT);
+                            msg.expires_at_ms = if ttl == 0 { 0 } else { now + ttl as u64 * 1000 };
+                            msg.kind = meta_kind;
+                            msg.file_name = name;
+                            msg.mime = mime;
+                            msg.file_size = total_len as u64;
+                            msg.duration_ms = duration_ms;
+                            msg.transfer_total = chunks;
+                            msg.transfer_have = 0;
+                            self.incoming_attachments.insert(
+                                id,
+                                PendingAttachment {
+                                    shoal_id: shoal_id.clone(),
+                                    chunks: vec![None; chunks as usize],
+                                    total_len,
+                                },
+                            );
+                            if let Some(locked) = self.locked_chats.get_mut(&shoal_id) {
+                                locked.pending.push(msg);
+                            } else {
+                                self.history.entry(shoal_id.clone()).or_default().push(msg);
+                            }
+                            self.send_receipt(&r.from, id, MSG_DELIVERED);
+                            changed = true;
+                        }
+                    }
+                }
+                MSG_ATTACH_CHUNK => {
+                    // One slice of a transfer opened above: `index(4) ‖ data`.
+                    if content.len() >= 4 {
+                        let index = u32::from_le_bytes(content[..4].try_into().unwrap()) as usize;
+                        let data = &content[4..];
+                        if let Some(done) = self.store_chunk(id, index, data) {
+                            changed = true;
+                            if done {
+                                // Every chunk is in — surface it like a message.
+                                if let Some(name) = self.finish_attachment(id) {
+                                    let from_name = self
+                                        .contacts
+                                        .iter()
+                                        .find(|c| c.shoal_id == shoal_id)
+                                        .map(|c| c.name.clone());
+                                    if !self.locked_chats.contains_key(&shoal_id) {
+                                        out.push(IncomingMessage {
+                                            from_shoal_id: shoal_id.clone(),
+                                            from_name,
+                                            text: name,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                MSG_DELETE_ONE => {
+                    // The peer deleted a single one of *their* messages for both
+                    // of us — drop our copy (never our own messages).
+                    if let Some(msgs) = self.history.get_mut(&shoal_id) {
+                        let before = msgs.len();
+                        // Keep everything except the peer's message with this id
+                        // (never our own — a peer can't delete our messages).
+                        msgs.retain(|m| m.from_me || m.id != id);
+                        if msgs.len() != before {
+                            changed = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Self-heal: retry anything that failed to send earlier now that we've
+        // just talked to the relay.
+        changed |= self.retry_failed();
+        changed |= self.prune_expired();
+        Ok(PollResult {
+            messages: out,
+            changed,
+        })
+    }
+}
+
+/// Discover the current node set from the first reachable bootstrap node.
+fn discover_network(bootstrap: &[String]) -> Result<Vec<shoal_mix::NodeDescriptor>, AppError> {
+    let mut last_err = String::from("no bootstrap nodes given");
+    for addr in bootstrap {
+        match shoal_mix::discover(addr.as_str()) {
+            Ok(n) => return Ok(n),
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(AppError::Relay(format!("discovery failed: {last_err}")))
+}
+
+/// A running opt-in mix node (a background forwarder). Dropping it does not stop
+/// the node — it runs for the process lifetime; hold it to keep the id/address.
+pub struct NodeHandle {
+    /// The node's mixnet address (`host:port`) others route through.
+    pub address: String,
+    /// The node's id, hex-encoded (`SHA-256(sphinx_public)[..16]`).
+    pub node_id: String,
+}
+
+/// Turn this device into an **opt-in mix node**: a light forwarder that carries
+/// others' onion traffic to strengthen the network (it runs no mailbox). Bind
+/// `listen` (e.g. `"0.0.0.0:0"`), learn the network from `bootstrap`, announce
+/// itself, and gossip. Good as a default on always-on desktop/Linux; on Android
+/// enable it only on Wi-Fi + power, since a phone behind NAT is a poor node.
+///
+/// The node uses a **fresh random identity**, unlinked to your Shoal ID, so
+/// running it does not tie the messaging identity to your address.
+pub fn run_forwarder_node(
+    bootstrap: Vec<String>,
+    listen: String,
+    delay_rate: Option<f64>,
+) -> Result<NodeHandle, AppError> {
+    use std::net::ToSocketAddrs;
+
+    let mut seeds = [0u8; 32];
+    shoal_crypto::fill_random(&mut seeds);
+
+    // Resolve bootstrap addresses; skip any that do not parse/resolve.
+    let boots: Vec<std::net::SocketAddr> = bootstrap
+        .iter()
+        .filter_map(|b| b.to_socket_addrs().ok())
+        .flatten()
+        .collect();
+
+    let desc = shoal_mix::spawn_forwarder(seeds, listen.as_str(), &boots, delay_rate)
+        .map_err(|e| AppError::Relay(e.to_string()))?;
+
+    Ok(NodeHandle {
+        address: desc.mix_addr.to_string(),
+        node_id: hex(&desc.id),
+    })
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+/// Parse a dotted numeric version — `"v1.2.3"`, `"1.2"`, `"1.2.3-beta"` — into
+/// `(major, minor, patch)`. A leading `v`/`V` and any `-pre`/`+build` suffix are
+/// ignored, and missing components default to 0. `None` if there's no leading
+/// number.
+fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
+    let s = s.trim().trim_start_matches(['v', 'V']);
+    let core = s.split(['-', '+']).next().unwrap_or(s);
+    let mut it = core.split('.');
+    let major = it.next()?.trim().parse::<u64>().ok()?;
+    let minor = it.next().and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+    let patch = it.next().and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+    Some((major, minor, patch))
+}
+
+/// Whether `latest` is a strictly newer version than `current`. If either can't
+/// be parsed, returns `false` (don't nag on garbage or a dev build).
+pub fn is_newer_version(current: &str, latest: &str) -> bool {
+    match (parse_version(current), parse_version(latest)) {
+        (Some(c), Some(l)) => l > c,
+        _ => false,
+    }
+}
+
+/// One SOCKS5 hop: `proxy` is `host:port`, with optional auth.
+#[derive(Clone, Debug)]
+pub struct ProxyHop {
+    pub proxy: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+/// Route **all** outbound connections — the mixnet (sends, discovery) and the
+/// provider/relay mailbox — through a **chain** of SOCKS5 hops, in order
+/// (`app → chain[0] → chain[1] → … → target`). An empty chain goes direct.
+///
+/// Tor is a SOCKS5 proxy (Orbot on `127.0.0.1:9050`), so `app → SOCKS5 → Tor` is
+/// just `[my_socks5, tor]`. Sets the process-wide chain for both transport
+/// layers at once so they can't drift. Call **before** building the engine so
+/// the first connections already use it.
+pub fn set_proxy_chain(chain: Vec<ProxyHop>) {
+    let mix: Vec<_> = chain
+        .iter()
+        .map(|h| shoal_mix::socks5::ProxyConfig {
+            proxy: h.proxy.clone(),
+            username: h.username.clone(),
+            password: h.password.clone(),
+        })
+        .collect();
+    let net: Vec<_> = chain
+        .into_iter()
+        .map(|h| shoal_relay::socks5::ProxyConfig {
+            proxy: h.proxy,
+            username: h.username,
+            password: h.password,
+        })
+        .collect();
+    shoal_mix::socks5::set_chain(mix);
+    shoal_relay::socks5::set_chain(net);
+}
+
+/// Convenience for a single proxy (or none): a 1- or 0-hop [`set_proxy_chain`].
+pub fn set_proxy(proxy: Option<String>, username: Option<String>, password: Option<String>) {
+    let chain = proxy
+        .map(|p| {
+            vec![ProxyHop {
+                proxy: p,
+                username,
+                password,
+            }]
+        })
+        .unwrap_or_default();
+    set_proxy_chain(chain);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_and_contacts() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+
+        assert!(alice.my_shoal_id().starts_with("shoal:"));
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        assert_eq!(alice.contacts().len(), 1);
+        assert_eq!(alice.contacts()[0].name, "Bob");
+    }
+
+    #[test]
+    fn bad_seed_and_bad_contact_are_rejected() {
+        assert!(matches!(
+            ShoalApp::create_in_memory(vec![0u8; 8]),
+            Err(AppError::BadSeed)
+        ));
+        let mut a = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        assert!(matches!(
+            a.add_contact("x".into(), "not-an-id".into(), vec![1, 2, 3]),
+            Err(AppError::BadContact)
+        ));
+        assert!(matches!(
+            a.send("shoal:whoever".into(), "hi".into()),
+            Err(AppError::UnknownContact)
+        ));
+    }
+
+    #[test]
+    fn full_conversation_over_a_shared_relay() {
+        // Alice and Bob share one in-memory relay (as they would share one
+        // Ciphra server), so messages actually flow between them.
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // Move Alice's outgoing envelope into Bob's relay by hand (the two apps
+        // hold separate in-memory stores; a real deployment shares one server).
+        alice.send(bob.my_shoal_id(), "hi bob".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap().messages;
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "hi bob");
+        assert_eq!(got[0].from_name.as_deref(), Some("Alice"));
+
+        bob.send(alice.my_shoal_id(), "hi alice".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let got = alice.poll().unwrap().messages;
+        assert_eq!(got[0].text, "hi alice");
+
+        assert_eq!(alice.history(bob.my_shoal_id()).len(), 2); // sent + received
+    }
+
+    #[test]
+    fn a_failed_send_is_kept_locally_and_retried_until_it_lands() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // A message whose network send failed (relay was down) must be kept
+        // locally with STATUS_FAILED — never silently dropped.
+        let id = 42;
+        alice
+            .history
+            .entry(bob.my_shoal_id())
+            .or_default()
+            .push(ChatMessage::text(
+                true,
+                "queued while offline".into(),
+                now_ms(),
+                id,
+                STATUS_FAILED,
+            ));
+        assert_eq!(alice.history(bob.my_shoal_id()).len(), 1);
+
+        // The relay is back: a poll self-heals — retry_failed re-sends it and
+        // flips the status to sent.
+        alice.poll().unwrap();
+        assert_eq!(
+            alice.history(bob.my_shoal_id())[0].status,
+            STATUS_SENT,
+            "the retried message is now marked sent"
+        );
+
+        // …and it really went out: Bob receives it.
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap().messages;
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "queued while offline");
+    }
+
+    #[test]
+    fn version_comparison_handles_prefixes_and_precedence() {
+        assert!(is_newer_version("1.0.0", "1.0.1"));
+        assert!(is_newer_version("1.0.0", "v1.1.0"));
+        assert!(is_newer_version("1.9.0", "1.10.0")); // numeric, not lexical
+        assert!(is_newer_version("v0.1.0", "0.2"));
+        // Equal or older ⇒ not newer.
+        assert!(!is_newer_version("1.2.0", "1.2"));
+        assert!(!is_newer_version("2.0.0", "1.9.9"));
+        assert!(!is_newer_version("1.0.0", "1.0.0-beta")); // suffix ignored ⇒ equal
+                                                           // Unparseable ⇒ never nags.
+        assert!(!is_newer_version("1.0.0", "not-a-version"));
+        assert!(!is_newer_version("dev", "1.0.0"));
+    }
+
+    #[test]
+    fn notes_are_local_and_encrypted_round_trip() {
+        let mut a = ShoalApp::create_in_memory(vec![7u8; 32]).unwrap();
+        let id = a.add_note("secret note".into());
+        a.add_note("second".into());
+        assert_eq!(a.notes().len(), 2);
+        a.edit_note(id, "edited".into());
+        assert_eq!(a.notes()[0].text, "edited");
+
+        // The persisted blob is ciphertext — the plaintext must not appear in it.
+        let blob = a.export_notes();
+        assert!(
+            !blob.windows(6).any(|w| w == b"edited"),
+            "notes must not be stored in the clear"
+        );
+        assert!(!blob.windows(6).any(|w| w == b"second"));
+
+        // The same seed restores it; a different seed (identity) cannot decrypt.
+        let mut same = ShoalApp::create_in_memory(vec![7u8; 32]).unwrap();
+        same.restore_notes(blob.clone()).unwrap();
+        assert_eq!(same.notes().len(), 2);
+        assert_eq!(same.notes()[0].text, "edited");
+        let mut other = ShoalApp::create_in_memory(vec![9u8; 32]).unwrap();
+        assert!(
+            other.restore_notes(blob).is_err(),
+            "a stealer without the key can't read the notes"
+        );
+
+        same.delete_note(id);
+        assert_eq!(same.notes().len(), 1);
+        assert_eq!(same.notes()[0].text, "second");
+    }
+
+    #[test]
+    fn state_is_encrypted_at_rest_and_legacy_still_loads() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bobby".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        alice.send(bob.my_shoal_id(), "top secret".into()).unwrap();
+
+        // The encrypted blob must not leak contact names or message text.
+        let enc = alice.export_state_encrypted();
+        assert_eq!(enc[0], STATE_SEAL_MAGIC);
+        assert!(!contains(&enc, b"Bobby"), "contact name in the clear");
+        assert!(!contains(&enc, b"top secret"), "message text in the clear");
+
+        // Same seed restores it; a different identity's key can't.
+        let mut a2 = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        a2.restore_state_encrypted(enc.clone()).unwrap();
+        assert_eq!(a2.contacts()[0].name, "Bobby");
+        assert_eq!(a2.history(bob.my_shoal_id()).len(), 1);
+        let mut other = ShoalApp::create_in_memory(vec![9u8; 32]).unwrap();
+        assert!(other.restore_state_encrypted(enc).is_err());
+
+        // A legacy plaintext blob (old builds) still restores through the same
+        // entry point.
+        let legacy = alice.export_state();
+        assert_ne!(legacy[0], STATE_SEAL_MAGIC);
+        let mut a3 = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        a3.restore_state_encrypted(legacy).unwrap();
+        assert_eq!(a3.contacts()[0].name, "Bobby");
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn notes_password_double_encrypts_and_panic_wipes() {
+        let mut a = ShoalApp::create_in_memory(vec![7u8; 32]).unwrap();
+        a.add_note("bank pin 1234".into());
+        a.set_notes_password("open-sesame".into());
+        assert!(a.notes_password_set());
+
+        let blob = a.export_notes();
+        assert!(
+            notes_blob_encrypted(&blob),
+            "blob must be password-protected"
+        );
+        assert!(
+            !blob.windows(4).any(|w| w == b"1234"),
+            "no plaintext in blob"
+        );
+
+        // Right seed alone is not enough — a password-protected blob is locked.
+        let mut b = ShoalApp::create_in_memory(vec![7u8; 32]).unwrap();
+        assert!(matches!(
+            b.restore_notes(blob.clone()),
+            Err(AppError::NotesLocked)
+        ));
+        assert!(b.notes().is_empty(), "locked notes stay hidden");
+        // Wrong password fails; the right one unlocks.
+        assert!(b.unlock_notes("nope".into(), blob.clone()).is_err());
+        b.unlock_notes("open-sesame".into(), blob.clone()).unwrap();
+        assert_eq!(b.notes()[0].text, "bank pin 1234");
+
+        // A different seed can't unlock even with the right password (needs both).
+        let mut c = ShoalApp::create_in_memory(vec![9u8; 32]).unwrap();
+        assert!(c.unlock_notes("open-sesame".into(), blob).is_err());
+
+        // Panic wipe clears the notes and the password in memory.
+        b.wipe_notes();
+        assert!(b.notes().is_empty());
+        assert!(!b.notes_password_set());
+    }
+
+    #[test]
+    fn poll_reports_no_change_when_idle_and_contacts_carry_a_preview() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // An idle poll changes nothing → the UI can skip a rebuild.
+        assert!(!alice.poll().unwrap().changed);
+
+        // A new message flips `changed` and fills the contact preview.
+        bob.send(alice.my_shoal_id(), "yo".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let res = alice.poll().unwrap();
+        assert!(res.changed);
+        assert_eq!(res.messages.len(), 1);
+        let c = &alice.contacts()[0];
+        assert_eq!(c.last_text.as_deref(), Some("yo"));
+        assert!(!c.last_from_me);
+        assert!(c.last_ts > 0);
+
+        // Alice's own reply shows in her preview as from_me.
+        alice.send(bob.my_shoal_id(), "hey".into()).unwrap();
+        let c = &alice.contacts()[0];
+        assert_eq!(c.last_text.as_deref(), Some("hey"));
+        assert!(c.last_from_me);
+
+        // Still idle afterwards → no change.
+        assert!(!alice.poll().unwrap().changed);
+    }
+
+    #[test]
+    fn blocking_drops_incoming_messages() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // Block Bob; his message is dropped on poll.
+        alice.set_blocked(bob.my_shoal_id(), true).unwrap();
+        assert!(alice.contacts()[0].blocked);
+        bob.send(alice.my_shoal_id(), "let me in".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        assert!(
+            alice.poll().unwrap().messages.is_empty(),
+            "blocked message delivered"
+        );
+        assert!(alice.history(bob.my_shoal_id()).is_empty());
+
+        // Unblock; a new message now arrives (the blocked one stays dropped).
+        alice.set_blocked(bob.my_shoal_id(), false).unwrap();
+        bob.send(alice.my_shoal_id(), "hi again".into()).unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let got = alice.poll().unwrap().messages;
+        assert_eq!(got.last().map(|m| m.text.as_str()), Some("hi again"));
+    }
+
+    #[test]
+    fn pin_and_reorder_chats() {
+        let mut me = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let ids: Vec<String> = (2u8..=4)
+            .map(|n| {
+                let peer = ShoalApp::create_in_memory(vec![n; 32]).unwrap();
+                let id = peer.my_shoal_id();
+                me.add_contact(format!("C{n}"), id.clone(), peer.my_bundle())
+                    .unwrap();
+                id
+            })
+            .collect();
+        let order = |a: &ShoalApp| {
+            a.contacts()
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(order(&me), ["C2", "C3", "C4"]);
+
+        // Move C2 down one place.
+        me.move_chat(ids[0].clone(), false).unwrap();
+        assert_eq!(order(&me), ["C3", "C2", "C4"]);
+
+        // Pin C4 → it floats to the very top and is marked pinned.
+        me.set_pinned(ids[2].clone(), true).unwrap();
+        assert_eq!(order(&me), ["C4", "C3", "C2"]);
+        assert!(me.contacts()[0].pinned);
+
+        // A pinned chat can't be pushed down past the unpinned group.
+        me.move_chat(ids[2].clone(), false).unwrap();
+        assert_eq!(order(&me), ["C4", "C3", "C2"]);
+
+        // Unpinning drops it back below the (empty) pinned group, at the top of
+        // the unpinned section.
+        me.set_pinned(ids[2].clone(), false).unwrap();
+        assert_eq!(order(&me), ["C4", "C3", "C2"]);
+        assert!(!me.contacts()[0].pinned);
+    }
+
+    #[test]
+    fn delete_chat_forgets_it_locally() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        alice.send(bob.my_shoal_id(), "hi".into()).unwrap();
+        assert_eq!(alice.contacts().len(), 1);
+        assert_eq!(alice.history(bob.my_shoal_id()).len(), 1);
+
+        alice.delete_chat(bob.my_shoal_id()).unwrap();
+        assert!(alice.contacts().is_empty());
+        assert!(alice.history(bob.my_shoal_id()).is_empty());
+    }
+
+    /// A multi-chunk attachment survives the round trip byte-for-byte, and the
+    /// receiver can decrypt what it persisted.
+    #[test]
+    fn attachment_is_chunked_reassembled_and_sealed() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // Longer than one pump batch, and not a chunk multiple, so both the
+        // multi-batch path and the final short chunk are exercised.
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH + 5) + 17)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let id = alice
+            .send_attachment(
+                bob.my_shoal_id(),
+                KIND_VOICE,
+                "note.opus".into(),
+                "audio/opus".into(),
+                4200,
+                payload.clone(),
+            )
+            .unwrap();
+        assert!(payload.len() > CHUNK_DATA, "must span multiple packets");
+
+        // The chunks are queued, not blasted out inside the send call — that is
+        // what keeps a large upload from holding the engine lock throughout.
+        let queued = alice.history(bob.my_shoal_id())[0].clone();
+        assert_eq!(queued.transfer_have, 0, "nothing sent until pumped");
+        assert!(queued.transfer_total > 1);
+
+        // Pumping reports progress and finishes in more than one batch.
+        let mut pumps = 0;
+        while let Some((sent, total)) = alice.pump_attachment(id) {
+            assert!(sent <= total);
+            pumps += 1;
+            assert!(pumps < 1000, "pump must terminate");
+        }
+        assert!(
+            pumps >= 1,
+            "a transfer longer than one batch reports progress before finishing"
+        );
+        assert_eq!(
+            alice.history(bob.my_shoal_id())[0].transfer_have,
+            queued.transfer_total,
+            "sender's progress reaches 100%"
+        );
+        assert!(
+            alice.pump_attachment(id).is_none(),
+            "a finished transfer stays finished"
+        );
+
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap();
+        assert_eq!(
+            got.messages.len(),
+            1,
+            "one surfaced message for the transfer"
+        );
+        assert_eq!(got.messages[0].text, "note.opus");
+
+        let msg = bob
+            .history(alice.my_shoal_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("Bob has the attachment message");
+        assert_eq!(msg.kind, KIND_VOICE);
+        assert_eq!(msg.duration_ms, 4200);
+        assert_eq!(msg.file_size, payload.len() as u64);
+        assert!(msg.complete(), "every chunk arrived");
+
+        // Bob persists it: the bytes come out sealed, and only his key opens them.
+        assert_eq!(bob.pending_attachments(), vec![id]);
+        let sealed = bob.take_attachment(id).expect("bytes are ready to persist");
+        assert_ne!(sealed, payload, "never handed out in the clear");
+        assert_eq!(bob.open_attachment(sealed.clone()).unwrap(), payload);
+        assert!(
+            alice.open_attachment(sealed).is_none(),
+            "another device's key must not open it"
+        );
+        assert!(bob.take_attachment(id).is_none(), "drained after taking");
+    }
+
+    /// A retried attachment is re-queued and pumped, not blasted out inside the
+    /// call — and the peer still reassembles it byte-for-byte.
+    #[test]
+    fn a_retried_attachment_is_queued_and_arrives_intact() {
+        let mut alice = ShoalApp::create_in_memory(vec![11u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![12u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * 2 + 5).map(|i| (i % 253) as u8).collect();
+        let id = alice
+            .send_attachment(
+                bob.my_shoal_id(),
+                KIND_FILE,
+                "report.pdf".into(),
+                "application/pdf".into(),
+                0,
+                payload.clone(),
+            )
+            .unwrap();
+        // Pretend the first attempt failed after the metadata went out.
+        alice.outgoing_attachments.remove(&id);
+        if let Some(msgs) = alice.history.get_mut(&bob.my_shoal_id()) {
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == id) {
+                m.status = STATUS_FAILED;
+            }
+        }
+
+        alice
+            .resend_attachment(bob.my_shoal_id(), id, payload.clone())
+            .unwrap();
+        assert!(
+            alice.outgoing_attachments.contains_key(&id),
+            "the retry queues the payload instead of sending it inline"
+        );
+        alice.flush_attachments();
+
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let got = bob
+            .history(alice.my_shoal_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("Bob received the retried attachment");
+        assert!(got.complete());
+        assert_eq!(got.file_name, "report.pdf");
+        let sealed = bob.take_attachment(id).expect("bytes reassembled");
+        assert_eq!(bob.open_attachment(sealed).unwrap(), payload);
+    }
+
+    /// An attachment whose opening frame cannot be delivered is not queued,
+    /// and one whose chunks stop being deliverable stops pumping.
+    ///
+    /// A contact whose prekey bundle will not decode is the reachable stand-in
+    /// for "no route to the peer": `deliver` has no session and no usable
+    /// bundle, so every send fails exactly as it would with the relay down.
+    ///
+    /// Without this the app ground through the remaining chunks of an 8 MiB
+    /// payload one doomed batch at a time -- thousands of failing sends, ending
+    /// FAILED anyway, having already skipped past the chunks it lost.
+    #[test]
+    fn an_undeliverable_attachment_stops_instead_of_grinding() {
+        let mut alice = ShoalApp::create_in_memory(vec![15u8; 32]).unwrap();
+        let bob = ShoalApp::create_in_memory(vec![16u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        // Break the route the way a dropped relay would. add_contact validates
+        // the bundle, so it has to be corrupted after the fact: with no session
+        // and no decodable bundle, `deliver` has nowhere to send.
+        for c in alice.contacts.iter_mut() {
+            c.bundle = vec![0u8; 8];
+        }
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH + 5) + 17)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let id = alice
+            .send_attachment(
+                bob.my_shoal_id(),
+                KIND_FILE,
+                "big.bin".into(),
+                "application/octet-stream".into(),
+                0,
+                payload.clone(),
+            )
+            .unwrap();
+
+        let msg = alice.history(bob.my_shoal_id())[0].clone();
+        assert_eq!(msg.status, STATUS_FAILED, "the opening frame did not land");
+        assert!(
+            alice.pump_attachment(id).is_none(),
+            "nothing is queued when the peer never learned a transfer is coming"
+        );
+
+        // The bytes are still held, so the UI can persist them and offer a
+        // retry rather than losing the file the user picked.
+        let sealed = alice.take_attachment(id).expect("bytes kept for a retry");
+        assert_eq!(alice.open_attachment(sealed).unwrap(), payload);
+    }
+
+    /// A transfer that starts fine but loses the peer mid-flight abandons the
+    /// rest of the payload rather than pumping it into the void.
+    #[test]
+    fn a_transfer_that_breaks_mid_flight_abandons_the_rest() {
+        let mut alice = ShoalApp::create_in_memory(vec![17u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![18u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        let payload: Vec<u8> = (0..CHUNK_DATA * (CHUNK_BATCH * 4) + 3)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let id = alice
+            .send_attachment(
+                bob.my_shoal_id(),
+                KIND_FILE,
+                "big.bin".into(),
+                "application/octet-stream".into(),
+                0,
+                payload,
+            )
+            .unwrap();
+        assert!(
+            alice.pump_attachment(id).is_some(),
+            "the first batch goes out normally"
+        );
+
+        // Break the route the way a dropped relay would, which takes both
+        // halves of what `deliver` can fall back on: a fresh client has no
+        // session, and the bundle captured with the queued transfer no longer
+        // decodes, so start_conversation cannot rescue it either.
+        alice.client = shoal_client::ShoalClient::from_master_seed([15u8; 32]);
+        for out in alice.outgoing_attachments.values_mut() {
+            out.bundle = vec![0u8; 8];
+        }
+
+        let mut pumps = 0;
+        while alice.pump_attachment(id).is_some() {
+            pumps += 1;
+            assert!(pumps < 100, "pump must terminate");
+        }
+
+        let msg = alice.history(bob.my_shoal_id())[0].clone();
+        assert_eq!(
+            msg.status, STATUS_FAILED,
+            "the message says so, with a retry available"
+        );
+        // The claim under test, stated without depending on the batch size:
+        // it gave up partway rather than marching the counter to the end over
+        // a route it already knew was dead.
+        assert!(
+            msg.transfer_have < msg.transfer_total,
+            "abandoned the rest of the payload ({} of {} chunks) instead of \
+             pumping every remaining batch into the void",
+            msg.transfer_have,
+            msg.transfer_total,
+        );
+    }
+
+    /// Delivery is idempotent: a message id already present is not appended
+    /// again.
+    ///
+    /// The network can hand the same envelope over more than once — a retried
+    /// anonymous fetch, a provider replaying its queue — and the ratchet's
+    /// skipped message keys mean the repeat can still decrypt. Without this the
+    /// user sees the same message two or three times, which is exactly what the
+    /// mixnet SURB test was intermittently catching.
+    #[test]
+    fn delivery_is_idempotent_for_a_repeated_message_id() {
+        let mut alice = ShoalApp::create_in_memory(vec![13u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![14u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_shoal_id(), "only once".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        let chat = alice.my_shoal_id();
+        assert_eq!(bob.history(chat.clone()).len(), 1);
+        let id = bob.history(chat.clone())[0].id;
+
+        // The guard `poll` consults reports the message as already held, for
+        // both the open history and a locked chat's pending buffer.
+        assert!(bob.has_message(&chat, id));
+        assert!(!bob.has_message(&chat, id.wrapping_add(1)));
+
+        // Polling again after the same envelopes are re-offered leaves the
+        // conversation unchanged.
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        assert_eq!(
+            bob.history(chat).len(),
+            1,
+            "a redelivered message must not be appended twice"
+        );
+    }
+
+    /// Reactions replace (not accumulate) per side, sync to the peer, and clear.
+    #[test]
+    fn reactions_sync_to_the_peer_and_toggle_off() {
+        let mut alice = ShoalApp::create_in_memory(vec![3u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![4u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_shoal_id(), "ping".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let id = bob.history(alice.my_shoal_id())[0].id;
+
+        // Bob reacts, then changes his mind — one reaction, not two.
+        bob.react(alice.my_shoal_id(), id, "👍".into()).unwrap();
+        bob.react(alice.my_shoal_id(), id, "🔥".into()).unwrap();
+        let mine = &bob.history(alice.my_shoal_id())[0].reactions;
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].emoji, "🔥");
+        assert!(mine[0].from_me);
+
+        // Alice sees it as the peer's reaction on her own message. (One
+        // transfer, because the test relay re-delivers everything from the
+        // start on each transfer.)
+        transfer(&mut bob.store, &mut alice.store);
+        alice.poll().unwrap();
+        let hers = &alice.history(bob.my_shoal_id())[0].reactions;
+        assert_eq!(hers.len(), 1);
+        assert_eq!(hers[0].emoji, "🔥");
+        assert!(!hers[0].from_me, "it is the peer's reaction, not hers");
+    }
+
+    /// Clearing a reaction propagates to the peer, not just locally.
+    #[test]
+    fn clearing_a_reaction_syncs_to_the_peer() {
+        let mut alice = ShoalApp::create_in_memory(vec![9u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![10u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_shoal_id(), "ping".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        let id = bob.history(alice.my_shoal_id())[0].id;
+
+        // React then clear, both before the single transfer: Alice replays them
+        // in order and must end with no reaction at all.
+        bob.react(alice.my_shoal_id(), id, "👍".into()).unwrap();
+        bob.react(alice.my_shoal_id(), id, String::new()).unwrap();
+        assert!(bob.history(alice.my_shoal_id())[0].reactions.is_empty());
+
+        transfer(&mut bob.store, &mut alice.store);
+        alice.poll().unwrap();
+        assert!(
+            alice.history(bob.my_shoal_id())[0].reactions.is_empty(),
+            "the clear followed the reaction across"
+        );
+    }
+
+    /// Attachment metadata and reactions survive a save/restore cycle (v8).
+    #[test]
+    fn attachments_and_reactions_survive_a_restart() {
+        let mut alice = ShoalApp::create_in_memory(vec![5u8; 32]).unwrap();
+        let bob = ShoalApp::create_in_memory(vec![6u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+
+        let id = alice
+            .send_attachment(
+                bob.my_shoal_id(),
+                KIND_IMAGE,
+                "cat.png".into(),
+                "image/png".into(),
+                0,
+                vec![7u8; 2048],
+            )
+            .unwrap();
+        alice.set_attachment_path(bob.my_shoal_id(), id, "/data/att/1.bin".into());
+        alice.react(bob.my_shoal_id(), id, "😻".into()).unwrap();
+
+        // An upload interrupted by a restart can't resume itself — the chunk
+        // queue is memory-only — so it must come back retryable rather than
+        // stuck showing progress forever.
+        let interrupted = alice.export_state();
+        let mut after_crash = ShoalApp::create_in_memory(vec![5u8; 32]).unwrap();
+        after_crash.restore_state(interrupted).unwrap();
+        let stuck = after_crash
+            .history(bob.my_shoal_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .unwrap();
+        assert_eq!(
+            stuck.status, STATUS_FAILED,
+            "an unfinished upload restores as failed, so the UI offers a retry"
+        );
+
+        // The normal case: a finished upload survives intact.
+        alice.flush_attachments();
+        let blob = alice.export_state();
+        let mut restored = ShoalApp::create_in_memory(vec![5u8; 32]).unwrap();
+        restored.restore_state(blob).unwrap();
+
+        let m = restored
+            .history(bob.my_shoal_id())
+            .into_iter()
+            .find(|m| m.id == id)
+            .expect("the attachment message came back");
+        assert_eq!(m.kind, KIND_IMAGE);
+        assert_eq!(m.file_name, "cat.png");
+        assert_eq!(m.mime, "image/png");
+        assert_eq!(m.file_size, 2048);
+        assert_eq!(m.path, "/data/att/1.bin");
+        assert_eq!(m.reactions.len(), 1);
+        assert_eq!(m.reactions[0].emoji, "😻");
+    }
+
+    #[test]
+    fn delete_for_both_removes_the_conversation_on_the_peer() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // A message establishes the session the delete control rides on; the
+        // delete-for-both queues right behind it. (One transfer, because the
+        // test relay re-delivers everything from the start on each transfer.)
+        alice.send(bob.my_shoal_id(), "hi bob".into()).unwrap();
+        alice.delete_chat_for_both(bob.my_shoal_id()).unwrap();
+        assert!(alice.contacts().is_empty(), "deleted on Alice's side");
+
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+        // Bob processed the text then the delete: the conversation is gone.
+        assert!(bob.contacts().is_empty(), "Bob's chat was removed too");
+        assert!(bob.history(alice.my_shoal_id()).is_empty());
+    }
+
+    #[test]
+    fn edit_and_delete_single_message_sync_to_the_peer() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_shoal_id(), "frist".into()).unwrap();
+        alice
+            .send(bob.my_shoal_id(), "to be removed".into())
+            .unwrap();
+        let mine = alice.history(bob.my_shoal_id());
+        let id_typo = mine[0].id;
+        let id_del = mine[1].id;
+
+        // Fix the typo and delete the second message, both for both sides.
+        alice
+            .edit_message(bob.my_shoal_id(), id_typo, "first".into())
+            .unwrap();
+        assert_eq!(alice.history(bob.my_shoal_id())[0].text, "first");
+        assert!(alice.history(bob.my_shoal_id())[0].edited);
+        alice
+            .delete_message(bob.my_shoal_id(), id_del, true)
+            .unwrap();
+        assert_eq!(
+            alice.history(bob.my_shoal_id()).len(),
+            1,
+            "deleted on Alice's side"
+        );
+
+        // One transfer carries the two texts + the edit + the delete, in order.
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        let got = bob.history(alice.my_shoal_id());
+        assert_eq!(
+            got.len(),
+            1,
+            "the deleted message is gone on Bob's side too"
+        );
+        assert_eq!(got[0].text, "first", "Bob sees the edited text");
+        assert!(got[0].edited, "and it is marked edited");
+    }
+
+    #[test]
+    fn pinned_flag_and_order_survive_a_restart() {
+        let mut me = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let a = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        let b = ShoalApp::create_in_memory(vec![3u8; 32]).unwrap();
+        me.add_contact("A".into(), a.my_shoal_id(), a.my_bundle())
+            .unwrap();
+        me.add_contact("B".into(), b.my_shoal_id(), b.my_bundle())
+            .unwrap();
+        me.set_pinned(b.my_shoal_id(), true).unwrap();
+        assert_eq!(
+            me.contacts()
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>(),
+            ["B", "A"]
+        );
+
+        let blob = me.export_state();
+        let mut me = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        me.restore_state(blob).unwrap();
+        let cs = me.contacts();
+        assert_eq!(
+            cs.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            ["B", "A"]
+        );
+        assert!(cs[0].pinned);
+        assert!(!cs[1].pinned);
+    }
+
+    #[test]
+    fn state_survives_a_restart() {
+        // Alice talks to Bob, then "restarts": a fresh app from the same seed
+        // that restores the saved blob must keep the contact, the history, and a
+        // working session.
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        alice.send(bob.my_shoal_id(), "hi bob".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        assert_eq!(bob.poll().unwrap().messages.len(), 1);
+
+        // Save Alice, drop her, rebuild from the seed, and restore.
+        let blob = alice.export_state();
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        alice.restore_state(blob).unwrap();
+
+        // The restored app remembers the contact and the history…
+        assert_eq!(alice.contacts().len(), 1);
+        assert_eq!(alice.contacts()[0].name, "Bob");
+        assert_eq!(alice.history(bob.my_shoal_id()).len(), 1);
+
+        // …and the session still works: Bob replies, Alice reads it.
+        bob.send(alice.my_shoal_id(), "still connected".into())
+            .unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        let got = alice.poll().unwrap().messages;
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text, "still connected");
+    }
+
+    #[test]
+    fn per_chat_password_seals_history_and_buffers_while_locked() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // Exchange one message so Alice has history and a live session.
+        alice.send(bob.my_shoal_id(), "before lock".into()).unwrap();
+        transfer(&mut alice.store, &mut bob.store);
+        bob.poll().unwrap();
+
+        // Lock the Bob chat with a password, then "restart".
+        alice
+            .set_chat_password(bob.my_shoal_id(), "hunter2".into())
+            .unwrap();
+        let blob = alice.export_state();
+        assert!(
+            !blob.windows(11).any(|w| w == b"before lock"),
+            "a protected chat's history is sealed, never in the clear"
+        );
+
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        alice.restore_state(blob).unwrap();
+
+        // After restart the chat is locked: history hidden.
+        assert!(alice.chat_locked(bob.my_shoal_id()));
+        assert!(alice.chat_has_password(bob.my_shoal_id()));
+        assert!(alice.history(bob.my_shoal_id()).is_empty());
+
+        // A message that arrives while locked is buffered, not surfaced.
+        bob.send(alice.my_shoal_id(), "while locked".into())
+            .unwrap();
+        transfer(&mut bob.store, &mut alice.store);
+        assert!(alice.poll().unwrap().messages.is_empty());
+        assert!(alice.history(bob.my_shoal_id()).is_empty());
+
+        // Wrong password fails and keeps it locked.
+        assert!(alice
+            .unlock_chat(bob.my_shoal_id(), "wrong".into())
+            .is_err());
+        assert!(alice.chat_locked(bob.my_shoal_id()));
+
+        // Right password reveals the original + buffered messages.
+        alice
+            .unlock_chat(bob.my_shoal_id(), "hunter2".into())
+            .unwrap();
+        assert!(!alice.chat_locked(bob.my_shoal_id()));
+        let h = alice.history(bob.my_shoal_id());
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].text, "before lock");
+        assert_eq!(h[1].text, "while locked");
+    }
+
+    #[test]
+    fn restore_rejects_garbage() {
+        let mut a = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        assert!(matches!(
+            a.restore_state(vec![9, 9, 9]),
+            Err(AppError::Protocol(_))
+        ));
+    }
+
+    #[test]
+    fn disappearing_timer_sets_expiry_and_syncs_to_the_peer() {
+        let mut alice = ShoalApp::create_in_memory(vec![1u8; 32]).unwrap();
+        let mut bob = ShoalApp::create_in_memory(vec![2u8; 32]).unwrap();
+        alice
+            .add_contact("Bob".into(), bob.my_shoal_id(), bob.my_bundle())
+            .unwrap();
+        bob.add_contact("Alice".into(), alice.my_shoal_id(), alice.my_bundle())
+            .unwrap();
+
+        // Alice turns on a 60-second timer and sends a message.
+        alice.set_disappearing(bob.my_shoal_id(), 60).unwrap();
+        assert_eq!(alice.disappearing_secs(bob.my_shoal_id()), 60);
+        alice.send(bob.my_shoal_id(), "vanishing".into()).unwrap();
+
+        let mine = alice.history(bob.my_shoal_id());
+        assert_eq!(mine.len(), 1);
+        assert!(mine[0].expires_at_ms > 0, "our message has an expiry");
+
+        // Both the timer control and the message reach Bob.
+        transfer(&mut alice.store, &mut bob.store);
+        let got = bob.poll().unwrap().messages;
+        assert!(got.iter().any(|m| m.text == "vanishing"));
+        assert_eq!(
+            bob.disappearing_secs(alice.my_shoal_id()),
+            60,
+            "timer synced to the peer"
+        );
+        let theirs = bob.history(alice.my_shoal_id());
+        assert!(
+            theirs.iter().any(|m| !m.from_me && m.expires_at_ms > 0),
+            "the peer's copy also expires"
+        );
+
+        // Turning it off syncs off, and new messages don't expire.
+        alice.set_disappearing(bob.my_shoal_id(), 0).unwrap();
+        assert_eq!(alice.disappearing_secs(bob.my_shoal_id()), 0);
+        alice.send(bob.my_shoal_id(), "permanent".into()).unwrap();
+        let after = alice.history(bob.my_shoal_id());
+        let perm = after.iter().find(|m| m.text == "permanent").unwrap();
+        assert_eq!(perm.expires_at_ms, 0, "no timer ⇒ no expiry");
+    }
+
+    /// Test helper: copy every envelope from one in-memory store into another,
+    /// standing in for a shared relay.
+    /// The chunk size must leave a framed attachment packet inside the 1024
+    /// pad bucket — the largest that still fits an onion packet once ratchet
+    /// and envelope overhead is added. If this ever fails, attachments would
+    /// silently stop routing over the mixnet.
+    #[test]
+    fn chunk_size_stays_within_the_onion_budget() {
+        let content = 4 + CHUNK_DATA; // att_id index(4) + data
+        let framed = 13 + content; // frame header
+        let padded = framed + 4; // client pad length prefix
+        assert!(
+            padded <= 1024,
+            "a chunk packet must fit the 1024 bucket, got {padded}"
+        );
+        assert!(padded + 256 < shoal_net::PAYLOAD_LEN);
+    }
+
+    fn transfer(from: &mut Store, to: &mut Store) {
+        let (Store::Memory(from), Store::Memory(to)) = (from, to) else {
+            unreachable!("test uses in-memory stores")
+        };
+        let (_, envelopes) = from.fetch_since(0).unwrap();
+        for e in envelopes {
+            to.put(e).unwrap();
+        }
+    }
+}

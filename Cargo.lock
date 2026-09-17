@@ -3,101 +3,6 @@
 version = 4
 
 [[package]]
-name = "aegis-api"
-version = "0.0.0"
-dependencies = [
- "aegis-client",
- "aegis-crypto",
- "aegis-identity",
- "aegis-mailbox",
- "aegis-mix",
- "aegis-net",
- "aegis-relay",
- "aegis-session",
- "ciphra-net",
- "ciphra-storage",
-]
-
-[[package]]
-name = "aegis-client"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
- "aegis-identity",
- "aegis-mailbox",
- "aegis-session",
-]
-
-[[package]]
-name = "aegis-crypto"
-version = "0.0.0"
-
-[[package]]
-name = "aegis-identity"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
-]
-
-[[package]]
-name = "aegis-mailbox"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
- "aegis-identity",
- "aegis-session",
-]
-
-[[package]]
-name = "aegis-mix"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
- "aegis-identity",
- "aegis-mailbox",
- "aegis-net",
-]
-
-[[package]]
-name = "aegis-net"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
-]
-
-[[package]]
-name = "aegis-relay"
-version = "0.0.0"
-dependencies = [
- "aegis-client",
- "aegis-crypto",
- "aegis-mailbox",
- "ciphra-net",
- "ciphra-storage",
-]
-
-[[package]]
-name = "aegis-relay-server"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
- "aegis-mix",
- "aegis-net",
- "aegis-relay",
- "ciphra-crypto",
- "ciphra-net",
- "ciphra-storage",
-]
-
-[[package]]
-name = "aegis-session"
-version = "0.0.0"
-dependencies = [
- "aegis-crypto",
- "aegis-identity",
-]
-
-[[package]]
 name = "ciphra-crypto"
 version = "0.0.1"
 source = "git+https://github.com/monxley/ciphra?rev=b87e29b31a207501277c63ae023781fcf7c9d646#b87e29b31a207501277c63ae023781fcf7c9d646"
@@ -115,3 +20,98 @@ dependencies = [
 name = "ciphra-storage"
 version = "0.0.1"
 source = "git+https://github.com/monxley/ciphra?rev=b87e29b31a207501277c63ae023781fcf7c9d646#b87e29b31a207501277c63ae023781fcf7c9d646"
+
+[[package]]
+name = "shoal-api"
+version = "0.0.0"
+dependencies = [
+ "ciphra-net",
+ "ciphra-storage",
+ "shoal-client",
+ "shoal-crypto",
+ "shoal-identity",
+ "shoal-mailbox",
+ "shoal-mix",
+ "shoal-net",
+ "shoal-relay",
+ "shoal-session",
+]
+
+[[package]]
+name = "shoal-client"
+version = "0.0.0"
+dependencies = [
+ "shoal-crypto",
+ "shoal-identity",
+ "shoal-mailbox",
+ "shoal-session",
+]
+
+[[package]]
+name = "shoal-crypto"
+version = "0.0.0"
+
+[[package]]
+name = "shoal-identity"
+version = "0.0.0"
+dependencies = [
+ "shoal-crypto",
+]
+
+[[package]]
+name = "shoal-mailbox"
+version = "0.0.0"
+dependencies = [
+ "shoal-crypto",
+ "shoal-identity",
+ "shoal-session",
+]
+
+[[package]]
+name = "shoal-mix"
+version = "0.0.0"
+dependencies = [
+ "shoal-crypto",
+ "shoal-identity",
+ "shoal-mailbox",
+ "shoal-net",
+]
+
+[[package]]
+name = "shoal-net"
+version = "0.0.0"
+dependencies = [
+ "shoal-crypto",
+]
+
+[[package]]
+name = "shoal-relay"
+version = "0.0.0"
+dependencies = [
+ "ciphra-net",
+ "ciphra-storage",
+ "shoal-client",
+ "shoal-crypto",
+ "shoal-mailbox",
+]
+
+[[package]]
+name = "shoal-relay-server"
+version = "0.0.0"
+dependencies = [
+ "ciphra-crypto",
+ "ciphra-net",
+ "ciphra-storage",
+ "shoal-crypto",
+ "shoal-mix",
+ "shoal-net",
+ "shoal-relay",
+]
+
+[[package]]
+name = "shoal-session"
+version = "0.0.0"
+dependencies = [
+ "shoal-crypto",
+ "shoal-identity",
+]

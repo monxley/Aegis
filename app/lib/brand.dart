@@ -47,9 +47,9 @@ class BrandGlyph extends StatelessWidget {
 }
 
 /// The vertical mark + wordmark lockup, for the splash and onboarding.
-class AegisLockupVertical extends StatelessWidget {
+class ShoalLockupVertical extends StatelessWidget {
   final double width;
-  const AegisLockupVertical({super.key, this.width = 200});
+  const ShoalLockupVertical({super.key, this.width = 200});
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +95,7 @@ class _ProgressLineState extends State<ProgressLine>
 
   @override
   Widget build(BuildContext context) {
-    final reduced = AegisMotion.reduced(context);
+    final reduced = ShoalMotion.reduced(context);
     if (reduced) {
       _c.stop();
     } else if (!_c.isAnimating) {
@@ -108,8 +108,8 @@ class _ProgressLineState extends State<ProgressLine>
         label: 'Working',
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: AegisColor.border,
-            borderRadius: BorderRadius.circular(AegisRadius.xs),
+            color: ShoalColor.border,
+            borderRadius: BorderRadius.circular(ShoalRadius.xs),
           ),
           child: reduced
               // Static two-thirds bar: still reads as "in progress" without
@@ -140,8 +140,8 @@ class _ProgressLineState extends State<ProgressLine>
 
   Widget _bar() => DecoratedBox(
         decoration: BoxDecoration(
-          color: AegisColor.accent,
-          borderRadius: BorderRadius.circular(AegisRadius.xs),
+          color: ShoalColor.accent,
+          borderRadius: BorderRadius.circular(ShoalRadius.xs),
         ),
       );
 }
@@ -167,7 +167,7 @@ class UnlockProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = error ? AegisColor.danger : AegisColor.accent;
+    final color = error ? ShoalColor.danger : ShoalColor.accent;
     final pct = (progress.clamp(0.0, 1.0) * 100).round();
     return Semantics(
       label: error ? 'Unlock failed' : 'Unlocking, $pct percent',
@@ -183,7 +183,7 @@ class UnlockProgress extends StatelessWidget {
                 // Indeterminate only before work starts; determinate after.
                 value: progress <= 0 ? null : progress.clamp(0.0, 1.0),
                 strokeWidth: 2,
-                backgroundColor: AegisColor.border,
+                backgroundColor: ShoalColor.border,
                 valueColor: AlwaysStoppedAnimation(color),
                 strokeCap: StrokeCap.round,
               ),
@@ -191,7 +191,7 @@ class UnlockProgress extends StatelessWidget {
             Icon(
               error ? Icons.priority_high_rounded : Icons.lock_outline_rounded,
               size: size * 0.3,
-              color: error ? AegisColor.danger : AegisColor.textSecondary,
+              color: error ? ShoalColor.danger : ShoalColor.textSecondary,
             ),
           ],
         ),

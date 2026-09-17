@@ -1,14 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// A thin wrapper over local notifications. Aegis shows a notification when a
+/// A thin wrapper over local notifications. Shoal shows a notification when a
 /// message arrives (if the user enabled it) but never puts the message text in
 /// it — the body is generic, so nothing sensitive lands on the lock screen.
 class Notifications {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static bool _inited = false;
 
-  static const _channelId = 'aegis.messages';
+  static const _channelId = 'shoal.messages';
   static const _details = NotificationDetails(
     android: AndroidNotificationDetails(
       _channelId,

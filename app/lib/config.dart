@@ -9,17 +9,17 @@ import 'dart:io' show Platform;
 /// nodes without editing source:
 ///
 /// ```sh
-/// flutter build apk --dart-define=AEGIS_BOOTSTRAP=seed1.example:5078,seed2.example:5078
+/// flutter build apk --dart-define=SHOAL_BOOTSTRAP=seed1.example:5078,seed2.example:5078
 /// ```
 ///
 /// If none are compiled in and none is baked in below, the app asks the user for
 /// a node address on first run (Advanced → "mixnet node").
 ///
-/// A `--dart-define=AEGIS_BOOTSTRAP=…` overrides the built-in default; the
+/// A `--dart-define=SHOAL_BOOTSTRAP=…` overrides the built-in default; the
 /// default is the project's current seed node.
 const String _defaultBootstrap = '135.181.125.178:5078';
 const String _envBootstrap =
-    String.fromEnvironment('AEGIS_BOOTSTRAP', defaultValue: _defaultBootstrap);
+    String.fromEnvironment('SHOAL_BOOTSTRAP', defaultValue: _defaultBootstrap);
 
 List<String> get kBootstrapNodes => _envBootstrap.isEmpty
     ? const <String>[]

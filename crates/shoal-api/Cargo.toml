@@ -1,0 +1,23 @@
+[package]
+name = "shoal-api"
+description = "App-facing Shoal engine: identity, contacts, conversations — the API a UI (Flutter via flutter_rust_bridge) binds to"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shoal-client = { path = "../shoal-client" }
+shoal-identity = { path = "../shoal-identity" }
+shoal-session = { path = "../shoal-session" }
+shoal-mailbox = { path = "../shoal-mailbox" }
+shoal-relay = { path = "../shoal-relay" }
+shoal-mix = { path = "../shoal-mix" }
+shoal-crypto = { path = "../shoal-crypto" }
+
+[dev-dependencies]
+# For the `live_message` example and the mixnet integration test: run a Ciphra
+# blind server + mix nodes in-process so sends go over a real network.
+shoal-net = { path = "../shoal-net" }
+ciphra-net = { git = "https://github.com/monxley/ciphra", rev = "b87e29b31a207501277c63ae023781fcf7c9d646" }
+ciphra-storage = { git = "https://github.com/monxley/ciphra", rev = "b87e29b31a207501277c63ae023781fcf7c9d646" }

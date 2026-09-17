@@ -1,6 +1,6 @@
-# Aegis — Exact Cryptographic Mathematics
+# Shoal — Exact Cryptographic Mathematics
 
-Companion to [`AEGIS_PROTOCOL.md`](../AEGIS_PROTOCOL.md). This document states
+Companion to [`SHOAL_PROTOCOL.md`](../SHOAL_PROTOCOL.md). This document states
 the **precise** mathematics of every process: the group, the scalar/point
 operations, the KDF inputs byte-for-byte, correctness proofs, and the security
 assumption each step rests on. It is the reference the implementation is checked
@@ -77,7 +77,7 @@ $$
 \begin{aligned}
 R &= B^{r} && \text{(ephemeral public point, sent with the message)}\\
 S &= V^{r} = B^{vr} && \text{shared secret point} = \texttt{X25519}(r, V)\\
-\sigma &= \mathrm{HKDF}\!\big(\varnothing,\; S,\; \texttt{"aegis/addr/v1"} \mathbin\| R \mathbin\| V,\; 17\big)\\
+\sigma &= \mathrm{HKDF}\!\big(\varnothing,\; S,\; \texttt{"shoal/addr/v1"} \mathbin\| R \mathbin\| V,\; 17\big)\\
 \textbf{addr\_tag} &= \sigma[0..16] && \text{16-byte relay storage key}\\
 \textbf{view\_tag} &= \sigma[16] && \text{1-byte fast-reject}
 \end{aligned}
@@ -102,7 +102,7 @@ Scan procedure (cheap):
 
 ```
 S'      = X25519(v, R)
-σ'      = HKDF(∅, S', "aegis/addr/v1" ‖ R ‖ V, 17)
+σ'      = HKDF(∅, S', "shoal/addr/v1" ‖ R ‖ V, 17)
 if σ'[16] ≠ view_tag:   skip          # rejects ~255/256 of foreign msgs
 if σ'[0..16] = addr_tag: MINE
 ```
@@ -136,7 +136,7 @@ Each user $U$ holds:
 - $\mathrm{IK}^{\text{dh}}_U = (ik_U,\; \mathrm{IK}_U = B^{ik_U})$ — X25519 identity DH key.
 - view key $(v_U, V_U)$ from §1.
 
-The **Aegis ID** commits to the triple
+The **Shoal ID** commits to the triple
 $\big(\mathrm{IK}^{\text{sig}}_U,\ \mathrm{IK}_U,\ V_U\big)$ (checksummed
 encoding), so all three are bound to one identity.
 
@@ -175,12 +175,12 @@ Key derivation, with the X3DH domain-separation prefix $F = \texttt{0xFF}^{32}$:
 $$
 \begin{aligned}
 \mathrm{IKM} &= F \mathbin\| \mathrm{DH}_1 \mathbin\| \mathrm{DH}_2 \mathbin\| \mathrm{DH}_3 \mathbin\| \mathrm{DH}_4 \mathbin\| \mathrm{SS} \\
-\mathrm{SK}  &= \mathrm{HKDF}\big(\text{salt}=0^{32},\ \mathrm{IKM},\ \texttt{"aegis/pqxdh/v1"},\ 32\big).
+\mathrm{SK}  &= \mathrm{HKDF}\big(\text{salt}=0^{32},\ \mathrm{IKM},\ \texttt{"shoal/pqxdh/v1"},\ 32\big).
 \end{aligned}
 $$
 
 (If no one-time prekey is available, $\mathrm{DH}_4$ is omitted from $\mathrm{IKM}$;
-the string `"aegis/pqxdh/v1-noopk"` is used instead so the two cases can never
+the string `"shoal/pqxdh/v1-noopk"` is used instead so the two cases can never
 collide.)
 
 The first message carries $\big(\mathrm{IK}_A,\ \mathrm{EK}_A,\ \mathrm{CT},\
@@ -237,7 +237,7 @@ keys.
 and a DH output $d$:
 
 $$
-\mathrm{KDF_{RK}}(\mathrm{RK}, d) = \mathrm{HKDF}\big(\text{salt}=\mathrm{RK},\ \text{ikm}=d,\ \texttt{"aegis/ratchet/root"},\ 64\big),
+\mathrm{KDF_{RK}}(\mathrm{RK}, d) = \mathrm{HKDF}\big(\text{salt}=\mathrm{RK},\ \text{ikm}=d,\ \texttt{"shoal/ratchet/root"},\ 64\big),
 $$
 
 split as $\mathrm{RK}' = \text{out}[0..32]$, $\mathrm{CK} = \text{out}[32..64]$.
@@ -259,7 +259,7 @@ one-way.
 **Message key expansion** to ChaCha20-Poly1305 material:
 
 $$
-\mathrm{HKDF}(\varnothing,\ \mathrm{mk},\ \texttt{"aegis/ratchet/msg"},\ 44)
+\mathrm{HKDF}(\varnothing,\ \mathrm{mk},\ \texttt{"shoal/ratchet/msg"},\ 44)
 \;\to\; (\underbrace{k}_{32},\ \underbrace{n}_{12}).
 $$
 
@@ -296,7 +296,7 @@ $$
 
 ```
 mk       = MAC_{CK_s}(0x01) ; CK_s = MAC_{CK_s}(0x02)
-(k, n)   = HKDF(∅, mk, "aegis/ratchet/msg", 44)
+(k, n)   = HKDF(∅, mk, "shoal/ratchet/msg", 44)
 ct       = AEAD_k(n, ad = h, pt = m)
 send (h, ct) ; N_s += 1
 ```
@@ -322,7 +322,7 @@ without breaking the chain; keys are deleted once used (or on TTL).
 ## 4. Post-quantum ratchet (KEM re-encapsulation)
 
 A pure X25519 DH ratchet is not post-quantum for the *ongoing* conversation.
-Following Signal's SPQR, Aegis mixes an ML-KEM shared secret into the root KDF
+Following Signal's SPQR, Shoal mixes an ML-KEM shared secret into the root KDF
 periodically.
 
 ### 4.1 Augmented ratchet keys
@@ -358,7 +358,7 @@ post-quantum confidential. Cost: one ~1 KB ciphertext per cadence epoch.
 
 > Production refinement (SPQR): the KEM ciphertext is large, so Signal chunks it
 > across several messages and runs the KEM ratchet at its own slower cadence
-> than the DH ratchet. Aegis adopts the same chunking once the basic mix works;
+> than the DH ratchet. Shoal adopts the same chunking once the basic mix works;
 > the *mathematics* above is unchanged — only the scheduling of when $d^{+}$
 > gains its KEM term.
 
@@ -390,7 +390,7 @@ $$
 b_i = H_b(\alpha_i, s_i)\bmod\ell,
 $$
 
-where $H_\ast(\cdot) = \mathrm{HKDF}(\varnothing,\ \cdot,\ \texttt{"aegis/sphinx/}\ast\texttt{"},\ L_\ast)$
+where $H_\ast(\cdot) = \mathrm{HKDF}(\varnothing,\ \cdot,\ \texttt{"shoal/sphinx/}\ast\texttt{"},\ L_\ast)$
 and $b_i$ is a **blinding scalar**. ($\rho$ keys a stream cipher over the header,
 $\mu$ a MAC, $\pi$ the payload cipher.)
 
@@ -535,7 +535,7 @@ private integrity signal on the network.
 ### 6.4 The tunable
 
 Anonymity scales with $\lambda$ (more cover) and $1/\mu$ (more delay); latency
-and bandwidth scale the same way. Aegis exposes:
+and bandwidth scale the same way. Shoal exposes:
 
 - **fast** — Sphinx routing only, $\mu \to \infty$ (no added delay), minimal
   cover. Low latency, resists per-hop linking but not a both-ends timing

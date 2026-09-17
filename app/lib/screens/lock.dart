@@ -13,7 +13,7 @@ import '../widgets.dart';
 /// beat, the unlock is shown as a live progress ring around the lock glyph that
 /// fills as the key is derived and blooms into the open shield on success.
 class LockScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final VoidCallback onUnlocked;
   final VoidCallback onWiped;
   const LockScreen({
@@ -159,7 +159,7 @@ class _LockScreenState extends State<LockScreen>
                   _busy ? 'Unlocking' : 'Locked',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: AegisColor.textPrimary,
+                    color: ShoalColor.textPrimary,
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
                   ),
@@ -172,7 +172,7 @@ class _LockScreenState extends State<LockScreen>
                           'password to unlock it.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: AegisColor.textSecondary,
+                    color: ShoalColor.textSecondary,
                     fontSize: 13,
                     height: 1.4,
                   ),
@@ -192,13 +192,13 @@ class _LockScreenState extends State<LockScreen>
                           autofocus: true,
                           obscureText: true,
                           enabled: !_busy,
-                          style: const TextStyle(color: AegisColor.textPrimary),
+                          style: const TextStyle(color: ShoalColor.textPrimary),
                           textInputAction: TextInputAction.go,
                           onSubmitted: (_) => _unlock(),
                           decoration: InputDecoration(
                             hintText: 'Password',
                             prefixIcon: const Icon(Icons.lock_rounded,
-                                color: AegisColor.textSecondary),
+                                color: ShoalColor.textSecondary),
                             errorText: _errorText,
                           ),
                         ),
@@ -214,8 +214,8 @@ class _LockScreenState extends State<LockScreen>
                             icon: const Icon(Icons.fingerprint_rounded, size: 20),
                             label: const Text('Unlock with biometrics'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: AegisColor.textPrimary,
-                              side: const BorderSide(color: AegisColor.surfaceElevated),
+                              foregroundColor: ShoalColor.textPrimary,
+                              side: const BorderSide(color: ShoalColor.surfaceElevated),
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               minimumSize: const Size.fromHeight(0),
                             ),
@@ -232,7 +232,7 @@ class _LockScreenState extends State<LockScreen>
                   'device. You can reinstall and start a new identity.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: AegisColor.textSecondary,
+                    color: ShoalColor.textSecondary,
                     fontSize: 11,
                     height: 1.4,
                   ),

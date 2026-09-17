@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'src/rust/api/aegis.dart';
+import 'src/rust/api/shoal.dart';
 
 /// A newer release found on GitHub.
 class UpdateInfo {
@@ -30,7 +30,7 @@ class UpdateInfo {
   });
 }
 
-/// Checks the project's GitHub releases for a newer build. Aegis is sideloaded
+/// Checks the project's GitHub releases for a newer build. Shoal is sideloaded
 /// (no Play Store), and its protocol/node can change in ways that break older
 /// clients — so an available update is surfaced prominently, not silently.
 class Updater {

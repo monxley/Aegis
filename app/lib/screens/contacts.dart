@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../design/responsive.dart';
 import '../engine.dart';
-import '../src/rust/api/aegis.dart';
+import '../src/rust/api/shoal.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'add_contact.dart';
@@ -11,20 +11,20 @@ import 'chat.dart';
 
 /// The people you can talk to, as a directory rather than as a timeline.
 ///
-/// In Aegis a contact *is* a conversation — there is no separate address book —
+/// In Shoal a contact *is* a conversation — there is no separate address book —
 /// so this and the chat list draw on the same `engine.contacts()`. They are not
 /// the same view of it, and that difference is the point of having both:
 ///
 ///   Chats     ordered by what happened last, showing the last message.
 ///             The question is "what is going on".
-///   Contacts  ordered alphabetically, showing who someone *is* — their Aegis
+///   Contacts  ordered alphabetically, showing who someone *is* — their Shoal
 ///             ID, whether they are blocked. The question is "who do I have",
 ///             which a busy timeline answers badly.
 ///
 /// Anyone you have ever added is here, including people you have never
 /// exchanged a message with, who never appear near the top of a chat list.
 class ContactsScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const ContactsScreen({super.key, required this.engine});
 
   @override
@@ -35,7 +35,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   final TextEditingController _filter = TextEditingController();
   bool _searching = false;
 
-  AegisEngineController get engine => widget.engine;
+  ShoalEngineController get engine => widget.engine;
 
   @override
   void dispose() {
@@ -53,7 +53,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         : all
             .where((c) =>
                 c.name.toLowerCase().contains(query) ||
-                c.aegisId.toLowerCase().contains(query))
+                c.shoalId.toLowerCase().contains(query))
             .toList();
 
     final sorted = [...visible]
@@ -85,12 +85,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ? TextField(
                 controller: _filter,
                 autofocus: true,
-                style: AegisType.body,
+                style: ShoalType.body,
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(
                   hintText: 'Search contacts',
                   border: InputBorder.none,
-                  hintStyle: TextStyle(color: AegisColor.textMuted),
+                  hintStyle: TextStyle(color: ShoalColor.textMuted),
                 ),
               )
             : const Text('Contacts'),
@@ -98,7 +98,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           IconButton(
             tooltip: _searching ? 'Close search' : 'Search',
             icon: Icon(_searching ? Icons.close_rounded : Icons.search_rounded,
-                color: AegisColor.textPrimary),
+                color: ShoalColor.textPrimary),
             onPressed: () => setState(() {
               _searching = !_searching;
               if (!_searching) _filter.clear();
@@ -115,7 +115,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           if (groups.isEmpty) {
             return Center(
               child: Text('Nobody matches “${_filter.text.trim()}”.',
-                  style: AegisType.secondary),
+                  style: ShoalType.secondary),
             );
           }
           return ReadingColumn(
@@ -129,10 +129,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(
-                          AegisSpace.s4, AegisSpace.s4, AegisSpace.s4, AegisSpace.s1),
+                          ShoalSpace.s4, ShoalSpace.s4, ShoalSpace.s4, ShoalSpace.s1),
                       child: Text(letter,
-                          style: AegisType.meta.copyWith(
-                              color: AegisColor.accent,
+                          style: ShoalType.meta.copyWith(
+                              color: ShoalColor.accent,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 1.2)),
                     ),
@@ -146,8 +146,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: AegisColor.accent,
-        foregroundColor: AegisColor.textOnAccent,
+        backgroundColor: ShoalColor.accent,
+        foregroundColor: ShoalColor.textOnAccent,
         tooltip: 'Add contact',
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => AddContactScreen(engine: engine)),
@@ -159,10 +159,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
 }
 
 /// One person. Shows who they are rather than what they last said: the name,
-/// and a shortened Aegis ID, which is the only thing that actually identifies
+/// and a shortened Shoal ID, which is the only thing that actually identifies
 /// them — names are local labels you chose and can be changed by you alone.
 class _ContactRow extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final Contact contact;
   const _ContactRow({required this.engine, required this.contact});
 
@@ -177,7 +177,7 @@ class _ContactRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: '${contact.name}. Shoal ID ${shortId(contact.aegisId)}',
+      label: '${contact.name}. Shoal ID ${shortId(contact.shoalId)}',
       excludeSemantics: true,
       child: InkWell(
         onTap: () => Navigator.of(context).push(
@@ -188,11 +188,11 @@ class _ContactRow extends StatelessWidget {
         onLongPress: () => _actions(context),
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+              horizontal: ShoalSpace.s4, vertical: ShoalSpace.s3),
           child: Row(
             children: [
               ContactAvatar(name: contact.name),
-              const SizedBox(width: AegisSpace.s3),
+              const SizedBox(width: ShoalSpace.s3),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -203,28 +203,28 @@ class _ContactRow extends StatelessWidget {
                         Flexible(
                           child: Text(contact.name,
                               overflow: TextOverflow.ellipsis,
-                              style: AegisType.heading),
+                              style: ShoalType.heading),
                         ),
                         if (contact.blocked) ...[
-                          const SizedBox(width: AegisSpace.s1),
+                          const SizedBox(width: ShoalSpace.s1),
                           const Icon(Icons.block_rounded,
-                              size: 12, color: AegisColor.danger),
+                              size: 12, color: ShoalColor.danger),
                         ],
                       ],
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      shortId(contact.aegisId),
-                      style: AegisType.meta.copyWith(
+                      shortId(contact.shoalId),
+                      style: ShoalType.meta.copyWith(
                           fontFamily: 'monospace',
-                          color: AegisColor.textMuted),
+                          color: ShoalColor.textMuted),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
               const Icon(Icons.chevron_right_rounded,
-                  size: 18, color: AegisColor.textMuted),
+                  size: 18, color: ShoalColor.textMuted),
             ],
           ),
         ),
@@ -235,14 +235,14 @@ class _ContactRow extends StatelessWidget {
   void _actions(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
               leading: const Icon(Icons.chat_bubble_outline_rounded,
-                  color: AegisColor.textPrimary),
+                  color: ShoalColor.textPrimary),
               title: const Text('Message'),
               onTap: () {
                 Navigator.of(sheet).pop();
@@ -253,12 +253,12 @@ class _ContactRow extends StatelessWidget {
             ),
             ListTile(
               leading: const Icon(Icons.copy_rounded,
-                  color: AegisColor.textPrimary),
+                  color: ShoalColor.textPrimary),
               title: const Text('Copy Shoal ID'),
               onTap: () async {
                 Navigator.of(sheet).pop();
                 await Clipboard.setData(
-                    ClipboardData(text: contact.aegisId));
+                    ClipboardData(text: contact.shoalId));
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Shoal ID copied')),
@@ -272,10 +272,10 @@ class _ContactRow extends StatelessWidget {
             // the difference between a feature that exists and one that is used.
             ListTile(
               leading: const Icon(Icons.verified_user_outlined,
-                  color: AegisColor.textPrimary),
+                  color: ShoalColor.textPrimary),
               title: const Text('Safety number'),
               subtitle: const Text('Compare in person or over another channel',
-                  style: TextStyle(color: AegisColor.textMuted, fontSize: 12)),
+                  style: TextStyle(color: ShoalColor.textMuted, fontSize: 12)),
               onTap: () {
                 Navigator.of(sheet).pop();
                 _showSafetyNumber(context);
@@ -286,10 +286,10 @@ class _ContactRow extends StatelessWidget {
                   contact.blocked
                       ? Icons.lock_open_rounded
                       : Icons.block_rounded,
-                  color: AegisColor.danger),
+                  color: ShoalColor.danger),
               title: Text(contact.blocked ? 'Unblock' : 'Block'),
               onTap: () {
-                engine.setBlocked(contact.aegisId, !contact.blocked);
+                engine.setBlocked(contact.shoalId, !contact.blocked);
                 Navigator.of(sheet).pop();
               },
             ),
@@ -300,11 +300,11 @@ class _ContactRow extends StatelessWidget {
   }
 
   void _showSafetyNumber(BuildContext context) {
-    final number = engine.safetyNumber(contact.aegisId);
+    final number = engine.safetyNumber(contact.shoalId);
     showDialog<void>(
       context: context,
       builder: (dialog) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: Text('Safety number with ${contact.name}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -315,14 +315,14 @@ class _ContactRow extends StatelessWidget {
               style: const TextStyle(
                   fontFamily: 'monospace', fontSize: 16, height: 1.6),
             ),
-            const SizedBox(height: AegisSpace.s3),
+            const SizedBox(height: ShoalSpace.s3),
             const Text(
               'If this matches on both devices, nobody is sitting between you. '
               'Compare it in person or over a channel you already trust — '
               'reading it out over this chat proves nothing, because that is '
               'the channel in question.',
               style: TextStyle(
-                  color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                  color: ShoalColor.textSecondary, fontSize: 13, height: 1.4),
             ),
           ],
         ),
@@ -344,23 +344,23 @@ class _NoContactsYet extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Center(
       child: Padding(
-        padding: EdgeInsets.all(AegisSpace.s6),
+        padding: EdgeInsets.all(ShoalSpace.s6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.people_outline_rounded,
-                size: 48, color: AegisColor.textMuted),
-            SizedBox(height: AegisSpace.s4),
+                size: 48, color: ShoalColor.textMuted),
+            SizedBox(height: ShoalSpace.s4),
             Text('No contacts yet',
-                style: AegisType.heading, textAlign: TextAlign.center),
-            SizedBox(height: AegisSpace.s2),
+                style: ShoalType.heading, textAlign: TextAlign.center),
+            SizedBox(height: ShoalSpace.s2),
             Text(
               'Add someone by their Shoal ID, or share yours so they can add '
               'you. There is no directory to search and no phone number to '
               'look up — that is the point.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: AegisColor.textSecondary, fontSize: 13, height: 1.5),
+                  color: ShoalColor.textSecondary, fontSize: 13, height: 1.5),
             ),
           ],
         ),

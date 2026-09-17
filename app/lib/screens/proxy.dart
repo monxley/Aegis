@@ -8,7 +8,7 @@ import '../widgets.dart';
 /// (Orbot on Android), so both share one mechanism; the user picks off, Tor, or
 /// a custom SOCKS5 endpoint.
 class ProxyScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const ProxyScreen({super.key, required this.engine});
 
   @override
@@ -77,7 +77,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
             'both honour it. Tor routes over the Tor network (via Orbot); SOCKS5 '
             'uses any proxy you run. If the proxy isn’t reachable, the app can’t '
             'connect until it is.',
-            style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.45),
+            style: TextStyle(color: ShoalColor.textSecondary, fontSize: 13, height: 1.45),
           ),
           const SizedBox(height: 16),
           _option('off', 'Off', 'Connect directly (no proxy).'),
@@ -102,15 +102,15 @@ class _ProxyScreenState extends State<ProxyScreen> {
               contentPadding: EdgeInsets.zero,
               value: _torFirst,
               onChanged: _busy ? null : (v) => setState(() => _torFirst = v),
-              activeThumbColor: AegisColor.accent,
+              activeThumbColor: ShoalColor.accent,
               title: Text(
                 _torFirst ? 'Order: app → Tor → SOCKS5' : 'Order: app → SOCKS5 → Tor',
-                style: const TextStyle(color: AegisColor.textPrimary, fontSize: 14),
+                style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 14),
               ),
               subtitle: const Text(
                 'If Tor is Orbot on this phone, put Tor first — a remote SOCKS5 '
                 'can’t reach your local Tor.',
-                style: TextStyle(color: AegisColor.textSecondary, fontSize: 11.5, height: 1.35),
+                style: TextStyle(color: ShoalColor.textSecondary, fontSize: 11.5, height: 1.35),
               ),
             ),
           ],
@@ -136,10 +136,10 @@ class _ProxyScreenState extends State<ProxyScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AegisColor.surface,
+          color: ShoalColor.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected ? AegisColor.accent : AegisColor.surfaceElevated,
+            color: selected ? ShoalColor.accent : ShoalColor.surfaceElevated,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -148,7 +148,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
           children: [
             Icon(
               selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-              color: selected ? AegisColor.accent : AegisColor.textSecondary,
+              color: selected ? ShoalColor.accent : ShoalColor.textSecondary,
               size: 22,
             ),
             const SizedBox(width: 12),
@@ -158,13 +158,13 @@ class _ProxyScreenState extends State<ProxyScreen> {
                 children: [
                   Text(title,
                       style: const TextStyle(
-                          color: AegisColor.textPrimary,
+                          color: ShoalColor.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 3),
                   Text(subtitle,
                       style: const TextStyle(
-                          color: AegisColor.textSecondary, fontSize: 12.5, height: 1.35)),
+                          color: ShoalColor.textSecondary, fontSize: 12.5, height: 1.35)),
                 ],
               ),
             ),
@@ -180,7 +180,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
       controller: c,
       enabled: !_busy,
       obscureText: obscure,
-      style: const TextStyle(color: AegisColor.textPrimary, fontSize: 14),
+      style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 14),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,

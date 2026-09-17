@@ -9,7 +9,7 @@ import 'package:record_platform_interface/record_platform_interface.dart';
 /// unconditionally, so the broken file is compiled into the **Android** kernel
 /// snapshot too, and the release APK cannot be built at all.
 ///
-/// Aegis does not record audio on Linux desktop, so a backend that refuses is
+/// Shoal does not record audio on Linux desktop, so a backend that refuses is
 /// no loss. What it must not do is pretend: every call throws, rather than
 /// silently returning an empty recording that the user would discover only
 /// after trying to send it.

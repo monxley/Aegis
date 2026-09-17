@@ -1,0 +1,16 @@
+[package]
+name = "shoal-mailbox"
+description = "Shoal blind store-and-forward delivery: sealed-sender envelopes over stealth addressing (Phase 2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shoal-crypto = { path = "../shoal-crypto" }
+shoal-identity = { path = "../shoal-identity" }
+
+[dev-dependencies]
+# Integration tests that carry a real Double Ratchet message through the
+# mailbox. Not a runtime dependency.
+shoal-session = { path = "../shoal-session" }

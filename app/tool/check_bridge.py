@@ -4,8 +4,8 @@
 The generated bindings in `app/lib/src/rust/` are produced by
 `flutter_rust_bridge_codegen` on the build machine and are gitignored, so
 `dart analyze` cannot type-check anything that crosses the bridge here. This
-script covers the gap it leaves: it parses the `impl AegisEngine` block in
-`app/rust/src/api/aegis.rs`, works out the Dart signature codegen will emit for
+script covers the gap it leaves: it parses the `impl ShoalEngine` block in
+`app/rust/src/api/shoal.rs`, works out the Dart signature codegen will emit for
 each method, and checks every `_engine`/`engine` call in the Dart against it.
 
 It catches the mistakes that are otherwise only found on a device:
@@ -24,10 +24,10 @@ import re
 import sys
 from pathlib import Path
 
-RUST_API = Path("rust/src/api/aegis.rs")
+RUST_API = Path("rust/src/api/shoal.rs")
 DART_ROOT = Path("lib")
 
-# Only `AegisEngineController` holds the bridge handle; everywhere else in the
+# Only `ShoalEngineController` holds the bridge handle; everywhere else in the
 # app `engine` means the controller, whose wrappers have their own signatures.
 # So the scan is limited to the file that owns the handle, and to the receivers
 # that actually are it.
@@ -79,7 +79,7 @@ def parse_rust() -> dict[str, dict]:
     src = RUST_API.read_text()
     # Only the methods on the engine handle; free functions are called
     # differently and are not what the Dart call sites below reference.
-    start = src.index("impl AegisEngine")
+    start = src.index("impl ShoalEngine")
     body = src[start:]
 
     methods: dict[str, dict] = {}

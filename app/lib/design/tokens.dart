@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-/// Aegis design tokens.
+/// Shoal design tokens.
 ///
 /// One source of truth for colour, type, space, radius, elevation and motion.
 /// Nothing in the app should hard-code a hex value, a padding number or an
@@ -27,8 +27,8 @@ import 'package:flutter/widgets.dart';
 /// affirmative state. Meaning is never carried by hue alone — every coloured
 /// state is paired with an icon or a label, so it survives colour-blindness and
 /// greyscale.
-class AegisColor {
-  const AegisColor._();
+class ShoalColor {
+  const ShoalColor._();
 
   // Ground and surfaces.
   static const background = Color(0xFF0E1013);
@@ -68,8 +68,8 @@ class AegisColor {
 
 /// A 4px-based spacing scale. Using a scale rather than arbitrary numbers is
 /// what makes unrelated screens feel like one product.
-class AegisSpace {
-  const AegisSpace._();
+class ShoalSpace {
+  const ShoalSpace._();
 
   static const double s1 = 4;
   static const double s2 = 8;
@@ -89,8 +89,8 @@ class AegisSpace {
 
 /// Corner radii. Deliberately modest: oversized radii read as "friendly app
 /// template" and undercut the precision this product is trying to convey.
-class AegisRadius {
-  const AegisRadius._();
+class ShoalRadius {
+  const ShoalRadius._();
 
   /// Chips, tags, small controls.
   static const double xs = 4;
@@ -117,8 +117,8 @@ class AegisRadius {
 /// Cryptographic material — fingerprints, identity strings, algorithm names —
 /// is the *only* thing set in mono. That makes "this is exact, verifiable data"
 /// a visual signal rather than a decorative choice.
-class AegisType {
-  const AegisType._();
+class ShoalType {
+  const ShoalType._();
 
   static const String mono = 'monospace';
 
@@ -128,7 +128,7 @@ class AegisType {
     height: 1.25,
     fontWeight: FontWeight.w600,
     letterSpacing: -0.2,
-    color: AegisColor.textPrimary,
+    color: ShoalColor.textPrimary,
   );
 
   /// Section headings and conversation names.
@@ -137,7 +137,7 @@ class AegisType {
     height: 1.3,
     fontWeight: FontWeight.w600,
     letterSpacing: -0.1,
-    color: AegisColor.textPrimary,
+    color: ShoalColor.textPrimary,
   );
 
   /// Message text and primary reading copy.
@@ -145,7 +145,7 @@ class AegisType {
     fontSize: 15,
     height: 1.45,
     fontWeight: FontWeight.w400,
-    color: AegisColor.textPrimary,
+    color: ShoalColor.textPrimary,
   );
 
   /// Supporting copy, previews, descriptions.
@@ -153,7 +153,7 @@ class AegisType {
     fontSize: 13,
     height: 1.4,
     fontWeight: FontWeight.w400,
-    color: AegisColor.textSecondary,
+    color: ShoalColor.textSecondary,
   );
 
   /// Metadata: timestamps, counts, state.
@@ -164,7 +164,7 @@ class AegisType {
     fontSize: 11,
     height: 1.2,
     fontWeight: FontWeight.w500,
-    color: AegisColor.textMuted,
+    color: ShoalColor.textMuted,
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
@@ -174,7 +174,7 @@ class AegisType {
     height: 1.2,
     fontWeight: FontWeight.w600,
     letterSpacing: 0.8,
-    color: AegisColor.textMuted,
+    color: ShoalColor.textMuted,
   );
 
   /// Cryptographic material only.
@@ -182,7 +182,7 @@ class AegisType {
     fontFamily: mono,
     fontSize: 13,
     height: 1.5,
-    color: AegisColor.textPrimary,
+    color: ShoalColor.textPrimary,
     letterSpacing: 0.4,
   );
 }
@@ -194,8 +194,8 @@ class AegisType {
 /// Elevation is expressed as a surface step plus a hairline; shadows are used
 /// only where something genuinely floats above the page (sheets, menus), and
 /// even then they stay soft and low-contrast.
-class AegisElevation {
-  const AegisElevation._();
+class ShoalElevation {
+  const ShoalElevation._();
 
   static const List<BoxShadow> none = [];
 
@@ -220,11 +220,11 @@ class AegisElevation {
 /// fast enough to never sit between the user and their next action: nothing in
 /// a common path exceeds [medium].
 ///
-/// Every duration goes through [AegisMotion.of], which collapses motion to zero
+/// Every duration goes through [ShoalMotion.of], which collapses motion to zero
 /// when the platform reports "reduce motion". That is an accessibility
 /// requirement, not a preference.
-class AegisMotion {
-  const AegisMotion._();
+class ShoalMotion {
+  const ShoalMotion._();
 
   /// Press feedback, icon swaps, hovers.
   static const Duration fast = Duration(milliseconds: 120);
@@ -263,8 +263,8 @@ class AegisMotion {
 /// the other: below [wide] the app is a single column with one screen at a
 /// time; at or above it, the conversation list and the open conversation sit
 /// side by side.
-class AegisLayout {
-  const AegisLayout._();
+class ShoalLayout {
+  const ShoalLayout._();
 
   /// Phone → large phone / small tablet.
   static const double medium = 600;

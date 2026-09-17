@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an F-Droid repository out of already-signed Aegis APKs.
+# Build an F-Droid repository out of already-signed Shoal APKs.
 #
 #   deploy/fdroid-repo.sh <apk-dir> <output-dir>
 #
@@ -99,8 +99,8 @@ log "building a repository from ${#apks[@]} APK(s)"
 ( umask 077
   cat > "$WORK/config.yml" <<YAML
 repo_url: "$REPO_URL"
-repo_name: "Aegis"
-repo_description: "Official releases of Aegis, the anonymous post-quantum messenger. Signed with the same key as the APKs on GitHub."
+repo_name: "Shoal"
+repo_description: "Official releases of Shoal, the anonymous post-quantum messenger. Signed with the same key as the APKs on GitHub."
 repo_icon: "icon.png"
 archive_older: 0
 keystore: "$(cd "$(dirname "$KEYSTORE")" && pwd)/$(basename "$KEYSTORE")"
@@ -179,8 +179,8 @@ cat > "$OUT/index.html" <<HTML
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aegis on F-Droid</title>
-<meta name="description" content="Add the Aegis F-Droid repository to get signed updates without Google Play.">
+<title>Shoal on F-Droid</title>
+<meta name="description" content="Add the Shoal F-Droid repository to get signed updates without Google Play.">
 <link rel="canonical" href="https://monxley.github.io/Aegis/fdroid/">
 <link rel="stylesheet" href="../assets/site.css">
 </head>
@@ -189,7 +189,7 @@ cat > "$OUT/index.html" <<HTML
 <section class="hero">
 <p class="kicker">F-Droid</p>
 <h1>Updates without a store account</h1>
-<p class="lead">Add this repository in the F-Droid app and Aegis updates like any
+<p class="lead">Add this repository in the F-Droid app and Shoal updates like any
 other app on your phone. Every build is signed with the same key as the APKs on
 GitHub, so you can move between the two without reinstalling.</p>
 <pre><code>${REPO_URL}?fingerprint=${CERT_FP}</code></pre>
@@ -197,9 +197,9 @@ GitHub, so you can move between the two without reinstalling.</p>
 the repository: if it ever differs, the repository is not this one. Compare it
 with the certificate on any release APK &mdash;
 <code>apksigner verify --print-certs</code> prints the same value.</p>
-<p class="cta"><a class="btn primary" href="../">Aegis</a>
+<p class="cta"><a class="btn primary" href="../">Shoal</a>
 <a class="btn" href="https://github.com/monxley/Aegis">Source</a></p>
-<aside class="alpha"><strong>Alpha software.</strong> Aegis has not had an
+<aside class="alpha"><strong>Alpha software.</strong> Shoal has not had an
 external security audit. The protocol and its implementation may contain flaws.</aside>
 </section>
 </main>

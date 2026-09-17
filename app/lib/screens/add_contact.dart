@@ -6,10 +6,10 @@ import '../share.dart';
 import '../theme.dart';
 import '../widgets.dart';
 
-/// Add a contact by pasting their Aegis share code (`aegis:…#…`), which carries
-/// both the Aegis ID and the prekey bundle.
+/// Add a contact by pasting their Shoal share code (`shoal:…#…`), which carries
+/// both the Shoal ID and the prekey bundle.
 class AddContactScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const AddContactScreen({super.key, required this.engine});
 
   @override
@@ -43,7 +43,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
       final share = ShareCode.decode(_code.text);
       widget.engine.addContact(
         name: name,
-        aegisId: share.aegisId,
+        shoalId: share.shoalId,
         bundle: share.bundle,
       );
       Navigator.of(context).pop();
@@ -66,11 +66,11 @@ class _AddContactScreenState extends State<AddContactScreen> {
               const SizedBox(height: 8),
               const _HowItWorks(),
               const SizedBox(height: 18),
-              const Text('Name', style: TextStyle(color: AegisColor.textSecondary)),
+              const Text('Name', style: TextStyle(color: ShoalColor.textSecondary)),
               const SizedBox(height: 8),
               TextField(
                 controller: _name,
-                style: const TextStyle(color: AegisColor.textPrimary),
+                style: const TextStyle(color: ShoalColor.textPrimary),
                 decoration: const InputDecoration(hintText: 'e.g. Alice'),
               ),
               const SizedBox(height: 20),
@@ -78,13 +78,13 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Shoal code',
-                      style: TextStyle(color: AegisColor.textSecondary)),
+                      style: TextStyle(color: ShoalColor.textSecondary)),
                   TextButton.icon(
                     onPressed: _paste,
                     icon: const Icon(Icons.content_paste_rounded, size: 18),
                     label: const Text('Paste'),
                     style: TextButton.styleFrom(
-                      foregroundColor: AegisColor.accent,
+                      foregroundColor: ShoalColor.accent,
                     ),
                   ),
                 ],
@@ -93,7 +93,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
               TextField(
                 controller: _code,
                 style: const TextStyle(
-                  color: AegisColor.textPrimary,
+                  color: ShoalColor.textPrimary,
                   fontFamily: 'monospace',
                   fontSize: 13,
                 ),
@@ -107,7 +107,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 const SizedBox(height: 12),
                 Text(
                   _error!,
-                  style: const TextStyle(color: AegisColor.danger),
+                  style: const TextStyle(color: ShoalColor.danger),
                 ),
               ],
               const SizedBox(height: 28),
@@ -128,8 +128,8 @@ class _AddContactScreenState extends State<AddContactScreen> {
 
 /// What a share code is, and why both people need one.
 ///
-/// This screen used to show a field labelled "Aegis code" and a hint reading
-/// `aegis:…#…`, which tells someone who already knows how it works exactly
+/// This screen used to show a field labelled "Shoal code" and a hint reading
+/// `shoal:…#…`, which tells someone who already knows how it works exactly
 /// nothing they did not know, and everyone else nothing at all.
 ///
 /// The exchange is genuinely two-way and the code says so: `send()` looks the
@@ -151,29 +151,29 @@ class _HowItWorksState extends State<_HowItWorks> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AegisColor.surface,
-        borderRadius: BorderRadius.circular(AegisRadius.md),
-        border: Border.all(color: AegisColor.border),
+        color: ShoalColor.surface,
+        borderRadius: BorderRadius.circular(ShoalRadius.md),
+        border: Border.all(color: ShoalColor.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(AegisRadius.md),
+            borderRadius: BorderRadius.circular(ShoalRadius.md),
             onTap: () => setState(() => _open = !_open),
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
                   const Icon(Icons.swap_horiz_rounded,
-                      size: 18, color: AegisColor.accent),
+                      size: 18, color: ShoalColor.accent),
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text('How adding someone works',
-                        style: AegisType.heading),
+                        style: ShoalType.heading),
                   ),
                   Icon(_open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                      size: 20, color: AegisColor.textMuted),
+                      size: 20, color: ShoalColor.textMuted),
                 ],
               ),
             ),
@@ -252,11 +252,11 @@ class _Step extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: AegisColor.accent.withValues(alpha: 0.5)),
+              border: Border.all(color: ShoalColor.accent.withValues(alpha: 0.5)),
             ),
             child: Text(n,
                 style: const TextStyle(
-                    color: AegisColor.accent,
+                    color: ShoalColor.accent,
                     fontSize: 11,
                     fontWeight: FontWeight.w700)),
           ),
@@ -267,13 +267,13 @@ class _Step extends StatelessWidget {
               children: [
                 Text(title,
                     style: const TextStyle(
-                        color: AegisColor.textPrimary,
+                        color: ShoalColor.textPrimary,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600)),
                 const SizedBox(height: 3),
                 Text(body,
                     style: const TextStyle(
-                        color: AegisColor.textSecondary,
+                        color: ShoalColor.textSecondary,
                         fontSize: 13,
                         height: 1.45)),
               ],

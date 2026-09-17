@@ -17,7 +17,7 @@ class SecureStore {
   static const FlutterSecureStorage _store = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
-  static const String _seedKey = 'aegis.secure_seed';
+  static const String _seedKey = 'shoal.secure_seed';
 
   static bool get _supported => Platform.isAndroid || Platform.isIOS;
 

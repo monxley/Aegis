@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'src/rust/api/aegis.dart';
+import 'src/rust/api/shoal.dart';
 
 /// On-device storage for attachment payloads (voice notes, images, files).
 ///
@@ -14,8 +14,8 @@ import 'src/rust/api/aegis.dart';
 ///
 /// Those files are **never written in the clear**. The engine hands the bytes
 /// over already sealed under the master-seed-derived state key
-/// ([`AegisEngine.takeAttachment`]) and opens them again for playback
-/// ([`AegisEngine.openAttachment`]) — so a device backup, a file manager, or
+/// ([`ShoalEngine.takeAttachment`]) and opens them again for playback
+/// ([`ShoalEngine.openAttachment`]) — so a device backup, a file manager, or
 /// another app that somehow reaches the directory finds only ciphertext.
 class AttachmentStore {
   static Directory? _dir;
@@ -81,7 +81,7 @@ class AttachmentStore {
   /// should clean it up with [clearScratch] when the chat closes.
   static Future<File> scratchFile(String name, Uint8List plain) async {
     final base = await getTemporaryDirectory();
-    final dir = Directory('${base.path}/aegis-open');
+    final dir = Directory('${base.path}/shoal-open');
     if (!await dir.exists()) await dir.create(recursive: true);
     // Keep the extension (some apps dispatch on it) but not the user's path.
     final safe = name.isEmpty ? 'file' : name.split('/').last;
@@ -94,7 +94,7 @@ class AttachmentStore {
   static Future<void> clearScratch() async {
     try {
       final base = await getTemporaryDirectory();
-      final dir = Directory('${base.path}/aegis-open');
+      final dir = Directory('${base.path}/shoal-open');
       if (await dir.exists()) await dir.delete(recursive: true);
     } catch (e) {
       debugPrint('scratch wipe failed: $e');

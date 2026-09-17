@@ -1,8 +1,8 @@
-# Aegis — Development Roadmap
+# Shoal — Development Roadmap
 
 This is the forward-looking plan. For **what already ships**, see the status
 table in the [README](README.md) and the protocol design in
-[AEGIS_PROTOCOL.md](AEGIS_PROTOCOL.md). For known security gaps and their
+[SHOAL_PROTOCOL.md](SHOAL_PROTOCOL.md). For known security gaps and their
 priority, see [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
 **Where the project stands:** all five protocol layers are implemented and
@@ -94,12 +94,12 @@ and are still partial. What the build gives you today vs. what is still open:
   the simulator targets with no logic changes — it is dependency-light Rust with
   no platform assumptions beyond the RNG.
 - The **Flutter UI** runs on iOS as-is; `flutter_rust_bridge` supports iOS, so
-  the `AegisEngine` handle works the same way.
+  the `ShoalEngine` handle works the same way.
 
 **Done in the alpha build**
 - ✅ **RNG.** The `/dev/urandom` file read (see audit F-3 / M-001) is replaced on
   Apple platforms by a dependency-free `getentropy(3)` path in
-  `aegis-crypto::rand` — no fd, kernel CSPRNG, the recommended source on iOS.
+  `shoal-crypto::rand` — no fd, kernel CSPRNG, the recommended source on iOS.
 - ✅ **Face ID / Touch ID.** `local_auth` + `flutter_secure_storage` map to the
   iOS Keychain (Secure Enclave where available); the build adds the required
   `NSFaceIDUsageDescription` so the unlock flow works.

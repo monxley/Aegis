@@ -1,0 +1,734 @@
+//! The flutter_rust_bridge surface: a thin, UI-friendly wrapper over
+//! [`shoal_api::ShoalApp`]. Every method returns `Result<_, String>` so the
+//! Dart side gets a plain error message; all keys and protocol state stay in
+//! Rust, behind the [`ShoalEngine`] opaque handle.
+
+use std::sync::Mutex;
+
+use shoal_api::{
+    ShoalApp, ChatMessage as ApiChatMessage, Contact as ApiContact, NodeSummary as ApiNodeSummary,
+};
+use flutter_rust_bridge::frb;
+
+/// A node in the gossiped directory (mirrored to Dart for the network view).
+pub struct NodeSummary {
+    pub id: String,
+    pub mix_addr: String,
+    pub provider_addr: Option<String>,
+    pub is_provider: bool,
+}
+
+impl From<ApiNodeSummary> for NodeSummary {
+    fn from(n: ApiNodeSummary) -> Self {
+        NodeSummary {
+            id: n.id,
+            mix_addr: n.mix_addr,
+            provider_addr: n.provider_addr,
+            is_provider: n.is_provider,
+        }
+    }
+}
+
+/// Encrypt a master seed under an app-lock `password` (PBKDF2-HMAC-SHA256 +
+/// ChaCha20-Poly1305). The returned blob is safe to persist on the device;
+/// without the password the seed is unrecoverable, so no engine can be built and
+/// the whole API stays inert — the lock guards the data, not just the screen.
+/// Runs off the UI thread (the key derivation is deliberately slow).
+pub fn seal_seed(password: String, seed: Vec<u8>) -> Vec<u8> {
+    shoal_api::vault::seal_secret(&password, &seed)
+}
+
+/// Recover a seed sealed by [`seal_seed`]. Errors on a wrong password (a wrong
+/// password and a corrupt blob are indistinguishable — no oracle).
+pub fn open_seed(password: String, blob: Vec<u8>) -> Result<Vec<u8>, String> {
+    shoal_api::vault::open_secret(&password, &blob).ok_or_else(|| "wrong password".to_string())
+}
+
+/// The 24-word recovery phrase for a 32-byte master seed — write it down to
+/// back up your identity. Anyone with the phrase IS you, so keep it offline.
+#[frb(sync)]
+pub fn seed_to_phrase(seed: Vec<u8>) -> Result<String, String> {
+    let seed: [u8; 32] = seed
+        .try_into()
+        .map_err(|_| "seed must be 32 bytes".to_string())?;
+    Ok(shoal_api::mnemonic::seed_to_phrase(&seed))
+}
+
+/// Recover the 32-byte seed from a 24-word phrase. Errors on a bad word count,
+/// an unknown word, or a failed checksum (a typo).
+#[frb(sync)]
+pub fn phrase_to_seed(phrase: String) -> Result<Vec<u8>, String> {
+    shoal_api::mnemonic::phrase_to_seed(&phrase)
+        .map(|s| s.to_vec())
+        .ok_or_else(|| "invalid recovery phrase (check the 24 words)".to_string())
+}
+
+/// Whether `latest` (a GitHub release tag) is a strictly newer version than
+/// `current` (the running app version). Tolerates a leading `v` and pre-release
+/// suffixes; returns false if either is unparseable.
+#[frb(sync)]
+pub fn is_newer_version(current: String, latest: String) -> bool {
+    shoal_api::is_newer_version(&current, &latest)
+}
+
+/// Whether a persisted notes blob is password-protected (needs `unlock_notes`).
+#[frb(sync)]
+pub fn notes_blob_encrypted(blob: Vec<u8>) -> bool {
+    shoal_api::notes_blob_encrypted(&blob)
+}
+
+/// One SOCKS5 hop for a proxy chain (mirrored to Dart).
+pub struct ProxyHop {
+    pub proxy: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+/// Route all outbound traffic (mixnet + provider mailbox) through a SOCKS5
+/// proxy. `proxy` is `host:port` (e.g. `127.0.0.1:9050` for Tor via Orbot);
+/// `username`/`password` are optional SOCKS5 auth. Pass `None` for `proxy` to go
+/// direct. Sync + process-wide — call before (re)building the engine so the very
+/// first connection already uses it.
+#[frb(sync)]
+pub fn set_proxy(proxy: Option<String>, username: Option<String>, password: Option<String>) {
+    shoal_api::set_proxy(proxy, username, password);
+}
+
+/// Route all outbound traffic through a **chain** of SOCKS5 hops, in order
+/// (`app → chain[0] → … → target`). An empty chain goes direct. Tor is a SOCKS5
+/// proxy, so `app → SOCKS5 → Tor` is `[my_socks5, tor]`. Sync + process-wide.
+#[frb(sync)]
+pub fn set_proxy_chain(chain: Vec<ProxyHop>) {
+    shoal_api::set_proxy_chain(
+        chain
+            .into_iter()
+            .map(|h| shoal_api::ProxyHop {
+                proxy: h.proxy,
+                username: h.username,
+                password: h.password,
+            })
+            .collect(),
+    );
+}
+
+/// A running opt-in mix node (returned by [`start_forwarder_node`]).
+pub struct NodeInfo {
+    pub address: String,
+    pub node_id: String,
+}
+
+/// Turn this device into an **opt-in mix forwarder** that carries others' onion
+/// traffic (it runs no mailbox). Good as a default on desktop/Linux; on Android
+/// enable only on Wi-Fi + power. Uses a fresh identity unlinked to the Shoal ID.
+/// `listen` e.g. `"0.0.0.0:0"`; `delay_rate` `None` for no Loopix delay.
+pub fn start_forwarder_node(
+    bootstrap: Vec<String>,
+    listen: String,
+    delay_rate: Option<f64>,
+) -> Result<NodeInfo, String> {
+    let handle =
+        shoal_api::run_forwarder_node(bootstrap, listen, delay_rate).map_err(|e| e.to_string())?;
+    Ok(NodeInfo {
+        address: handle.address,
+        node_id: handle.node_id,
+    })
+}
+
+/// A contact in the address book (mirrored to Dart).
+pub struct Contact {
+    pub name: String,
+    pub shoal_id: String,
+    /// Whether this chat is pinned to the top of the list.
+    pub pinned: bool,
+    /// Whether this contact is blocked.
+    pub blocked: bool,
+    /// Last-message preview so the chat list needs no per-row history clone.
+    pub last_text: Option<String>,
+    pub last_from_me: bool,
+    pub last_ts: u64,
+}
+
+/// One message in a conversation (mirrored to Dart).
+pub struct ChatMessage {
+    pub from_me: bool,
+    pub text: String,
+    pub timestamp_ms: u64,
+    /// Per-message id (matches a delivery/read receipt to its message).
+    pub id: u64,
+    /// For our own messages: 0 sent, 1 delivered, 2 read, 3 failed (kept locally
+    /// and retried). Unused when received.
+    pub status: u8,
+    /// Unix-ms after which this disappearing message is gone (0 = never).
+    pub expires_at_ms: u64,
+    /// Whether the message was edited after it was first sent.
+    pub edited: bool,
+    /// What this message carries: 0 text, 1 file, 2 voice note, 3 image. For
+    /// anything but text the fields below describe the attachment.
+    pub kind: u8,
+    /// Original file name (file/image attachments).
+    pub file_name: String,
+    /// MIME type the sender reported — advisory only.
+    pub mime: String,
+    /// Attachment size in bytes.
+    pub file_size: u64,
+    /// Voice-note length in milliseconds (0 otherwise).
+    pub duration_ms: u32,
+    /// Where the encrypted attachment is stored on this device; empty until the
+    /// transfer finishes and the app persists it.
+    pub path: String,
+    /// Chunks expected and already received, for a transfer progress bar.
+    pub transfer_total: u32,
+    pub transfer_have: u32,
+    /// Emoji reactions on this message.
+    pub reactions: Vec<Reaction>,
+}
+
+/// How far a queued attachment upload has got.
+pub struct TransferProgress {
+    /// Chunks pushed out so far.
+    pub sent: u32,
+    /// Chunks in the whole transfer.
+    pub total: u32,
+}
+
+/// One emoji reaction on a message.
+pub struct Reaction {
+    pub emoji: String,
+    /// Whether this is *our* reaction (tap toggles it off).
+    pub from_me: bool,
+}
+
+/// A message just delivered by [`ShoalEngine::poll`].
+pub struct IncomingMessage {
+    pub from_shoal_id: String,
+    pub from_name: Option<String>,
+    pub text: String,
+}
+
+/// The result of a poll: new messages plus whether anything changed (so the UI
+/// can skip a rebuild on an idle poll).
+pub struct PollResult {
+    pub messages: Vec<IncomingMessage>,
+    pub changed: bool,
+}
+
+/// A private, local-only note (mirrored to Dart).
+pub struct Note {
+    pub id: u64,
+    pub text: String,
+    pub timestamp_ms: u64,
+}
+
+impl From<shoal_api::Note> for Note {
+    fn from(n: shoal_api::Note) -> Self {
+        Note {
+            id: n.id,
+            text: n.text,
+            timestamp_ms: n.timestamp_ms,
+        }
+    }
+}
+
+impl From<ApiContact> for Contact {
+    fn from(c: ApiContact) -> Self {
+        Contact {
+            name: c.name,
+            shoal_id: c.shoal_id,
+            pinned: c.pinned,
+            blocked: c.blocked,
+            last_text: c.last_text,
+            last_from_me: c.last_from_me,
+            last_ts: c.last_ts,
+        }
+    }
+}
+
+impl From<ApiChatMessage> for ChatMessage {
+    fn from(m: ApiChatMessage) -> Self {
+        ChatMessage {
+            from_me: m.from_me,
+            text: m.text,
+            timestamp_ms: m.timestamp_ms,
+            id: m.id,
+            status: m.status,
+            expires_at_ms: m.expires_at_ms,
+            edited: m.edited,
+            kind: m.kind,
+            file_name: m.file_name,
+            mime: m.mime,
+            file_size: m.file_size,
+            duration_ms: m.duration_ms,
+            path: m.path,
+            transfer_total: m.transfer_total,
+            transfer_have: m.transfer_have,
+            reactions: m
+                .reactions
+                .into_iter()
+                .map(|r| Reaction {
+                    emoji: r.emoji,
+                    from_me: r.from_me,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The whole messenger behind one opaque handle. The Dart side holds this and
+/// calls into it; it never sees a key.
+#[frb(opaque)]
+pub struct ShoalEngine {
+    inner: Mutex<ShoalApp>,
+}
+
+impl ShoalEngine {
+    /// Create an engine with a **local in-memory relay** (demos, first run
+    /// without a server). `master_seed` must be 32 bytes.
+    #[frb(sync)]
+    pub fn new_in_memory(master_seed: Vec<u8>) -> Result<ShoalEngine, String> {
+        let app = ShoalApp::create_in_memory(master_seed).map_err(|e| e.to_string())?;
+        Ok(ShoalEngine {
+            inner: Mutex::new(app),
+        })
+    }
+
+    /// Create an engine connected to a **live Ciphra blind server** at
+    /// `relay_addr` (e.g. `"relay.example:5077"`). `master_seed` must be 32
+    /// bytes. Trust-on-first-use for now.
+    pub fn new_with_relay(master_seed: Vec<u8>, relay_addr: String) -> Result<ShoalEngine, String> {
+        let app =
+            ShoalApp::create_with_relay(master_seed, relay_addr).map_err(|e| e.to_string())?;
+        Ok(ShoalEngine {
+            inner: Mutex::new(app),
+        })
+    }
+
+    /// Create an engine that **auto-discovers the mixnet** from one or more
+    /// `bootstrap` node addresses and onion-routes every send through it — the
+    /// zero-setup, anonymous path. `master_seed` must be 32 bytes.
+    pub fn new_on_network(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+    ) -> Result<ShoalEngine, String> {
+        let app = ShoalApp::create_on_network(master_seed, bootstrap).map_err(|e| e.to_string())?;
+        Ok(ShoalEngine {
+            inner: Mutex::new(app),
+        })
+    }
+
+    /// Like [`new_on_network`] but with **anonymous receive**: this device runs a
+    /// reachable mix node (bound at `node_listen`, e.g. `"0.0.0.0:0"`) and polls
+    /// its provider *through the mixnet* with single-use reply blocks, so the
+    /// provider never learns who is polling. Use on a reachable device
+    /// (desktop/Linux, or a phone with a forwarded port).
+    pub fn new_on_network_with_receive(
+        master_seed: Vec<u8>,
+        bootstrap: Vec<String>,
+        node_listen: String,
+    ) -> Result<ShoalEngine, String> {
+        let app = ShoalApp::create_on_network_with_receive(master_seed, bootstrap, node_listen)
+            .map_err(|e| e.to_string())?;
+        Ok(ShoalEngine {
+            inner: Mutex::new(app),
+        })
+    }
+
+    fn with<T>(&self, f: impl FnOnce(&mut ShoalApp) -> T) -> T {
+        let mut guard = self.inner.lock().expect("engine mutex poisoned");
+        f(&mut guard)
+    }
+
+    /// This user's shareable Shoal ID (`shoal:…`).
+    #[frb(sync)]
+    pub fn my_shoal_id(&self) -> String {
+        self.with(|app| app.my_shoal_id())
+    }
+
+    /// This user's prekey bundle bytes, to publish next to the Shoal ID
+    /// (paste / QR).
+    #[frb(sync)]
+    pub fn my_bundle(&self) -> Vec<u8> {
+        self.with(|app| app.my_bundle())
+    }
+
+    /// Add a contact from their Shoal ID and bundle bytes. Adding an existing
+    /// Shoal ID updates its name.
+    #[frb(sync)]
+    pub fn add_contact(
+        &self,
+        name: String,
+        shoal_id: String,
+        bundle: Vec<u8>,
+    ) -> Result<(), String> {
+        self.with(|app| app.add_contact(name, shoal_id, bundle))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The address book.
+    #[frb(sync)]
+    pub fn contacts(&self) -> Vec<Contact> {
+        self.with(|app| app.contacts())
+            .into_iter()
+            .map(Contact::from)
+            .collect()
+    }
+
+    /// The nodes this client knows from the gossiped directory (empty off the
+    /// mixnet). Everyone's nodes show up here as the directory propagates.
+    #[frb(sync)]
+    pub fn network_nodes(&self) -> Vec<NodeSummary> {
+        self.with(|app| app.network_nodes())
+            .into_iter()
+            .map(NodeSummary::from)
+            .collect()
+    }
+
+    /// The safety number shared with `shoal_id` — compare it with the contact
+    /// out of band to rule out a key substitution (MITM).
+    #[frb(sync)]
+    pub fn safety_number(&self, shoal_id: String) -> Result<String, String> {
+        self.with(|app| app.safety_number(shoal_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The conversation history with `shoal_id`, oldest first.
+    #[frb(sync)]
+    pub fn history(&self, shoal_id: String) -> Vec<ChatMessage> {
+        self.with(|app| app.history(shoal_id))
+            .into_iter()
+            .map(ChatMessage::from)
+            .collect()
+    }
+
+    /// Send `text` to the contact with `shoal_id`. Establishes the session on
+    /// the first message, then reuses it. The local copy is stored even if the
+    /// network send fails (status "failed"), so a message is never lost.
+    pub fn send(&self, shoal_id: String, text: String) -> Result<(), String> {
+        self.with(|app| app.send(shoal_id, text))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Retry a message whose earlier send failed (status 3). No-op if `id` is not
+    /// a failed outgoing message in this conversation.
+    pub fn resend(&self, shoal_id: String, id: u64) -> Result<(), String> {
+        self.with(|app| app.resend(shoal_id, id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Pin or unpin a chat (pinned chats sort to the top of the list).
+    pub fn set_pinned(&self, shoal_id: String, pinned: bool) -> Result<(), String> {
+        self.with(|app| app.set_pinned(shoal_id, pinned))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Block or unblock a contact (blocked contacts' messages are dropped).
+    pub fn set_blocked(&self, shoal_id: String, blocked: bool) -> Result<(), String> {
+        self.with(|app| app.set_blocked(shoal_id, blocked))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Move a chat one place up (`up = true`) or down within its pinned group.
+    pub fn move_chat(&self, shoal_id: String, up: bool) -> Result<(), String> {
+        self.with(|app| app.move_chat(shoal_id, up))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Delete a conversation on this device only (contact + history + timer).
+    pub fn delete_chat(&self, shoal_id: String) -> Result<(), String> {
+        self.with(|app| app.delete_chat(shoal_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Delete a conversation for both sides: best-effort ask the peer to delete
+    /// it too, then delete it here.
+    pub fn delete_chat_for_both(&self, shoal_id: String) -> Result<(), String> {
+        self.with(|app| app.delete_chat_for_both(shoal_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Edit one of our own sent messages: change its text and, best-effort, tell
+    /// the peer to update its copy.
+    pub fn edit_message(&self, shoal_id: String, id: u64, new_text: String) -> Result<(), String> {
+        self.with(|app| app.edit_message(shoal_id, id, new_text))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Delete a single message by id. `for_both` also asks the peer to delete it
+    /// (only meaningful for our own messages).
+    pub fn delete_message(&self, shoal_id: String, id: u64, for_both: bool) -> Result<(), String> {
+        self.with(|app| app.delete_message(shoal_id, id, for_both))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Send an attachment — a voice note, image, or file. The bytes are split
+    /// into packet-sized chunks and delivered end-to-end encrypted; the local
+    /// copy appears immediately. `kind` is 1 file / 2 voice / 3 image, and
+    /// `duration_ms` only matters for a voice note. Returns the message id, so
+    /// the caller can persist the bytes against it.
+    pub fn send_attachment(
+        &self,
+        shoal_id: String,
+        kind: u8,
+        file_name: String,
+        mime: String,
+        duration_ms: u32,
+        bytes: Vec<u8>,
+    ) -> Result<u64, String> {
+        self.with(|app| app.send_attachment(shoal_id, kind, file_name, mime, duration_ms, bytes))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Push the next batch of a queued attachment, returning chunks sent so far
+    /// and the total, or `null` once it is finished.
+    ///
+    /// Uploads are pumped rather than sent in one call: each call takes and
+    /// releases the engine lock, so a large file no longer blocks every other
+    /// engine call for the whole upload. Loop until this returns `null`.
+    pub fn pump_attachment(&self, id: u64) -> Option<TransferProgress> {
+        self.with(|app| app.pump_attachment(id))
+            .map(|(sent, total)| TransferProgress { sent, total })
+    }
+
+    /// Retry a failed attachment send with its bytes read back from storage.
+    pub fn resend_attachment(
+        &self,
+        shoal_id: String,
+        id: u64,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        self.with(|app| app.resend_attachment(shoal_id, id, bytes))
+            .map_err(|e| e.to_string())
+    }
+
+    /// React to a message with an emoji, or clear our reaction with an empty
+    /// string. One reaction per side: reacting again replaces ours.
+    pub fn react(&self, shoal_id: String, target_id: u64, emoji: String) -> Result<(), String> {
+        self.with(|app| app.react(shoal_id, target_id, emoji))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Ids of finished attachments whose bytes are still only in memory, waiting
+    /// to be written to disk. Drain these after each poll.
+    #[frb(sync)]
+    pub fn pending_attachments(&self) -> Vec<u64> {
+        self.with(|app| app.pending_attachments())
+    }
+
+    /// Which conversation an attachment belongs to.
+    #[frb(sync)]
+    pub fn attachment_chat(&self, id: u64) -> Option<String> {
+        self.with(|app| app.attachment_chat(id))
+    }
+
+    /// Take an attachment's bytes out of memory **already encrypted**, ready to
+    /// write straight to a file — the plaintext never reaches storage.
+    pub fn take_attachment(&self, id: u64) -> Option<Vec<u8>> {
+        self.with(|app| app.take_attachment(id))
+    }
+
+    /// Decrypt an attachment file for playback or export.
+    pub fn open_attachment(&self, blob: Vec<u8>) -> Option<Vec<u8>> {
+        self.with(|app| app.open_attachment(blob))
+    }
+
+    /// Record where an attachment was saved, so it survives a restart.
+    pub fn set_attachment_path(&self, shoal_id: String, id: u64, path: String) {
+        self.with(|app| app.set_attachment_path(shoal_id, id, path))
+    }
+
+    /// Whether this chat has a per-chat password set.
+    #[frb(sync)]
+    pub fn chat_has_password(&self, shoal_id: String) -> bool {
+        self.with(|app| app.chat_has_password(shoal_id))
+    }
+
+    /// Whether this chat is currently locked (needs the per-chat password).
+    #[frb(sync)]
+    pub fn chat_locked(&self, shoal_id: String) -> bool {
+        self.with(|app| app.chat_locked(shoal_id))
+    }
+
+    /// Put a password on a conversation (its history is sealed under it at rest).
+    pub fn set_chat_password(&self, shoal_id: String, password: String) -> Result<(), String> {
+        self.with(|app| app.set_chat_password(shoal_id, password))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Remove a chat's password (the chat must be unlocked).
+    pub fn remove_chat_password(&self, shoal_id: String) -> Result<(), String> {
+        self.with(|app| app.remove_chat_password(shoal_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Unlock a locked chat with its password (wrong password errors).
+    pub fn unlock_chat(&self, shoal_id: String, password: String) -> Result<(), String> {
+        self.with(|app| app.unlock_chat(shoal_id, password))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The private notes (local-only self-chat), oldest first.
+    #[frb(sync)]
+    pub fn notes(&self) -> Vec<Note> {
+        self.with(|app| app.notes())
+            .into_iter()
+            .map(Note::from)
+            .collect()
+    }
+
+    /// Append a private note. Local only — nothing is ever sent.
+    #[frb(sync)]
+    pub fn add_note(&self, text: String) {
+        self.with(|app| {
+            app.add_note(text);
+        });
+    }
+
+    /// Replace the text of note `id`.
+    #[frb(sync)]
+    pub fn edit_note(&self, id: u64, text: String) {
+        self.with(|app| app.edit_note(id, text));
+    }
+
+    /// Delete note `id`.
+    #[frb(sync)]
+    pub fn delete_note(&self, id: u64) {
+        self.with(|app| app.delete_note(id));
+    }
+
+    /// The encrypted notes blob to persist on the device (ciphertext; the seed
+    /// decrypts the inner layer, and a notes password the outer one when set).
+    #[frb(sync)]
+    pub fn export_notes(&self) -> Vec<u8> {
+        self.with(|app| app.export_notes())
+    }
+
+    /// Restore notes from an [`ShoalEngine::export_notes`] blob. Errors — with
+    /// the message "notes are locked" — if the blob is password-protected (call
+    /// [`ShoalEngine::unlock_notes`]); other errors mean it's malformed or from a
+    /// different identity's key.
+    #[frb(sync)]
+    pub fn restore_notes(&self, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.restore_notes(blob))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Whether a separate notes password is currently in effect.
+    #[frb(sync)]
+    pub fn notes_password_set(&self) -> bool {
+        self.with(|app| app.notes_password_set())
+    }
+
+    /// Set (or change) the notes password — a second encryption layer (PBKDF2,
+    /// ~314k iterations) so reading notes needs both the device seed and this
+    /// password. Re-export afterwards to persist.
+    /// Not `frb(sync)`: this stretches the password with PBKDF2 (hundreds of
+    /// thousands of rounds, deliberately). On the UI thread that is a visible
+    /// freeze, so it runs on a worker like the chat-password calls do.
+    pub fn set_notes_password(&self, password: String) {
+        self.with(|app| app.set_notes_password(password));
+    }
+
+    /// Remove the notes password (back to seed-only encryption).
+    #[frb(sync)]
+    pub fn remove_notes_password(&self) {
+        self.with(|app| app.remove_notes_password());
+    }
+
+    /// Unlock a password-protected notes blob with `password`. Errors on a wrong
+    /// password.
+    /// Not `frb(sync)`: same PBKDF2 cost as [`set_notes_password`], so it is
+    /// kept off the UI thread.
+    pub fn unlock_notes(&self, password: String, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.unlock_notes(password, blob))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Panic-wipe the notes from memory (the caller also deletes the blob).
+    #[frb(sync)]
+    pub fn wipe_notes(&self) {
+        self.with(|app| app.wipe_notes());
+    }
+
+    /// Mark the conversation with `shoal_id` as read — sends read receipts for
+    /// the messages received in it, so the sender's copies show as read. Call
+    /// when the user opens the chat.
+    pub fn mark_read(&self, shoal_id: String) -> Result<(), String> {
+        self.with(|app| app.mark_read(shoal_id))
+            .map_err(|e| e.to_string())
+    }
+
+    /// The disappearing-message lifetime for a conversation, in seconds (0 =
+    /// off).
+    #[frb(sync)]
+    pub fn disappearing_secs(&self, shoal_id: String) -> u32 {
+        self.with(|app| app.disappearing_secs(shoal_id))
+    }
+
+    /// Set the disappearing-message timer for a conversation (`secs` 0 = off) and
+    /// sync it to the peer. Messages sent after this expire on both sides.
+    pub fn set_disappearing(&self, shoal_id: String, secs: u32) -> Result<(), String> {
+        self.with(|app| app.set_disappearing(shoal_id, secs))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Snapshot sessions, contacts, and history so a restart resumes the
+    /// conversation. Persist the blob in the app's private storage (never on the
+    /// relay); restore it into an engine built from the same seed.
+    #[frb(sync)]
+    pub fn export_state(&self) -> Vec<u8> {
+        self.with(|app| app.export_state())
+    }
+
+    /// Restore state from [`export_state`]. Errors (leaving the engine
+    /// unchanged) if the blob is malformed or from an unknown version.
+    #[frb(sync)]
+    pub fn restore_state(&self, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.restore_state(blob))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Snapshot state **encrypted at rest** under a seed-derived key — persist
+    /// this so contacts/history are never stored in the clear.
+    ///
+    /// Deliberately **not** `frb(sync)`: this serializes every contact, session
+    /// and message and then encrypts the result, which grows with history. Run
+    /// synchronously it would block the UI thread on every save — the app's
+    /// worst source of dropped frames. As an async bridge call it runs on a
+    /// worker thread instead, and the UI keeps rendering while it works.
+    pub fn export_state_encrypted(&self) -> Vec<u8> {
+        self.with(|app| app.export_state_encrypted())
+    }
+
+    /// Restore from an [`ShoalEngine::export_state_encrypted`] blob; also accepts
+    /// a legacy plaintext blob (older builds) so upgrades migrate seamlessly.
+    #[frb(sync)]
+    pub fn restore_state_encrypted(&self, blob: Vec<u8>) -> Result<(), String> {
+        self.with(|app| app.restore_state_encrypted(blob))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Emit one cover-traffic packet into the mixnet (a decoy), so an observer
+    /// can't tell when this device is actually sending. Call on a Poisson
+    /// schedule; no-op unless on the mixnet.
+    pub fn send_cover(&self) -> Result<(), String> {
+        self.with(|app| app.send_cover()).map_err(|e| e.to_string())
+    }
+
+    /// Poll the relay for new messages, decrypt them, append to history, and
+    /// return what arrived plus whether anything changed (so the UI can skip a
+    /// rebuild on an idle poll). Call on a timer or a push wake-up.
+    pub fn poll(&self) -> Result<PollResult, String> {
+        let res = self.with(|app| app.poll()).map_err(|e| e.to_string())?;
+        Ok(PollResult {
+            messages: res
+                .messages
+                .into_iter()
+                .map(|m| IncomingMessage {
+                    from_shoal_id: m.from_shoal_id,
+                    from_name: m.from_name,
+                    text: m.text,
+                })
+                .collect(),
+            changed: res.changed,
+        })
+    }
+}

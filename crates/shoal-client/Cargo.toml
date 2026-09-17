@@ -1,0 +1,13 @@
+[package]
+name = "shoal-client"
+description = "Shoal client: one identity, one API tying together stealth addressing, PQXDH sessions, the Double Ratchet, and the blind mailbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+shoal-crypto = { path = "../shoal-crypto" }
+shoal-identity = { path = "../shoal-identity" }
+shoal-session = { path = "../shoal-session" }
+shoal-mailbox = { path = "../shoal-mailbox" }
