@@ -36,6 +36,15 @@ use shoal_crypto::aead;
 use shoal_identity::ShoalId;
 use shoal_mailbox::{Envelope, InMemoryStore, MailboxError, MailboxStore};
 use shoal_mix::MixnetStore;
+
+/// Mixes before the exit, unless the user raises it.
+///
+/// Two is what every build has shipped with. It is the floor rather than a
+/// midpoint: the levels above it trade latency for a longer route, and there is
+/// deliberately no level below it, because an app that offers to make its user
+/// less anonymous should be asked for that explicitly rather than offering it
+/// in a list.
+pub const DEFAULT_HOPS: usize = 2;
 use shoal_relay::CiphraStore;
 
 fn now_ms() -> u64 {
@@ -917,7 +926,7 @@ impl ShoalApp {
 
         let reader = CiphraStore::connect(provider_addr, None)
             .map_err(|e| AppError::Relay(e.to_string()))?;
-        let store = MixnetStore::new(reader, providers, pool, own_provider, 2);
+        let store = MixnetStore::new(reader, providers, pool, own_provider, DEFAULT_HOPS);
         Ok(Self::from_parts(
             client,
             Store::Mixnet(Box::new(store)),
@@ -972,7 +981,7 @@ impl ShoalApp {
             shoal_mix::spawn_receiver(node_seed, node_listen.as_str(), &boots, inbox.clone(), None)
                 .map_err(|e| AppError::Relay(e.to_string()))?;
 
-        let store = MixnetStore::new(reader, providers, pool, own_provider, 2)
+        let store = MixnetStore::new(reader, providers, pool, own_provider, DEFAULT_HOPS)
             .with_anon_receive(inbox, own_node);
         Ok(Self::from_parts(
             client,
@@ -1025,6 +1034,22 @@ impl ShoalApp {
     /// Emit one cover-traffic packet into the mixnet (a decoy indistinguishable
     /// from a real send), so an observer of this device cannot tell when it is
     /// actually sending. Call on a Poisson schedule. No-op unless on the mixnet.
+    /// Mixes before the exit, or `None` when not on the mixnet.
+    pub fn hops(&self) -> Option<usize> {
+        match &self.store {
+            Store::Mixnet(s) => Some(s.hops()),
+            _ => None,
+        }
+    }
+
+    /// Route through more mixes. See [`MixnetStore::set_hops`] for the range.
+    /// No-op unless on the mixnet.
+    pub fn set_hops(&mut self, hops: usize) {
+        if let Store::Mixnet(s) = &mut self.store {
+            s.set_hops(hops);
+        }
+    }
+
     pub fn send_cover(&mut self) -> Result<(), AppError> {
         if let Store::Mixnet(s) = &self.store {
             s.send_cover().map_err(|e| AppError::Relay(e.0))?;

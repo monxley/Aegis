@@ -34,6 +34,7 @@ const _decoyNotesKey = 'shoal.decoy_notes'; // encrypted notes for the decoy acc
 const _nodeKey = 'shoal.node_enabled';
 const _bootstrapKey = 'shoal.bootstrap'; // comma-separated user-added nodes
 const _ownNodesOnlyKey = 'shoal.own_nodes_only'; // route only through my nodes
+const _anonLevelKey = 'shoal.anon_level'; // how hard to make traffic analysis
 const _proxyModeKey = 'shoal.proxy_mode'; // 'off' | 'tor' | 'socks5' | 'chain'
 const _proxyHostKey = 'shoal.proxy_host'; // host:port for socks5 / chain mode
 const _proxyUserKey = 'shoal.proxy_user';
@@ -77,6 +78,45 @@ enum AccountState { none, plaintext, locked }
 
 /// Owns the one Rust [ShoalEngine] and the app's chat state. Screens listen to
 /// this and call into it. The seed is stored **encrypted at rest** — sealed in
+/// How much work to make traffic analysis, as a choice the user can make.
+///
+/// Both numbers are real knobs the core already has, not new mechanism:
+///
+///  * `hops` is mixes before the exit. Each one is another node that would have
+///    to be compromised before a route can be linked end to end, and another
+///    store-and-forward delay. The core clamps it to fit `MAX_HOPS`, so the
+///    usable range is 1..4.
+///  * `coverMeanSecs` is the mean of the Poisson schedule the app already emits
+///    decoy packets on, so that sending and staying silent look the same from
+///    outside. More cover is more traffic and more radio time.
+///
+/// There is deliberately **no level below [balanced]**. Two hops is what every
+/// build has shipped with, and a list that offers to make its user less
+/// anonymous, next to the ones that make them more, invites a choice nobody
+/// should make casually.
+///
+/// None of this hides *that* you use Shoal from someone watching your line.
+/// It makes it harder to tell who you are talking to, and when.
+enum AnonLevel {
+  balanced(hops: 2, coverMeanSecs: 45),
+  strengthened(hops: 3, coverMeanSecs: 20),
+  maximum(hops: 4, coverMeanSecs: 10);
+
+  const AnonLevel({required this.hops, required this.coverMeanSecs});
+
+  /// Mixes before the exit.
+  final int hops;
+
+  /// Mean seconds between cover packets.
+  final int coverMeanSecs;
+
+  String get id => name;
+
+  static AnonLevel byId(String? id) =>
+      AnonLevel.values.firstWhere((l) => l.name == id,
+          orElse: () => AnonLevel.balanced);
+}
+
 /// the password vault when an app password is set, else in keystore-backed
 /// secure storage — and all crypto stays in Rust. Chat state and notes are also
 /// encrypted on disk with seed-derived keys.
@@ -90,6 +130,7 @@ class ShoalEngineController extends ChangeNotifier {
   NodeInfo? _node;
   List<String> _userBootstrap = const [];
   bool _ownNodesOnly = false; // route only through the user's own nodes
+  AnonLevel _anonLevel = AnonLevel.balanced;
   String _proxyMode = 'off'; // 'off' | 'tor' | 'socks5' | 'chain'
   String _proxyHost = ''; // host:port for socks5 / chain mode
   String _proxyUser = '';
@@ -300,6 +341,16 @@ class ShoalEngineController extends ChangeNotifier {
   /// Whether the app routes exclusively through the user's own nodes.
   bool get ownNodesOnly => _ownNodesOnly;
 
+  /// How hard the app is currently making traffic analysis.
+  AnonLevel get anonLevel => _anonLevel;
+
+  /// Whether this device is on the mixnet at all, as opposed to local mode.
+  ///
+  /// Exposed because the mode decides whether routing settings mean anything.
+  /// (chats.dart infers the same thing by reading the connection label's text,
+  /// which works but breaks the moment that wording changes.)
+  bool get networked => _mode == 'network';
+
   /// The proxy mode: `off`, `tor`, `socks5`, or `chain` (SOCKS5 + Tor).
   String get proxyMode => _proxyMode;
 
@@ -393,6 +444,34 @@ class ShoalEngineController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_ownNodesOnlyKey, on);
     await _reconnect();
+  }
+
+  /// Choose how much work to make traffic analysis.
+  ///
+  /// Applied to the live engine rather than by rebuilding it: the hop count is
+  /// a routing parameter of the running mixnet store, so changing it does not
+  /// touch keys, sessions or the identity, and a reconnect would drop queued
+  /// mail for no reason.
+  Future<void> setAnonLevel(AnonLevel level) async {
+    _anonLevel = level;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_anonLevelKey, level.id);
+    _applyAnonLevel();
+    notifyListeners();
+  }
+
+  /// Push the current level into the running engine: the hop count now, and the
+  /// cover schedule by restarting it at the new mean.
+  void _applyAnonLevel() {
+    try {
+      _engine?.setHops(hops: _anonLevel.hops);
+    } catch (_) {
+      // Not on the mixnet (local mode): the core no-ops, and so do we.
+    }
+    if (_mode == 'network' && _engine != null) {
+      _coverTimer?.cancel();
+      _scheduleCover();
+    }
   }
 
   /// Rebuild the engine on the current seed with the current bootstrap set,
@@ -891,6 +970,7 @@ class ShoalEngineController extends ChangeNotifier {
     _mode = prefs.getString(_modeKey) ?? 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
     _ownNodesOnly = prefs.getBool(_ownNodesOnlyKey) ?? false;
+    _anonLevel = AnonLevel.byId(prefs.getString(_anonLevelKey));
     _favNodes = (prefs.getStringList(_favNodesKey) ?? const []).toSet();
     _notify = prefs.getBool(_notifyKey) ?? false;
     await _start(seed);
@@ -918,6 +998,7 @@ class ShoalEngineController extends ChangeNotifier {
     _mode = 'network';
     _userBootstrap = prefs.getStringList(_bootstrapKey) ?? const [];
     _ownNodesOnly = prefs.getBool(_ownNodesOnlyKey) ?? false;
+    _anonLevel = AnonLevel.byId(prefs.getString(_anonLevelKey));
     _favNodes = {};
     _notify = false;
     _nodeEnabled = false;
@@ -1015,14 +1096,22 @@ class ShoalEngineController extends ChangeNotifier {
     // On the mixnet, emit cover traffic on a Poisson schedule so an observer
     // can't tell real sends from silence.
     _coverTimer?.cancel();
+    // The hop count lives on the store, so a freshly built engine is back at
+    // the core default until the saved level is pushed into it again.
+    _applyAnonLevel();
     if (_mode == 'network') _scheduleCover();
     notifyListeners();
   }
 
-  /// Schedule the next cover packet after an Exp(mean 45s) delay, then repeat.
+  /// Schedule the next cover packet after an Exp(mean) delay, then repeat.
+  ///
+  /// The mean comes from the chosen [AnonLevel]; the exponential draw is what
+  /// makes the schedule memoryless, so the gaps carry no information about when
+  /// a real message was sent.
   void _scheduleCover() {
     final u = 1.0 - _rng.nextDouble(); // (0,1]
-    final secs = (-log(u) * 45).clamp(2.0, 600.0);
+    final secs =
+        (-log(u) * _anonLevel.coverMeanSecs).clamp(2.0, 600.0);
     _coverTimer = Timer(Duration(milliseconds: (secs * 1000).round()), () {
       try {
         _engine?.sendCover();

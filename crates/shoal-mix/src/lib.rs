@@ -616,6 +616,17 @@ pub fn spawn_receiver(
 /// path of mixes whose exit discards it, indistinguishable on the wire from a
 /// real send. Call it on a Poisson schedule so a network observer cannot tell
 /// when you are actually sending (§6.2). Best-effort.
+/// The only place the hop count is bounded.
+///
+/// At least one mix, or the "mixnet" route has no mix in it; and short enough
+/// that the exit still fits inside [`shoal_net::MAX_HOPS`], or the Sphinx layer
+/// refuses the path outright. Both ends are reachable from a settings screen,
+/// which is why the constructor and [`MixnetStore::set_hops`] share this rather
+/// than each clamping in their own way.
+pub fn clamp_hops(hops: usize) -> usize {
+    hops.clamp(1, shoal_net::MAX_HOPS.saturating_sub(1))
+}
+
 pub fn send_cover(pool: &[NodeDescriptor], hops: usize) -> io::Result<()> {
     if pool.is_empty() {
         return Ok(());
@@ -805,7 +816,7 @@ impl<P: MailboxStore> MixnetStore<P> {
         hops: usize,
     ) -> Self {
         providers.sort_by_key(|p| p.id);
-        let hops = hops.min(shoal_net::MAX_HOPS.saturating_sub(1));
+        let hops = clamp_hops(hops);
         MixnetStore {
             reader,
             providers,
@@ -814,6 +825,19 @@ impl<P: MailboxStore> MixnetStore<P> {
             hops,
             anon: None,
         }
+    }
+
+    /// Mixes before the exit, as this store is currently routing.
+    pub fn hops(&self) -> usize {
+        self.hops
+    }
+
+    /// Change the hop count on a running store.
+    ///
+    /// More hops means more mixes to compromise before a route is linkable,
+    /// and one more store-and-forward delay per hop.
+    pub fn set_hops(&mut self, hops: usize) {
+        self.hops = clamp_hops(hops);
     }
 
     /// Enable **anonymous receive**: `fetch_since` will onion-route a fetch to
@@ -1298,5 +1322,25 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         panic!("timed out waiting for mailbox");
+    }
+
+    /// The hop count is a routing parameter with a hard protocol limit, so the
+    /// clamp is asserted rather than assumed: a value past MAX_HOPS builds a
+    /// path the Sphinx layer refuses, and zero builds one with no mix in it at
+    /// all. Both are reachable from a settings screen.
+    #[test]
+    fn hops_stay_inside_the_protocol_limit() {
+        let ceiling = shoal_net::MAX_HOPS.saturating_sub(1);
+        assert!(ceiling >= 1, "MAX_HOPS leaves no room for a mix");
+        for (asked, want) in [
+            (0usize, 1usize),
+            (1, 1),
+            (2, 2),
+            (ceiling, ceiling),
+            (ceiling + 1, ceiling),
+            (usize::MAX, ceiling),
+        ] {
+            assert_eq!(clamp_hops(asked), want, "clamp_hops({asked})");
+        }
     }
 }
