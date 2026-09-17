@@ -689,6 +689,7 @@ def page(lang, d):
 <main id="main">
 
 <section class="hero">
+ <div class="flares" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
  <div class="hero-text">
   <p class="kicker">{e(d['hero_kicker'])}</p>
   <h1>{e(d['hero_h1_a'])}<br>{e(d['hero_h1_b'])}<br>
