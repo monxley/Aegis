@@ -44,7 +44,7 @@ class EmptyState extends StatelessWidget {
         // tablet.
         constraints: const BoxConstraints(maxWidth: 320),
         child: Padding(
-          padding: const EdgeInsets.all(AegisSpace.s8),
+          padding: const EdgeInsets.all(ShoalSpace.s8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -54,31 +54,31 @@ class EmptyState extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AegisRadius.md),
-                  border: Border.all(color: AegisColor.border),
+                  borderRadius: BorderRadius.circular(ShoalRadius.md),
+                  border: Border.all(color: ShoalColor.border),
                 ),
-                child: Icon(icon, size: 20, color: AegisColor.textMuted),
+                child: Icon(icon, size: 20, color: ShoalColor.textMuted),
               ),
-              const SizedBox(height: AegisSpace.s5),
-              Text(title, style: AegisType.heading, textAlign: TextAlign.center),
-              const SizedBox(height: AegisSpace.s2),
+              const SizedBox(height: ShoalSpace.s5),
+              Text(title, style: ShoalType.heading, textAlign: TextAlign.center),
+              const SizedBox(height: ShoalSpace.s2),
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: AegisType.secondary,
+                style: ShoalType.secondary,
               ),
               if (actionLabel != null && onAction != null) ...[
-                const SizedBox(height: AegisSpace.s6),
+                const SizedBox(height: ShoalSpace.s6),
                 TextButton(
                   onPressed: onAction,
                   style: TextButton.styleFrom(
-                    foregroundColor: AegisColor.accent,
-                    minimumSize: const Size(0, AegisLayout.minTouchTarget),
+                    foregroundColor: ShoalColor.accent,
+                    minimumSize: const Size(0, ShoalLayout.minTouchTarget),
                   ),
                   child: Text(
                     actionLabel!,
-                    style: AegisType.secondary.copyWith(
-                      color: AegisColor.accent,
+                    style: ShoalType.secondary.copyWith(
+                      color: ShoalColor.accent,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -131,7 +131,7 @@ class _ErrorStateViewState extends State<ErrorStateView> {
   Widget build(BuildContext context) {
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(AegisSpace.s8),
+        padding: const EdgeInsets.all(ShoalSpace.s8),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 360),
           child: Column(
@@ -142,67 +142,67 @@ class _ErrorStateViewState extends State<ErrorStateView> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AegisRadius.md),
-                  border: Border.all(color: AegisColor.danger),
+                  borderRadius: BorderRadius.circular(ShoalRadius.md),
+                  border: Border.all(color: ShoalColor.danger),
                 ),
                 child: const Icon(Icons.priority_high_rounded,
-                    size: 20, color: AegisColor.danger),
+                    size: 20, color: ShoalColor.danger),
               ),
-              const SizedBox(height: AegisSpace.s5),
+              const SizedBox(height: ShoalSpace.s5),
               Text(widget.title,
-                  style: AegisType.heading, textAlign: TextAlign.center),
-              const SizedBox(height: AegisSpace.s2),
+                  style: ShoalType.heading, textAlign: TextAlign.center),
+              const SizedBox(height: ShoalSpace.s2),
               Text(widget.message,
-                  textAlign: TextAlign.center, style: AegisType.secondary),
+                  textAlign: TextAlign.center, style: ShoalType.secondary),
               if (widget.actionLabel != null && widget.onAction != null) ...[
-                const SizedBox(height: AegisSpace.s6),
+                const SizedBox(height: ShoalSpace.s6),
                 TextButton(
                   onPressed: widget.onAction,
                   style: TextButton.styleFrom(
-                    foregroundColor: AegisColor.accent,
-                    minimumSize: const Size(0, AegisLayout.minTouchTarget),
+                    foregroundColor: ShoalColor.accent,
+                    minimumSize: const Size(0, ShoalLayout.minTouchTarget),
                   ),
                   child: Text(
                     widget.actionLabel!,
-                    style: AegisType.secondary.copyWith(
-                      color: AegisColor.accent,
+                    style: ShoalType.secondary.copyWith(
+                      color: ShoalColor.accent,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
               ],
               if (widget.details != null) ...[
-                const SizedBox(height: AegisSpace.s4),
+                const SizedBox(height: ShoalSpace.s4),
                 Semantics(
                   button: true,
                   expanded: _showDetails,
                   child: InkWell(
                     onTap: () =>
                         setState(() => _showDetails = !_showDetails),
-                    borderRadius: BorderRadius.circular(AegisRadius.xs),
+                    borderRadius: BorderRadius.circular(ShoalRadius.xs),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: AegisSpace.s2, vertical: AegisSpace.s2),
+                          horizontal: ShoalSpace.s2, vertical: ShoalSpace.s2),
                       child: Text('Technical details',
-                          style: AegisType.meta
-                              .copyWith(color: AegisColor.textSecondary)),
+                          style: ShoalType.meta
+                              .copyWith(color: ShoalColor.textSecondary)),
                     ),
                   ),
                 ),
                 if (_showDetails)
                   Container(
                     width: double.infinity,
-                    margin: const EdgeInsets.only(top: AegisSpace.s2),
-                    padding: const EdgeInsets.all(AegisSpace.s3),
+                    margin: const EdgeInsets.only(top: ShoalSpace.s2),
+                    padding: const EdgeInsets.all(ShoalSpace.s3),
                     decoration: BoxDecoration(
-                      color: AegisColor.surface,
-                      borderRadius: BorderRadius.circular(AegisRadius.sm),
-                      border: Border.all(color: AegisColor.border),
+                      color: ShoalColor.surface,
+                      borderRadius: BorderRadius.circular(ShoalRadius.sm),
+                      border: Border.all(color: ShoalColor.border),
                     ),
                     child: SelectableText(
                       '${widget.details}',
-                      style: AegisType.code.copyWith(
-                          fontSize: 11, color: AegisColor.textSecondary),
+                      style: ShoalType.code.copyWith(
+                          fontSize: 11, color: ShoalColor.textSecondary),
                     ),
                   ),
               ],
@@ -256,7 +256,7 @@ class NoticeBar extends StatelessWidget {
     required this.icon,
     required this.label,
     this.detail,
-    this.tone = AegisColor.textSecondary,
+    this.tone = ShoalColor.textSecondary,
     this.emphasis = false,
     this.onTap,
     this.onDismiss,
@@ -271,14 +271,14 @@ class NoticeBar extends StatelessWidget {
       child: Row(
         children: [
           Icon(icon, size: 14, color: tone),
-          const SizedBox(width: AegisSpace.s2),
+          const SizedBox(width: ShoalSpace.s2),
           Text(
             label,
-            style: AegisType.meta
+            style: ShoalType.meta
                 .copyWith(color: tone, fontWeight: FontWeight.w600),
           ),
           if (detail != null) ...[
-            const SizedBox(width: AegisSpace.s2),
+            const SizedBox(width: ShoalSpace.s2),
             Expanded(
               child: Text(
                 detail!,
@@ -286,8 +286,8 @@ class NoticeBar extends StatelessWidget {
                 // a quiet one stays exactly one line tall.
                 maxLines: emphasis ? 3 : 1,
                 overflow: TextOverflow.ellipsis,
-                style: AegisType.meta.copyWith(
-                  color: emphasis ? tone : AegisColor.textMuted,
+                style: ShoalType.meta.copyWith(
+                  color: emphasis ? tone : ShoalColor.textMuted,
                   height: emphasis ? 1.35 : null,
                 ),
               ),
@@ -300,8 +300,8 @@ class NoticeBar extends StatelessWidget {
 
     final row = Padding(
       padding: const EdgeInsets.symmetric(
-        horizontal: AegisSpace.s4,
-        vertical: AegisSpace.s2,
+        horizontal: ShoalSpace.s4,
+        vertical: ShoalSpace.s2,
       ),
       child: Row(
         children: [
@@ -335,8 +335,8 @@ class NoticeBar extends StatelessWidget {
       liveRegion: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: emphasis ? tone.withValues(alpha: 0.12) : AegisColor.surface,
-          border: const Border(bottom: BorderSide(color: AegisColor.border)),
+          color: emphasis ? tone.withValues(alpha: 0.12) : ShoalColor.surface,
+          border: const Border(bottom: BorderSide(color: ShoalColor.border)),
         ),
         child: Material(
           color: Colors.transparent,
@@ -373,19 +373,19 @@ void showFailure(
             ? null
             : SnackBarAction(
                 label: 'Details',
-                textColor: AegisColor.accent,
+                textColor: ShoalColor.accent,
                 onPressed: () => showDialog<void>(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    backgroundColor: AegisColor.surface,
+                    backgroundColor: ShoalColor.surface,
                     title: const Text('Technical details',
-                        style: AegisType.heading),
+                        style: ShoalType.heading),
                     content: SingleChildScrollView(
                       child: SelectableText(
                         '$details',
-                        style: AegisType.code.copyWith(
+                        style: ShoalType.code.copyWith(
                           fontSize: 12,
-                          color: AegisColor.textSecondary,
+                          color: ShoalColor.textSecondary,
                         ),
                       ),
                     ),
@@ -393,7 +393,7 @@ void showFailure(
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
                         child: const Text('Close',
-                            style: TextStyle(color: AegisColor.textSecondary)),
+                            style: TextStyle(color: ShoalColor.textSecondary)),
                       ),
                     ],
                   ),

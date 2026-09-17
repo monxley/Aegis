@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 ///
 /// A no-op off Android; best-effort (swallows channel errors on an old APK).
 class BackgroundService {
-  static const MethodChannel _ch = MethodChannel('aegis/background');
+  static const MethodChannel _ch = MethodChannel('shoal/background');
 
   static Future<void> start() async {
     if (!Platform.isAndroid) return;

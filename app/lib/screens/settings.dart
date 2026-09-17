@@ -19,7 +19,7 @@ import 'proxy.dart';
 /// Settings: your profile (share code), connection status, and the opt-in
 /// "become a node" toggle.
 class SettingsScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const SettingsScreen({super.key, required this.engine});
 
   @override
@@ -76,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   static const _disguises = [
-    ('default', 'Aegis', Icons.shield_rounded),
+    ('default', 'Shoal', Icons.shield_rounded),
     ('calculator', 'Calculator', Icons.calculate_rounded),
     ('notes', 'Notes', Icons.sticky_note_2_rounded),
     ('weather', 'Weather', Icons.wb_cloudy_rounded),
@@ -95,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final current = widget.engine.disguise;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -109,7 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 alignment: Alignment.centerLeft,
                 child: Text('Appearance on the home screen',
                     style: TextStyle(
-                        color: AegisColor.textPrimary,
+                        color: ShoalColor.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.w700)),
               ),
@@ -119,19 +119,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Changes the launcher icon and name. Aegis still opens '
+                  'Changes the launcher icon and name. Shoal still opens '
                   'normally — you just tap the decoy.',
-                  style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+                  style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
                 ),
               ),
             ),
             for (final d in _disguises)
               ListTile(
                 leading: Icon(d.$3,
-                    color: d.$1 == current ? AegisColor.accent : AegisColor.textPrimary),
-                title: Text(d.$2, style: const TextStyle(color: AegisColor.textPrimary)),
+                    color: d.$1 == current ? ShoalColor.accent : ShoalColor.textPrimary),
+                title: Text(d.$2, style: const TextStyle(color: ShoalColor.textPrimary)),
                 trailing: d.$1 == current
-                    ? const Icon(Icons.check_rounded, color: AegisColor.accent)
+                    ? const Icon(Icons.check_rounded, color: ShoalColor.accent)
                     : null,
                 onTap: () {
                   Navigator.pop(sheetCtx);
@@ -153,7 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(id == 'default'
-            ? 'Showing as Aegis'
+            ? 'Showing as Shoal'
             : 'Now disguised as “$label” on the home screen'),
       ),
     );
@@ -219,21 +219,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// A small selectable pill for the auto-lock / wipe choice rows.
   Widget _pill(String label, bool selected, VoidCallback onTap,
       {bool danger = false}) {
-    final c = danger ? AegisColor.danger : AegisColor.accent;
+    final c = danger ? ShoalColor.danger : ShoalColor.accent;
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: _busy ? null : onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? c.withValues(alpha: 0.15) : AegisColor.surfaceElevated,
+          color: selected ? c.withValues(alpha: 0.15) : ShoalColor.surfaceElevated,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? c : AegisColor.surfaceElevated),
+          border: Border.all(color: selected ? c : ShoalColor.surfaceElevated),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? c : AegisColor.textPrimary,
+            color: selected ? c : ShoalColor.textPrimary,
             fontSize: 13,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
           ),
@@ -299,7 +299,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.warning_amber_rounded,
               title: 'Danger zone',
               subtitle: 'Panic wipe, reset identity',
-              tone: AegisColor.danger,
+              tone: ShoalColor.danger,
               cards: _dangerCards,
             ),
             _menuRow(
@@ -311,11 +311,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             const Center(
               child: Text(
-                'All cryptography runs on this device. Aegis never sees your '
+                'All cryptography runs on this device. Shoal never sees your '
                 'messages, keys, or contacts.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+                    color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
               ),
             ),
             const SizedBox(height: 24),
@@ -337,15 +337,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
     required List<Widget> Function() cards,
-    Color tone = AegisColor.textPrimary,
+    Color tone = ShoalColor.textPrimary,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: AegisColor.surface,
-        borderRadius: BorderRadius.circular(AegisRadius.md),
+        color: ShoalColor.surface,
+        borderRadius: BorderRadius.circular(ShoalRadius.md),
         child: InkWell(
-          borderRadius: BorderRadius.circular(AegisRadius.md),
+          borderRadius: BorderRadius.circular(ShoalRadius.md),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => _SettingsSectionPage(
@@ -367,17 +367,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(title,
-                          style: AegisType.heading.copyWith(color: tone)),
+                          style: ShoalType.heading.copyWith(color: tone)),
                       const SizedBox(height: 2),
                       Text(subtitle,
-                          style: AegisType.meta,
+                          style: ShoalType.meta,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
                 const Icon(Icons.chevron_right_rounded,
-                    size: 20, color: AegisColor.textMuted),
+                    size: 20, color: ShoalColor.textMuted),
               ],
             ),
           ),
@@ -417,7 +417,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : 'Encrypt your identity on this device with a password. '
                             'Without it the key can’t be decrypted, so nothing — '
                             'not even a bypass of this screen — can reach it.',
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -429,8 +429,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               : Icons.lock_outline_rounded),
                           label: Text(e.hasPassword ? 'Change' : 'Set password'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AegisColor.textPrimary,
-                            side: const BorderSide(color: AegisColor.surfaceElevated),
+                            foregroundColor: ShoalColor.textPrimary,
+                            side: const BorderSide(color: ShoalColor.surfaceElevated),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: _busy ? null : _setOrChangePassword,
@@ -443,8 +443,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: const Icon(Icons.lock_open_rounded),
                             label: const Text('Remove'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: AegisColor.danger,
-                              side: const BorderSide(color: AegisColor.danger),
+                              foregroundColor: ShoalColor.danger,
+                              side: const BorderSide(color: ShoalColor.danger),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                             onPressed: _busy ? null : _removePassword,
@@ -474,7 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               'history — while your real account stays hidden. Make '
                               'it different from your real password.',
                       style: const TextStyle(
-                          color: AegisColor.textSecondary, fontSize: 13, height: 1.4),
+                          color: ShoalColor.textSecondary, fontSize: 13, height: 1.4),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -486,8 +486,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : Icons.theater_comedy_outlined),
                             label: Text(e.hasDuress ? 'Change' : 'Set duress password'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: AegisColor.textPrimary,
-                              side: const BorderSide(color: AegisColor.surfaceElevated),
+                              foregroundColor: ShoalColor.textPrimary,
+                              side: const BorderSide(color: ShoalColor.surfaceElevated),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                             onPressed: _busy ? null : _setOrChangeDuress,
@@ -500,8 +500,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               icon: const Icon(Icons.close_rounded),
                               label: const Text('Remove'),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: AegisColor.danger,
-                                side: const BorderSide(color: AegisColor.danger),
+                                foregroundColor: ShoalColor.danger,
+                                side: const BorderSide(color: ShoalColor.danger),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                               onPressed: _busy ? null : _removeDuress,
@@ -527,13 +527,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         'Unlock with your fingerprint or face instead of typing the '
                         'password. The key is held in the device keystore. Under '
                         'coercion, use the duress password instead.',
-                        style: AegisType.secondary,
+                        style: ShoalType.secondary,
                       ),
                     ),
                     Switch(
                       value: _bioEnabled,
                       onChanged: _busy ? null : _toggleBiometric,
-                      activeThumbColor: AegisColor.accent,
+                      activeThumbColor: ShoalColor.accent,
                     ),
                   ],
                 ),
@@ -550,11 +550,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(
                       'Re-lock the app after inactivity, or the moment it goes to '
                       'the background. The app password re-opens it.',
-                      style: AegisType.secondary,
+                      style: ShoalType.secondary,
                     ),
                     const SizedBox(height: 12),
                     const Text('Lock after',
-                        style: TextStyle(color: AegisColor.textPrimary, fontSize: 13)),
+                        style: TextStyle(color: ShoalColor.textPrimary, fontSize: 13)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -570,11 +570,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       children: [
                         const Expanded(
                           child: Text('Lock when app goes to background',
-                              style: TextStyle(color: AegisColor.textPrimary, fontSize: 14)),
+                              style: TextStyle(color: ShoalColor.textPrimary, fontSize: 14)),
                         ),
                         Switch(
                           value: e.lockOnBackground,
-                          activeThumbColor: AegisColor.accent,
+                          activeThumbColor: ShoalColor.accent,
                           onChanged: _busy
                               ? null
                               : (v) => _apply(() => widget.engine.setLockOnBackground(v)),
@@ -594,7 +594,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(
                       'Erase everything after this many wrong password attempts — '
                       'protects a lost or seized phone from brute-force.',
-                      style: AegisType.secondary,
+                      style: ShoalType.secondary,
                     ),
                     const SizedBox(height: 12),
                     Wrap(
@@ -629,15 +629,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     '24 words that back up your identity. Write them down and keep '
                     'them offline — anyone who has them can restore your account, '
                     'and there is no other way to recover it.',
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.visibility_rounded, size: 18),
                     label: const Text('Reveal recovery phrase'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AegisColor.textPrimary,
-                      side: const BorderSide(color: AegisColor.surfaceElevated),
+                      foregroundColor: ShoalColor.textPrimary,
+                      side: const BorderSide(color: ShoalColor.surfaceElevated),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       minimumSize: const Size.fromHeight(0),
                     ),
@@ -657,7 +657,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text(
                       'Alert me when a message arrives. The alert never shows the '
                       'message text — only that something came in.',
-                      style: AegisType.secondary,
+                      style: ShoalType.secondary,
                     ),
                   ),
                   Switch(
@@ -669,7 +669,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             await widget.engine.setNotificationsEnabled(v);
                             if (mounted) setState(() => _busy = false);
                           },
-                    activeThumbColor: AegisColor.accent,
+                    activeThumbColor: ShoalColor.accent,
                   ),
                 ],
               ),
@@ -691,7 +691,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               'possible while the app is open. On by default.'
                           : 'Stop screenshots and screen recording, and hide the '
                               'app in the recent-apps switcher. On by default.',
-                      style: AegisType.secondary,
+                      style: ShoalType.secondary,
                     ),
                   ),
                   Switch(
@@ -703,7 +703,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             await widget.engine.setScreenshotsBlocked(v);
                             if (mounted) setState(() => _busy = false);
                           },
-                    activeThumbColor: AegisColor.accent,
+                    activeThumbColor: ShoalColor.accent,
                   ),
                 ],
               ),
@@ -720,7 +720,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       'Keep receiving messages 24/7 while the app is in the '
                       'background, with a quiet ongoing notification. On by '
                       'default — turn off to save battery.',
-                      style: AegisType.secondary,
+                      style: ShoalType.secondary,
                     ),
                   ),
                   Switch(
@@ -732,7 +732,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             await widget.engine.setBackgroundEnabled(v);
                             if (mounted) setState(() => _busy = false);
                           },
-                    activeThumbColor: AegisColor.accent,
+                    activeThumbColor: ShoalColor.accent,
                   ),
                 ],
               ),
@@ -760,15 +760,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _ => 'Off · connecting directly. Route through Tor or a '
                           'SOCKS5 proxy to hide your IP from the nodes.',
                     },
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.tune_rounded, size: 18),
                     label: const Text('Configure proxy'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AegisColor.textPrimary,
-                      side: const BorderSide(color: AegisColor.surfaceElevated),
+                      foregroundColor: ShoalColor.textPrimary,
+                      side: const BorderSide(color: ShoalColor.surfaceElevated),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       minimumSize: const Size.fromHeight(0),
                     ),
@@ -790,19 +790,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     e.disguise == 'default'
-                        ? 'Show Aegis as itself on the home screen. Switch to a '
+                        ? 'Show Shoal as itself on the home screen. Switch to a '
                             'decoy icon and name to blend in.'
                         : 'Disguised as “${_disguiseLabel(e.disguise)}”. The home-'
                             'screen icon and name are hidden.',
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     icon: Icon(_disguiseIcon(e.disguise), size: 18),
                     label: Text('Appearance: ${_disguiseLabel(e.disguise)}'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AegisColor.textPrimary,
-                      side: const BorderSide(color: AegisColor.surfaceElevated),
+                      foregroundColor: ShoalColor.textPrimary,
+                      side: const BorderSide(color: ShoalColor.surfaceElevated),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       minimumSize: const Size.fromHeight(0),
                     ),
@@ -817,7 +817,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'Connection',
               child: Text(
                 e.connectionLabel,
-                style: const TextStyle(color: AegisColor.textSecondary),
+                style: const TextStyle(color: ShoalColor.textSecondary),
               ),
             ),
             const SizedBox(height: 14),
@@ -831,18 +831,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Help carry the network. Your device relays others’ '
                     'onion traffic — it never sees who or what. Best on an '
                     'always-on machine; on a phone, use Wi-Fi + power.',
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Node mode',
-                          style: TextStyle(color: AegisColor.textPrimary, fontSize: 15)),
+                          style: TextStyle(color: ShoalColor.textPrimary, fontSize: 15)),
                       Switch(
                         value: e.nodeEnabled,
                         onChanged: _busy ? null : _toggleNode,
-                        activeThumbColor: AegisColor.accent,
+                        activeThumbColor: ShoalColor.accent,
                       ),
                     ],
                   ),
@@ -851,7 +851,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text(
                       'Running · id ${e.node!.nodeId.substring(0, 8)}…  ·  ${e.node!.address}',
                       style: const TextStyle(
-                        color: AegisColor.accent,
+                        color: ShoalColor.accent,
                         fontSize: 12,
                         fontFamily: 'monospace',
                       ),
@@ -861,7 +861,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 6),
                     const Text(
                       'Running · receiving anonymously through the mixnet',
-                      style: TextStyle(color: AegisColor.accent, fontSize: 12),
+                      style: TextStyle(color: ShoalColor.accent, fontSize: 12),
                     ),
                   ],
                   // Live sync/verify status.
@@ -877,7 +877,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             'Synchronizing… ~$mins min left. Keep node mode on to '
                             'finish verifying; after that it turns on instantly.',
                             style: const TextStyle(
-                                color: AegisColor.accent, fontSize: 12, height: 1.4),
+                                color: ShoalColor.accent, fontSize: 12, height: 1.4),
                           ),
                         );
                       }
@@ -885,7 +885,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         return const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: Text('Verified — node mode toggles instantly.',
-                              style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
+                              style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12)),
                         );
                       }
                       return const SizedBox.shrink();
@@ -911,7 +911,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Instantly erase everything on this device — key, contacts, '
                     'and history — and return to a blank slate. Hold the button to '
                     'fire. This cannot be undone.',
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   HoldToWipeButton(
@@ -933,15 +933,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       'Forget this identity and start fresh: a new key, and all '
                       'contacts and history erased. Use this if you want a clean '
                       'account. This cannot be undone.',
-                      style: AegisType.secondary,
+                      style: ShoalType.secondary,
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       icon: const Icon(Icons.delete_forever_rounded, size: 18),
                       label: const Text('Reset identity'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AegisColor.danger,
-                        side: const BorderSide(color: AegisColor.danger),
+                        foregroundColor: ShoalColor.danger,
+                        side: const BorderSide(color: ShoalColor.danger),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         minimumSize: const Size.fromHeight(0),
                       ),
@@ -966,8 +966,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text(
                     'News and releases. These open Telegram and Instagram — '
                     'ordinary services with ordinary tracking, outside anything '
-                    'Aegis protects.',
-                    style: AegisType.secondary,
+                    'Shoal protects.',
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -977,8 +977,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: const Icon(Icons.send_rounded, size: 18),
                           label: const Text('Telegram'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AegisColor.textPrimary,
-                            side: const BorderSide(color: AegisColor.surfaceElevated),
+                            foregroundColor: ShoalColor.textPrimary,
+                            side: const BorderSide(color: ShoalColor.surfaceElevated),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () => _openUrl('https://t.me/aegis_private'),
@@ -990,8 +990,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: const Icon(Icons.camera_alt_rounded, size: 18),
                           label: const Text('Instagram'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AegisColor.textPrimary,
-                            side: const BorderSide(color: AegisColor.surfaceElevated),
+                            foregroundColor: ShoalColor.textPrimary,
+                            side: const BorderSide(color: ShoalColor.surfaceElevated),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                           onPressed: () =>
@@ -1011,23 +1011,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _version.isEmpty ? 'Aegis' : 'Aegis $_version',
-                    style: const TextStyle(color: AegisColor.textPrimary, fontSize: 15),
+                    _version.isEmpty ? 'Shoal' : 'Shoal $_version',
+                    style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 15),
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Aegis is sideloaded, so it updates from GitHub releases. Keep '
+                    'Shoal is sideloaded, so it updates from GitHub releases. Keep '
                     'it current — an out-of-date app can stop sending or receiving '
                     'when the network changes.',
-                    style: AegisType.secondary,
+                    style: ShoalType.secondary,
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     icon: const Icon(Icons.refresh_rounded, size: 18),
                     label: const Text('Check for updates'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AegisColor.textPrimary,
-                      side: const BorderSide(color: AegisColor.surfaceElevated),
+                      foregroundColor: ShoalColor.textPrimary,
+                      side: const BorderSide(color: ShoalColor.surfaceElevated),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       minimumSize: const Size.fromHeight(0),
                     ),
@@ -1056,9 +1056,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Recovery phrase',
-            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
+            style: TextStyle(color: ShoalColor.textPrimary, fontSize: 18)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1067,7 +1067,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Text(
                 'Write these 24 words down in order. Keep them offline; don’t '
                 'screenshot or send them.',
-                style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+                style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -1079,12 +1079,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       padding:
                           const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                       decoration: BoxDecoration(
-                        color: AegisColor.surfaceElevated,
+                        color: ShoalColor.surfaceElevated,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text('${i + 1}. ${words[i]}',
                           style: const TextStyle(
-                              color: AegisColor.textPrimary,
+                              color: ShoalColor.textPrimary,
                               fontFamily: 'monospace',
                               fontSize: 13)),
                     ),
@@ -1101,12 +1101,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SnackBar(content: Text('Recovery phrase copied')),
               );
             },
-            icon: const Icon(Icons.copy_rounded, size: 18, color: AegisColor.accent),
-            label: const Text('Copy', style: TextStyle(color: AegisColor.accent)),
+            icon: const Icon(Icons.copy_rounded, size: 18, color: ShoalColor.accent),
+            label: const Text('Copy', style: TextStyle(color: ShoalColor.accent)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Done', style: TextStyle(color: AegisColor.textSecondary)),
+            child: const Text('Done', style: TextStyle(color: ShoalColor.textSecondary)),
           ),
         ],
       ),
@@ -1137,22 +1137,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Remove password?',
-            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
+            style: TextStyle(color: ShoalColor.textPrimary, fontSize: 18)),
         content: const Text(
           'The app will no longer ask for a password, and your identity key '
           'will be stored unencrypted on this device.',
-          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+          style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+            child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: AegisColor.danger)),
+            child: const Text('Remove', style: TextStyle(color: ShoalColor.danger)),
           ),
         ],
       ),
@@ -1198,22 +1198,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Remove duress password?',
-            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
+            style: TextStyle(color: ShoalColor.textPrimary, fontSize: 18)),
         content: const Text(
           'The decoy account and its data will be discarded, and only your real '
           'password will unlock the app.',
-          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+          style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+            child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove', style: TextStyle(color: AegisColor.danger)),
+            child: const Text('Remove', style: TextStyle(color: ShoalColor.danger)),
           ),
         ],
       ),
@@ -1252,11 +1252,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         String? err;
         return StatefulBuilder(
           builder: (ctx, setD) => AlertDialog(
-            backgroundColor: AegisColor.surface,
+            backgroundColor: ShoalColor.surface,
             title: Text(
               title ??
                   (widget.engine.hasPassword ? 'Change password' : 'Set password'),
-              style: const TextStyle(color: AegisColor.textPrimary, fontSize: 18),
+              style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 18),
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1265,14 +1265,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: a,
                   obscureText: true,
                   autofocus: true,
-                  style: const TextStyle(color: AegisColor.textPrimary),
+                  style: const TextStyle(color: ShoalColor.textPrimary),
                   decoration: const InputDecoration(hintText: 'New password'),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: b,
                   obscureText: true,
-                  style: const TextStyle(color: AegisColor.textPrimary),
+                  style: const TextStyle(color: ShoalColor.textPrimary),
                   decoration: InputDecoration(hintText: 'Repeat', errorText: err),
                 ),
               ],
@@ -1280,7 +1280,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, null),
-                child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+                child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
               ),
               TextButton(
                 onPressed: () {
@@ -1294,7 +1294,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }
                   Navigator.pop(ctx, a.text);
                 },
-                child: const Text('Save', style: TextStyle(color: AegisColor.accent)),
+                child: const Text('Save', style: TextStyle(color: ShoalColor.accent)),
               ),
             ],
           ),
@@ -1307,22 +1307,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AegisColor.surface,
+        backgroundColor: ShoalColor.surface,
         title: const Text('Reset identity?',
-            style: TextStyle(color: AegisColor.textPrimary, fontSize: 18)),
+            style: TextStyle(color: ShoalColor.textPrimary, fontSize: 18)),
         content: const Text(
           'Your key, contacts, and message history on this device will be '
           'erased and a new identity created. This cannot be undone.',
-          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+          style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: AegisColor.textSecondary)),
+            child: const Text('Cancel', style: TextStyle(color: ShoalColor.textSecondary)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reset', style: TextStyle(color: AegisColor.danger)),
+            child: const Text('Reset', style: TextStyle(color: ShoalColor.danger)),
           ),
         ],
       ),
@@ -1344,9 +1344,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: AegisColor.surface,
+        color: ShoalColor.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AegisColor.surfaceElevated),
+        border: Border.all(color: ShoalColor.surfaceElevated),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -1360,18 +1360,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: AegisColor.surfaceElevated,
+                    color: ShoalColor.surfaceElevated,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   alignment: Alignment.center,
-                  child: Icon(icon, size: 18, color: AegisColor.accent),
+                  child: Icon(icon, size: 18, color: ShoalColor.accent),
                 ),
                 const SizedBox(width: 12),
-                Text(title, style: AegisType.heading),
+                Text(title, style: ShoalType.heading),
               ],
             ),
           ),
-          const Divider(height: 1, color: AegisColor.surfaceElevated),
+          const Divider(height: 1, color: ShoalColor.surfaceElevated),
           Padding(padding: const EdgeInsets.all(16), child: child),
         ],
       ),
@@ -1382,28 +1382,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// groups. Carries its own top spacing so it can be dropped between cards.
 }
 
-/// The profile card body: this device's Aegis ID and a one-tap copy of the full
+/// The profile card body: this device's Shoal ID and a one-tap copy of the full
 /// share code (ID + prekey bundle) to send a friend, who pastes it in Add
 /// contact. No QR — the post-quantum bundle is too large for one.
 class _ProfileCard extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const _ProfileCard({required this.engine});
 
   @override
   Widget build(BuildContext context) {
-    final aegisId = engine.myAegisId;
-    final code = ShareCode(aegisId, engine.myBundle).encode();
+    final shoalId = engine.myShoalId;
+    final code = ShareCode(shoalId, engine.myBundle).encode();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Your Aegis ID',
-            style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
+        const Text('Your Shoal ID',
+            style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12)),
         const SizedBox(height: 4),
         SelectableText(
-          shortId(aegisId),
+          shortId(shoalId),
           style: const TextStyle(
-            color: AegisColor.textPrimary,
+            color: ShoalColor.textPrimary,
             fontSize: 16,
             fontWeight: FontWeight.w700,
             fontFamily: 'monospace',
@@ -1428,14 +1428,14 @@ class _ProfileCard extends StatelessWidget {
                 icon: const Icon(Icons.tag_rounded, size: 18),
                 label: const Text('Copy ID only'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AegisColor.textPrimary,
-                  side: const BorderSide(color: AegisColor.surfaceElevated),
+                  foregroundColor: ShoalColor.textPrimary,
+                  side: const BorderSide(color: ShoalColor.surfaceElevated),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: () {
-                  Clipboard.setData(ClipboardData(text: aegisId));
+                  Clipboard.setData(ClipboardData(text: shoalId));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Aegis ID copied')),
+                    const SnackBar(content: Text('Shoal ID copied')),
                   );
                 },
               ),
@@ -1446,8 +1446,8 @@ class _ProfileCard extends StatelessWidget {
                 icon: const Icon(Icons.open_in_full_rounded, size: 18),
                 label: const Text('Full code'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AegisColor.textPrimary,
-                  side: const BorderSide(color: AegisColor.surfaceElevated),
+                  foregroundColor: ShoalColor.textPrimary,
+                  side: const BorderSide(color: ShoalColor.surfaceElevated),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: () => Navigator.of(context).push(
@@ -1463,7 +1463,7 @@ class _ProfileCard extends StatelessWidget {
         const Text(
           'Send your share code to a friend over any channel. They paste it in '
           '“Add contact” to message you. Your keys never leave this device.',
-          style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
+          style: TextStyle(color: ShoalColor.textSecondary, fontSize: 12, height: 1.4),
         ),
       ],
     );

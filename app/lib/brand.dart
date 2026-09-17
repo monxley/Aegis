@@ -4,23 +4,26 @@ import 'theme.dart';
 
 /// Brand assets.
 ///
-/// The shield is the product's *identity mark*. It appears where a product
-/// signs its name — the lock screen, onboarding, the app bar — and nowhere
-/// else. It is deliberately not used as a security indicator: a padlock or
-/// shield stamped next to every message is decoration, and decoration that
-/// claims to mean "safe" is worse than no indicator at all. Security state is
-/// communicated by [SecurityIndicator] and by message state, in words.
+/// The mark — a shoal of fish, one of them picked out in amber — is the
+/// product's *identity mark*. It appears where a product signs its name: the
+/// lock screen, onboarding, the app bar, and nowhere else. It is deliberately
+/// not used as a security indicator: a padlock stamped next to every message
+/// is decoration, and decoration that claims to mean "safe" is worse than no
+/// indicator at all. Security state is communicated by [SecurityIndicator] and
+/// by message state, in words.
 class Brand {
   const Brand._();
 
-  static const shieldHero = 'assets/brand/shield_hero.png';
-  static const shieldLayered = 'assets/brand/shield_layered.png';
-  static const shieldSilver = 'assets/brand/shield_silver.png';
-  static const shieldMono = 'assets/brand/shield_mono.png';
+  static const markHero = 'assets/brand/mark_hero.png';
+  static const markLayered = 'assets/brand/mark_layered.png';
+  static const markSilver = 'assets/brand/mark_silver.png';
+  static const markMono = 'assets/brand/mark_mono.png';
   static const lock = 'assets/brand/lock.png';
   static const chevrons = 'assets/brand/chevrons.png';
   static const broadcast = 'assets/brand/broadcast.png';
   static const wordmark = 'assets/brand/wordmark.png';
+  /// The wordmark in brand ink, for light grounds and print.
+  static const wordmarkDark = 'assets/brand/wordmark_dark.png';
   static const lockupVertical = 'assets/brand/lockup_vertical.png';
   static const lockupHorizontal = 'assets/brand/lockup_horizontal.png';
 }
@@ -47,14 +50,14 @@ class BrandGlyph extends StatelessWidget {
 }
 
 /// The vertical mark + wordmark lockup, for the splash and onboarding.
-class AegisLockupVertical extends StatelessWidget {
+class ShoalLockupVertical extends StatelessWidget {
   final double width;
-  const AegisLockupVertical({super.key, this.width = 200});
+  const ShoalLockupVertical({super.key, this.width = 200});
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Aegis',
+      label: 'Shoal',
       child: Image.asset(
         Brand.lockupVertical,
         width: width,
@@ -95,7 +98,7 @@ class _ProgressLineState extends State<ProgressLine>
 
   @override
   Widget build(BuildContext context) {
-    final reduced = AegisMotion.reduced(context);
+    final reduced = ShoalMotion.reduced(context);
     if (reduced) {
       _c.stop();
     } else if (!_c.isAnimating) {
@@ -108,8 +111,8 @@ class _ProgressLineState extends State<ProgressLine>
         label: 'Working',
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: AegisColor.border,
-            borderRadius: BorderRadius.circular(AegisRadius.xs),
+            color: ShoalColor.border,
+            borderRadius: BorderRadius.circular(ShoalRadius.xs),
           ),
           child: reduced
               // Static two-thirds bar: still reads as "in progress" without
@@ -140,8 +143,8 @@ class _ProgressLineState extends State<ProgressLine>
 
   Widget _bar() => DecoratedBox(
         decoration: BoxDecoration(
-          color: AegisColor.accent,
-          borderRadius: BorderRadius.circular(AegisRadius.xs),
+          color: ShoalColor.accent,
+          borderRadius: BorderRadius.circular(ShoalRadius.xs),
         ),
       );
 }
@@ -167,7 +170,7 @@ class UnlockProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = error ? AegisColor.danger : AegisColor.accent;
+    final color = error ? ShoalColor.danger : ShoalColor.accent;
     final pct = (progress.clamp(0.0, 1.0) * 100).round();
     return Semantics(
       label: error ? 'Unlock failed' : 'Unlocking, $pct percent',
@@ -183,7 +186,7 @@ class UnlockProgress extends StatelessWidget {
                 // Indeterminate only before work starts; determinate after.
                 value: progress <= 0 ? null : progress.clamp(0.0, 1.0),
                 strokeWidth: 2,
-                backgroundColor: AegisColor.border,
+                backgroundColor: ShoalColor.border,
                 valueColor: AlwaysStoppedAnimation(color),
                 strokeCap: StrokeCap.round,
               ),
@@ -191,7 +194,7 @@ class UnlockProgress extends StatelessWidget {
             Icon(
               error ? Icons.priority_high_rounded : Icons.lock_outline_rounded,
               size: size * 0.3,
-              color: error ? AegisColor.danger : AegisColor.textSecondary,
+              color: error ? ShoalColor.danger : ShoalColor.textSecondary,
             ),
           ],
         ),

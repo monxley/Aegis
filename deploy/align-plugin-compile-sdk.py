@@ -29,7 +29,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-MARKER = "// aegis: plugin compileSdk aligned by deploy/align-plugin-compile-sdk.py"
+MARKER = "// shoal: plugin compileSdk aligned by deploy/align-plugin-compile-sdk.py"
 
 # Prepended, not appended -- see the comment inside the block for why.
 BLOCK = """{marker}
@@ -45,13 +45,13 @@ BLOCK = """{marker}
 // settings.gradle.kts), so naming BaseExtension here would simply not compile.
 // When the property is absent the build says so and carries on to fail with the
 // original, more informative error rather than silently doing nothing.
-fun Project.aegisAlignCompileSdk(sdk: Int) {{
+fun Project.shoalAlignCompileSdk(sdk: Int) {{
     val androidExtension = extensions.findByName("android") ?: return
     val setter = androidExtension.javaClass.methods.firstOrNull {{
         it.name == "setCompileSdk" && it.parameterCount == 1
     }}
     if (setter == null) {{
-        logger.lifecycle("aegis: $name has no setCompileSdk; compileSdk unchanged")
+        logger.lifecycle("shoal: $name has no setCompileSdk; compileSdk unchanged")
     }} else {{
         setter.invoke(androidExtension, sdk)
     }}
@@ -59,9 +59,9 @@ fun Project.aegisAlignCompileSdk(sdk: Int) {{
 
 subprojects {{
     if (state.executed) {{
-        aegisAlignCompileSdk({sdk})
+        shoalAlignCompileSdk({sdk})
     }} else {{
-        afterEvaluate {{ aegisAlignCompileSdk({sdk}) }}
+        afterEvaluate {{ shoalAlignCompileSdk({sdk}) }}
     }}
 }}
 

@@ -1,8 +1,8 @@
-# A full Aegis node in one command:
-#   PUBLIC_HOST=your.domain BOOTSTRAP=seed.aegis.example:5078 docker compose -f deploy/docker-compose.yml up -d
+# A full Shoal node in one command:
+#   PUBLIC_HOST=your.domain BOOTSTRAP=seed.shoal.example:5078 docker compose -f deploy/docker-compose.yml up -d
 # The very first seed node in a network runs with an empty BOOTSTRAP.
 services:
-  aegis-node:
+  shoal-node:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -11,7 +11,7 @@ services:
       - "5077:5077" # blind mailbox (clients poll)
       - "5078:5078" # mix (onion traffic + directory)
     volumes:
-      - aegis-data:/data
+      - shoal-data:/data
     command:
       - "--advertise-mix"
       - "${PUBLIC_HOST:?set PUBLIC_HOST to your reachable host}:5078"
@@ -21,4 +21,4 @@ services:
       - "${BOOTSTRAP:-127.0.0.1:5078}"
 
 volumes:
-  aegis-data:
+  shoal-data:

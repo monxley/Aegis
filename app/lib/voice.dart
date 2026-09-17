@@ -42,7 +42,7 @@ class VoiceRecorder {
     if (recording) return true;
     if (!await hasPermission()) return false;
     try {
-      final dir = await Directory.systemTemp.createTemp('aegis-voice');
+      final dir = await Directory.systemTemp.createTemp('shoal-voice');
       final path = '${dir.path}/note.m4a';
       await _rec.start(
         // AAC in an m4a container: hardware-encoded on both platforms and

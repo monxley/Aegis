@@ -26,13 +26,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-MARKER = "// aegis: release signing configured by deploy/apply-release-signing.py"
+MARKER = "// shoal: release signing configured by deploy/apply-release-signing.py"
 
 LOADER = f"""{MARKER}
 import java.io.FileInputStream
 import java.util.Properties
 
-val aegisKeystoreProperties = Properties().apply {{
+val shoalKeystoreProperties = Properties().apply {{
     load(FileInputStream(rootProject.file("key.properties")))
 }}
 
@@ -40,10 +40,10 @@ val aegisKeystoreProperties = Properties().apply {{
 
 SIGNING_CONFIGS = """    signingConfigs {
         create("release") {
-            keyAlias = aegisKeystoreProperties["keyAlias"] as String
-            keyPassword = aegisKeystoreProperties["keyPassword"] as String
-            storeFile = file(aegisKeystoreProperties["storeFile"] as String)
-            storePassword = aegisKeystoreProperties["storePassword"] as String
+            keyAlias = shoalKeystoreProperties["keyAlias"] as String
+            keyPassword = shoalKeystoreProperties["keyPassword"] as String
+            storeFile = file(shoalKeystoreProperties["storeFile"] as String)
+            storePassword = shoalKeystoreProperties["storePassword"] as String
         }
     }
 

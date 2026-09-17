@@ -1,0 +1,632 @@
+//! # shoal-client
+//!
+//! One identity, one API. `ShoalClient` folds every layer of Shoal together so
+//! an application deals with a single object instead of juggling an
+//! [`shoal_identity::Identity`], an [`shoal_session::PrekeySecrets`], a set of
+//! [`DoubleRatchet`](shoal_session::DoubleRatchet)s, and a mailbox by hand:
+//!
+//! - **identity & addressing** — one [`shoal_identity::Identity`] backs the
+//!   shareable [`ShoalId`], the view key that receives mail, the identity DH key
+//!   used by the handshake, and the ML-DSA signing key that authenticates the
+//!   published bundle (all derived from one seed, so they truly are one identity);
+//! - **sessions** — PQXDH + the post-quantum Double Ratchet, established on first
+//!   contact and reused thereafter, one per peer;
+//! - **delivery** — sealed-sender envelopes over a blind [`MailboxStore`].
+//!
+//! ```
+//! use shoal_client::ShoalClient;
+//! use shoal_mailbox::InMemoryStore;
+//!
+//! let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+//! let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+//! let mut relay = InMemoryStore::new();
+//!
+//! // Alice knows Bob's Shoal ID and prekey bundle (published out of band).
+//! alice.start_conversation(&mut relay, &bob.shoal_id(), &bob.bundle(), b"hi bob").unwrap();
+//!
+//! // Bob scans the blind relay and reads it.
+//! let got = bob.receive(&relay).unwrap();
+//! assert_eq!(got[0].message, b"hi bob");
+//!
+//! // Bob replies on the now-established session; Alice reads it.
+//! bob.send(&mut relay, &got[0].from, b"hi alice").unwrap();
+//! assert_eq!(alice.receive(&relay).unwrap()[0].message, b"hi alice");
+//! ```
+
+mod wire;
+
+use std::collections::HashMap;
+
+use shoal_crypto::sha256;
+use shoal_crypto::x25519::SecretKey;
+use shoal_identity::{Identity, ShoalId};
+use shoal_mailbox::MailboxStore;
+use shoal_session::{
+    establish_initiator, establish_responder, DoubleRatchet, PrekeyBundle, PrekeySecrets,
+};
+
+use wire::Inner;
+
+/// The secret seeds that deterministically define a client's keys. Derived from
+/// one master seed so identity and prekey material share the same long-term
+/// identity DH and signing keys.
+struct Seeds {
+    identity_dh: [u8; 32],
+    view: [u8; 32],
+    signing: [u8; 32],
+    signed_prekey: [u8; 32],
+    kem_d: [u8; 32],
+    kem_z: [u8; 32],
+    one_time: [u8; 32],
+    ratchet_kem: [u8; 32],
+}
+
+fn derive(master: &[u8; 32], tag: &[u8]) -> [u8; 32] {
+    let mut input = Vec::with_capacity(32 + tag.len());
+    input.extend_from_slice(master);
+    input.extend_from_slice(tag);
+    sha256(&input)
+}
+
+/// Version tag on exported client state; bump on a format change.
+const STATE_VERSION: u8 = 1;
+
+/// Length buckets a plaintext is padded up to before ratchet encryption, so the
+/// **ciphertext length reveals only a bucket, not the exact message length** — a
+/// short "ok" and a longer sentence look the same on the wire. Messages larger
+/// than the top bucket are padded to their own `len+4` (no bucketing gain, but
+/// still correct).
+const PAD_BUCKETS: &[usize] = &[64, 256, 1024, 4096, 16384];
+
+/// Frame `msg` as `len(4 LE) ‖ msg ‖ zeros`, padded up to the smallest bucket
+/// that fits.
+fn pad(msg: &[u8]) -> Vec<u8> {
+    let need = msg.len() + 4;
+    let size = PAD_BUCKETS
+        .iter()
+        .copied()
+        .find(|&b| b >= need)
+        .unwrap_or(need);
+    let mut out = Vec::with_capacity(size);
+    out.extend_from_slice(&(msg.len() as u32).to_le_bytes());
+    out.extend_from_slice(msg);
+    out.resize(size, 0);
+    out
+}
+
+/// Recover the message from [`pad`] output. `None` if malformed.
+fn unpad(padded: &[u8]) -> Option<Vec<u8>> {
+    let len = u32::from_le_bytes(padded.get(..4)?.try_into().ok()?) as usize;
+    padded.get(4..4 + len).map(|s| s.to_vec())
+}
+
+/// Parsed client state (see [`ShoalClient::export_state`]).
+struct ClientState {
+    cursor: usize,
+    sessions: HashMap<[u8; 32], DoubleRatchet>,
+}
+
+/// A bounds-checked reader for [`ShoalClient::import_state`].
+struct StateReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> StateReader<'a> {
+    fn new(buf: &'a [u8]) -> Self {
+        StateReader { buf, pos: 0 }
+    }
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let s = self.buf.get(self.pos..end)?;
+        self.pos = end;
+        Some(s)
+    }
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
+    fn array32(&mut self) -> Option<[u8; 32]> {
+        self.take(32)?.try_into().ok()
+    }
+    fn parse(&mut self) -> Option<ClientState> {
+        if self.u8()? != STATE_VERSION {
+            return None;
+        }
+        let cursor = self.u64()? as usize;
+        let count = self.u32()? as usize;
+        let mut sessions = HashMap::with_capacity(count);
+        for _ in 0..count {
+            let peer = self.array32()?;
+            let len = self.u32()? as usize;
+            let bytes = self.take(len)?;
+            let ratchet = DoubleRatchet::deserialize(bytes)?;
+            sessions.insert(peer, ratchet);
+        }
+        Some(ClientState { cursor, sessions })
+    }
+}
+
+impl Seeds {
+    fn from_master(master: &[u8; 32]) -> Self {
+        Seeds {
+            identity_dh: derive(master, b"shoal/client/identity-dh"),
+            view: derive(master, b"shoal/client/view"),
+            signing: derive(master, b"shoal/client/signing"),
+            signed_prekey: derive(master, b"shoal/client/signed-prekey"),
+            kem_d: derive(master, b"shoal/client/kem-d"),
+            kem_z: derive(master, b"shoal/client/kem-z"),
+            one_time: derive(master, b"shoal/client/one-time"),
+            ratchet_kem: derive(master, b"shoal/client/ratchet-kem"),
+        }
+    }
+
+    /// Build a fresh `PrekeySecrets` (deterministic, so its public bundle is
+    /// stable and it can back many responder sessions).
+    fn prekeys(&self) -> PrekeySecrets {
+        PrekeySecrets::from_seeds(
+            self.identity_dh,
+            self.signed_prekey,
+            self.kem_d,
+            self.kem_z,
+            Some(self.one_time),
+            self.signing,
+            self.ratchet_kem,
+        )
+    }
+}
+
+/// A message received and decrypted for this client.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Received {
+    /// The sender's Shoal ID (learned from the sealed envelope — the relay never
+    /// saw it). Use it to [`send`](ShoalClient::send) a reply.
+    pub from: ShoalId,
+    /// The decrypted plaintext.
+    pub message: Vec<u8>,
+}
+
+/// Errors from client operations.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ClientError {
+    /// A peer's prekey bundle failed its own signature check.
+    UnauthenticBundle,
+    /// A peer's bundle does not match the Shoal ID it was presented with
+    /// (wrong identity DH key or signing key) — a substitution / MITM.
+    IdentityMismatch,
+    /// No established session with this peer (call `start_conversation` first).
+    NoSession,
+    /// Session setup failed.
+    Session,
+    /// Message encryption failed (e.g. sending before the session is ready).
+    Encrypt,
+    /// The mailbox relay (store) returned an error.
+    Relay,
+}
+
+impl core::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let s = match self {
+            ClientError::UnauthenticBundle => "prekey bundle signature did not verify",
+            ClientError::IdentityMismatch => "bundle does not match the peer's Shoal ID",
+            ClientError::NoSession => "no established session with this peer",
+            ClientError::Session => "session setup failed",
+            ClientError::Encrypt => "message encryption failed",
+            ClientError::Relay => "mailbox relay error",
+        };
+        f.write_str(s)
+    }
+}
+
+impl std::error::Error for ClientError {}
+
+/// A full Shoal client: one identity, its sessions, and a mailbox scan cursor.
+pub struct ShoalClient {
+    identity: Identity,
+    seeds: Seeds,
+    sessions: HashMap<[u8; 32], DoubleRatchet>,
+    cursor: usize,
+}
+
+impl ShoalClient {
+    /// Create a client deterministically from a 32-byte master seed (all keys
+    /// are derived from it). Use [`generate`](Self::generate) for a random one.
+    pub fn from_master_seed(master: [u8; 32]) -> Self {
+        let seeds = Seeds::from_master(&master);
+        let identity = Identity::from_secret_bytes(seeds.identity_dh, seeds.view, seeds.signing);
+        ShoalClient {
+            identity,
+            seeds,
+            sessions: HashMap::new(),
+            cursor: 0,
+        }
+    }
+
+    /// Create a client from OS randomness.
+    pub fn generate() -> Self {
+        let mut master = [0u8; 32];
+        shoal_crypto::fill_random(&mut master);
+        Self::from_master_seed(master)
+    }
+
+    /// This client's shareable Shoal ID (identity DH key, view key, and a
+    /// commitment to the signing key).
+    pub fn shoal_id(&self) -> ShoalId {
+        self.identity.shoal_id()
+    }
+
+    /// This client's signed prekey bundle, to publish so others can start a
+    /// conversation while it is offline.
+    pub fn bundle(&self) -> PrekeyBundle {
+        self.seeds.prekeys().public_bundle()
+    }
+
+    /// Start a conversation with a peer: verify their bundle against their Shoal
+    /// ID, run PQXDH, and send `message` as the first ratchet message through
+    /// the relay. Establishes and stores the session.
+    pub fn start_conversation(
+        &mut self,
+        store: &mut impl MailboxStore,
+        peer: &ShoalId,
+        bundle: &PrekeyBundle,
+        message: &[u8],
+    ) -> Result<(), ClientError> {
+        // Authenticate the bundle and bind it to this exact peer (G8).
+        if !bundle.verify() {
+            return Err(ClientError::UnauthenticBundle);
+        }
+        if bundle.identity_dh != peer.identity_dh_public()
+            || !peer.verify_signing_key(&bundle.identity_signing_public)
+        {
+            return Err(ClientError::IdentityMismatch);
+        }
+
+        let identity_dh = SecretKey::from_bytes(self.seeds.identity_dh);
+        let (initial, mut ratchet) =
+            establish_initiator(&identity_dh, bundle).map_err(|_| ClientError::Session)?;
+        let first = ratchet
+            .encrypt(&pad(message), b"")
+            .map_err(|_| ClientError::Encrypt)?;
+
+        let inner = Inner::Handshake {
+            sender: self.identity.shoal_id(),
+            initial,
+            first,
+        };
+        // Sealed-sender: the relay sees only a one-time address and ciphertext.
+        shoal_mailbox::send(store, &peer.view_public(), &inner.encode())
+            .map_err(|_| ClientError::Relay)?;
+
+        self.sessions.insert(peer.identity_dh_public(), ratchet);
+        Ok(())
+    }
+
+    /// Send `message` on an already-established session with `peer`.
+    pub fn send(
+        &mut self,
+        store: &mut impl MailboxStore,
+        peer: &ShoalId,
+        message: &[u8],
+    ) -> Result<(), ClientError> {
+        let ratchet = self
+            .sessions
+            .get_mut(&peer.identity_dh_public())
+            .ok_or(ClientError::NoSession)?;
+        let message = ratchet
+            .encrypt(&pad(message), b"")
+            .map_err(|_| ClientError::Encrypt)?;
+        let inner = Inner::Chat {
+            sender: self.identity.shoal_id(),
+            message,
+        };
+        shoal_mailbox::send(store, &peer.view_public(), &inner.encode())
+            .map_err(|_| ClientError::Relay)?;
+        Ok(())
+    }
+
+    /// Serialize the client's live conversation state — every peer session
+    /// (Double Ratchet) and the mailbox scan cursor — so a restart resumes where
+    /// it left off. Identity keys are **not** included: they are derived from the
+    /// master seed, which the app stores separately. The output holds ratchet
+    /// secrets; keep it in the app's private storage, never on the relay.
+    pub fn export_state(&self) -> Vec<u8> {
+        let mut w = Vec::new();
+        w.push(STATE_VERSION);
+        w.extend_from_slice(&(self.cursor as u64).to_le_bytes());
+        w.extend_from_slice(&(self.sessions.len() as u32).to_le_bytes());
+        for (peer, ratchet) in &self.sessions {
+            w.extend_from_slice(peer);
+            let bytes = ratchet.serialize();
+            w.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            w.extend_from_slice(&bytes);
+        }
+        w
+    }
+
+    /// Restore sessions and cursor from [`export_state`](Self::export_state).
+    /// Returns `false` (leaving the client untouched) if the bytes are malformed
+    /// or a version it does not understand. Identity is unchanged — restore into
+    /// a client built from the same master seed.
+    pub fn import_state(&mut self, bytes: &[u8]) -> bool {
+        let mut r = StateReader::new(bytes);
+        let Some(state) = r.parse() else {
+            return false;
+        };
+        self.cursor = state.cursor;
+        self.sessions = state.sessions;
+        true
+    }
+
+    /// Scan the relay for new mail addressed to this client, decrypt it, and
+    /// return the messages. New peers (handshakes) are established transparently;
+    /// their sessions are stored so replies work. Envelopes for other recipients
+    /// or that fail to decrypt are silently skipped. Fails only if the relay
+    /// itself errors.
+    pub fn receive(&mut self, store: &impl MailboxStore) -> Result<Vec<Received>, ClientError> {
+        let (cursor, inners) = shoal_mailbox::receive(store, self.identity.view(), self.cursor)
+            .map_err(|_| ClientError::Relay)?;
+        self.cursor = cursor;
+
+        let mut out = Vec::new();
+        for bytes in inners {
+            let Some(inner) = Inner::decode(&bytes) else {
+                continue;
+            };
+            match inner {
+                Inner::Handshake {
+                    sender,
+                    initial,
+                    first,
+                } => {
+                    // A fresh responder session against our (stable) bundle.
+                    let Ok(mut ratchet) = establish_responder(self.seeds.prekeys(), &initial)
+                    else {
+                        continue;
+                    };
+                    let Ok(padded) = ratchet.decrypt(&first, b"") else {
+                        continue;
+                    };
+                    let Some(message) = unpad(&padded) else {
+                        continue;
+                    };
+                    self.sessions.insert(sender.identity_dh_public(), ratchet);
+                    out.push(Received {
+                        from: sender,
+                        message,
+                    });
+                }
+                Inner::Chat { sender, message } => {
+                    let key = sender.identity_dh_public();
+                    let Some(ratchet) = self.sessions.get_mut(&key) else {
+                        continue; // no session — cannot decrypt
+                    };
+                    if let Ok(padded) = ratchet.decrypt(&message, b"") {
+                        if let Some(plaintext) = unpad(&padded) {
+                            out.push(Received {
+                                from: sender,
+                                message: plaintext,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shoal_mailbox::InMemoryStore;
+
+    #[test]
+    fn short_messages_are_padded_to_a_common_bucket() {
+        use shoal_mailbox::MailboxStore;
+        // Two messages of very different lengths (both < 60 bytes → same 64-byte
+        // bucket) must produce the same stored envelope size, so the relay can't
+        // tell them apart by length.
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let bob = ShoalClient::from_master_seed([2u8; 32]);
+
+        let mut relay_a = InMemoryStore::new();
+        alice
+            .start_conversation(&mut relay_a, &bob.shoal_id(), &bob.bundle(), b"ok")
+            .unwrap();
+        let mut relay_b = ShoalClient::from_master_seed([1u8; 32]);
+        let mut relay_c = InMemoryStore::new();
+        relay_b
+            .start_conversation(
+                &mut relay_c,
+                &bob.shoal_id(),
+                &bob.bundle(),
+                b"a much longer hello",
+            )
+            .unwrap();
+
+        let a = relay_a.fetch_since(0).unwrap().1[0].to_bytes().len();
+        let b = relay_c.fetch_since(0).unwrap().1[0].to_bytes().len();
+        assert_eq!(
+            a, b,
+            "different-length messages should share an envelope size"
+        );
+
+        // And round-trip still works.
+        assert_eq!(bob_receive(b"ok"), b"ok");
+        assert_eq!(bob_receive(b"a much longer hello"), b"a much longer hello");
+    }
+
+    fn bob_receive(msg: &[u8]) -> Vec<u8> {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+        alice
+            .start_conversation(&mut relay, &bob.shoal_id(), &bob.bundle(), msg)
+            .unwrap();
+        bob.receive(&relay).unwrap().remove(0).message
+    }
+
+    #[test]
+    fn two_clients_hold_a_conversation() {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+
+        alice
+            .start_conversation(&mut relay, &bob.shoal_id(), &bob.bundle(), b"hi bob")
+            .unwrap();
+
+        let got = bob.receive(&relay).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].message, b"hi bob");
+        assert_eq!(got[0].from, alice.shoal_id());
+
+        // Bob replies on the established session.
+        bob.send(&mut relay, &alice.shoal_id(), b"hi alice")
+            .unwrap();
+        let got = alice.receive(&relay).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].message, b"hi alice");
+        assert_eq!(got[0].from, bob.shoal_id());
+    }
+
+    #[test]
+    fn many_turns_flow_over_the_established_session() {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+
+        alice
+            .start_conversation(&mut relay, &bob.shoal_id(), &bob.bundle(), b"turn 0")
+            .unwrap();
+        assert_eq!(bob.receive(&relay).unwrap()[0].message, b"turn 0");
+
+        for i in 1..10u8 {
+            bob.send(&mut relay, &alice.shoal_id(), &[i]).unwrap();
+            assert_eq!(alice.receive(&relay).unwrap()[0].message, vec![i]);
+            alice
+                .send(&mut relay, &bob.shoal_id(), &[i ^ 0xff])
+                .unwrap();
+            assert_eq!(bob.receive(&relay).unwrap()[0].message, vec![i ^ 0xff]);
+        }
+    }
+
+    #[test]
+    fn a_third_client_sharing_the_relay_reads_nothing() {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut carol = ShoalClient::from_master_seed([3u8; 32]);
+        let mut relay = InMemoryStore::new();
+
+        alice
+            .start_conversation(&mut relay, &bob.shoal_id(), &bob.bundle(), b"for bob")
+            .unwrap();
+
+        assert!(carol.receive(&relay).unwrap().is_empty());
+        assert_eq!(bob.receive(&relay).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bob_serves_several_initiators_from_one_bundle() {
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+        let bob_id = bob.shoal_id();
+        let bob_bundle = bob.bundle();
+
+        for seed in 10..15u8 {
+            let mut peer = ShoalClient::from_master_seed([seed; 32]);
+            peer.start_conversation(&mut relay, &bob_id, &bob_bundle, &[seed])
+                .unwrap();
+        }
+        let got = bob.receive(&relay).unwrap();
+        assert_eq!(got.len(), 5);
+        let mut msgs: Vec<u8> = got.iter().map(|r| r.message[0]).collect();
+        msgs.sort_unstable();
+        assert_eq!(msgs, (10..15).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn exported_state_resumes_a_conversation_across_a_restart() {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+
+        alice
+            .start_conversation(&mut relay, &bob.shoal_id(), &bob.bundle(), b"hi bob")
+            .unwrap();
+        assert_eq!(bob.receive(&relay).unwrap()[0].message, b"hi bob");
+        bob.send(&mut relay, &alice.shoal_id(), b"hi alice")
+            .unwrap();
+        assert_eq!(alice.receive(&relay).unwrap()[0].message, b"hi alice");
+
+        // "Restart" both: rebuild from the master seed (as the app does from the
+        // stored seed) and restore the saved session state.
+        let alice_blob = alice.export_state();
+        let bob_blob = bob.export_state();
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let mut bob = ShoalClient::from_master_seed([2u8; 32]);
+        assert!(alice.import_state(&alice_blob));
+        assert!(bob.import_state(&bob_blob));
+
+        // The established session keeps working after the restart.
+        alice
+            .send(&mut relay, &bob.shoal_id(), b"after restart")
+            .unwrap();
+        assert_eq!(bob.receive(&relay).unwrap()[0].message, b"after restart");
+        bob.send(&mut relay, &alice.shoal_id(), b"still here")
+            .unwrap();
+        assert_eq!(alice.receive(&relay).unwrap()[0].message, b"still here");
+    }
+
+    #[test]
+    fn a_fresh_client_has_empty_but_valid_state() {
+        let alice = ShoalClient::from_master_seed([1u8; 32]);
+        let blob = alice.export_state();
+        let mut restored = ShoalClient::from_master_seed([1u8; 32]);
+        assert!(restored.import_state(&blob));
+        assert!(!restored.import_state(b"garbage"));
+    }
+
+    #[test]
+    fn sending_without_a_session_is_refused() {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+        assert_eq!(
+            alice.send(&mut relay, &bob.shoal_id(), b"hi"),
+            Err(ClientError::NoSession)
+        );
+    }
+
+    #[test]
+    fn a_tampered_bundle_is_rejected() {
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mut relay = InMemoryStore::new();
+
+        let mut bundle = bob.bundle();
+        bundle.signed_prekey[0] ^= 1;
+        assert_eq!(
+            alice.start_conversation(&mut relay, &bob.shoal_id(), &bundle, b"hi"),
+            Err(ClientError::UnauthenticBundle)
+        );
+    }
+
+    #[test]
+    fn a_bundle_for_the_wrong_identity_is_rejected() {
+        // A valid bundle, but presented under a different peer's Shoal ID.
+        let mut alice = ShoalClient::from_master_seed([1u8; 32]);
+        let bob = ShoalClient::from_master_seed([2u8; 32]);
+        let mallory = ShoalClient::from_master_seed([9u8; 32]);
+        let mut relay = InMemoryStore::new();
+        assert_eq!(
+            alice.start_conversation(&mut relay, &bob.shoal_id(), &mallory.bundle(), b"hi"),
+            Err(ClientError::IdentityMismatch)
+        );
+    }
+}

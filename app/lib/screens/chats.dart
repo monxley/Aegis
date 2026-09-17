@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../design/responsive.dart';
 import '../design/states.dart';
 import '../engine.dart';
-import '../src/rust/api/aegis.dart';
+import '../src/rust/api/shoal.dart';
 import '../theme.dart';
 import '../updater.dart';
 import '../widgets.dart';
@@ -18,7 +18,7 @@ import 'search.dart';
 /// The home screen: the list of conversations. Rebuilds whenever the engine
 /// signals new state (a sent or polled message, a new contact).
 class ChatsScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const ChatsScreen({super.key, required this.engine});
 
   @override
@@ -26,7 +26,7 @@ class ChatsScreen extends StatefulWidget {
 }
 
 class _ChatsScreenState extends State<ChatsScreen> {
-  AegisEngineController get engine => widget.engine;
+  ShoalEngineController get engine => widget.engine;
   bool _updateDialogShown = false;
   bool _securityDismissed = false;
 
@@ -59,8 +59,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            const ShieldMark(size: 30),
-            const SizedBox(width: AegisSpace.s2),
+            const ShoalMark(size: 30),
+            const SizedBox(width: ShoalSpace.s2),
             // Expanded, not a bare Column: a Row hands its non-flex children
             // unbounded width, and the status line below flexes its label so a
             // long transport name ellipsizes instead of overflowing. Flex
@@ -72,7 +72,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 children: [
                   const Padding(
                     padding: EdgeInsets.only(bottom: 2),
-                    child: AegisWordmark(height: 18),
+                    child: ShoalWordmark(height: 18),
                   ),
                   _ConnectionStatus(engine: engine),
                 ],
@@ -83,7 +83,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         actions: [
           IconButton(
             tooltip: 'Search',
-            icon: const Icon(Icons.search_rounded, color: AegisColor.textPrimary),
+            icon: const Icon(Icons.search_rounded, color: ShoalColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SearchScreen(engine: engine),
@@ -92,7 +92,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
           IconButton(
             tooltip: 'My identity',
-            icon: const Icon(Icons.badge_rounded, color: AegisColor.textPrimary),
+            icon: const Icon(Icons.badge_rounded, color: ShoalColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => IdentityScreen(engine: engine),
@@ -101,7 +101,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           ),
           IconButton(
             tooltip: 'Network nodes',
-            icon: const Icon(Icons.hub_rounded, color: AegisColor.textPrimary),
+            icon: const Icon(Icons.hub_rounded, color: ShoalColor.textPrimary),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => NodesScreen(engine: engine),
@@ -129,7 +129,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                 if (update != null)
                   _UpdateBanner(engine: engine, update: update),
                 _NotesTile(engine: engine),
-                const Divider(height: 1, indent: 72, color: AegisColor.border),
+                const Divider(height: 1, indent: 72, color: ShoalColor.border),
                 Expanded(
                   child: contacts.isEmpty
                       ? const _EmptyState()
@@ -139,7 +139,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           separatorBuilder: (_, __) => const Divider(
                             height: 1,
                             indent: 72,
-                            color: AegisColor.border,
+                            color: ShoalColor.border,
                           ),
                           itemBuilder: (context, i) =>
                               _ContactTile(engine: engine, contact: contacts[i]),
@@ -151,8 +151,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: AegisColor.accent,
-        foregroundColor: AegisColor.textOnAccent,
+        backgroundColor: ShoalColor.accent,
+        foregroundColor: ShoalColor.textOnAccent,
         onPressed: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => AddContactScreen(engine: engine)),
         ),
@@ -172,7 +172,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
 /// the app really has — chooses the colour *and* a word, so it survives
 /// greyscale and colour-blindness.
 class _ConnectionStatus extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const _ConnectionStatus({required this.engine});
 
   @override
@@ -244,15 +244,15 @@ class _ConnectionStatusState extends State<_ConnectionStatus>
         // meaningless there -- the label already says the app is offline.
         final networked = !label.startsWith('Offline');
         final (icon, tone, text) = switch ((networked, engine.relayReachable)) {
-          (false, _) => (Icons.cloud_off_rounded, AegisColor.textMuted, label),
+          (false, _) => (Icons.cloud_off_rounded, ShoalColor.textMuted, label),
           (true, null) => (
               Icons.sync_rounded,
-              AegisColor.textMuted,
+              ShoalColor.textMuted,
               '$label · connecting',
             ),
           (true, false) => (
               Icons.cloud_off_rounded,
-              AegisColor.warning,
+              ShoalColor.warning,
               '$label · no connection',
             ),
           (true, true) => (
@@ -260,10 +260,10 @@ class _ConnectionStatusState extends State<_ConnectionStatus>
                   ? Icons.hub_rounded
                   : Icons.dns_rounded,
               label.startsWith('Mixnet')
-                  ? AegisColor.accent
+                  ? ShoalColor.accent
                   // A plain relay works, but it sees more than a mix path does.
                   // Amber is the honest colour for "connected, less private".
-                  : AegisColor.warning,
+                  : ShoalColor.warning,
               label,
             ),
         };
@@ -293,14 +293,14 @@ class _ConnectionStatusState extends State<_ConnectionStatus>
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => NodesScreen(engine: engine)),
             ),
-            borderRadius: BorderRadius.circular(AegisRadius.xs),
+            borderRadius: BorderRadius.circular(ShoalRadius.xs),
             child: Padding(
-              padding: const EdgeInsets.only(right: AegisSpace.s1, top: 1),
+              padding: const EdgeInsets.only(right: ShoalSpace.s1, top: 1),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   mark,
-                  const SizedBox(width: AegisSpace.s1),
+                  const SizedBox(width: ShoalSpace.s1),
                   Flexible(
                     // The label crossfades rather than snapping, so a transport
                     // change reads as one state becoming another.
@@ -310,7 +310,7 @@ class _ConnectionStatusState extends State<_ConnectionStatus>
                         text,
                         key: ValueKey(text),
                         overflow: TextOverflow.ellipsis,
-                        style: AegisType.meta.copyWith(color: tone),
+                        style: ShoalType.meta.copyWith(color: tone),
                       ),
                     ),
                   ),
@@ -327,7 +327,7 @@ class _ConnectionStatusState extends State<_ConnectionStatus>
 /// The always-present "Notes" entry at the top of the list: a private,
 /// local-only, encrypted self-chat.
 class _NotesTile extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const _NotesTile({required this.engine});
 
   @override
@@ -349,20 +349,20 @@ class _NotesTile extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+              horizontal: ShoalSpace.s4, vertical: ShoalSpace.s3),
           child: Row(
             children: [
               Container(
                 width: 44,
                 height: 44,
                 decoration: const BoxDecoration(
-                  color: AegisColor.accentMuted,
+                  color: ShoalColor.accentMuted,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(Icons.bookmark_border_rounded,
-                    size: 20, color: AegisColor.accent),
+                    size: 20, color: ShoalColor.accent),
               ),
-              const SizedBox(width: AegisSpace.s3),
+              const SizedBox(width: ShoalSpace.s3),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,14 +370,14 @@ class _NotesTile extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        const Text('Notes', style: AegisType.heading),
-                        const SizedBox(width: AegisSpace.s1),
+                        const Text('Notes', style: ShoalType.heading),
+                        const SizedBox(width: ShoalSpace.s1),
                         const Icon(Icons.lock_outline_rounded,
-                            size: 12, color: AegisColor.textMuted),
+                            size: 12, color: ShoalColor.textMuted),
                         const Spacer(),
                         if (last != null)
                           Text(formatListTime(last.timestampMs.toInt()),
-                              style: AegisType.meta),
+                              style: ShoalType.meta),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -385,10 +385,10 @@ class _NotesTile extends StatelessWidget {
                       preview,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AegisType.secondary.copyWith(
+                      style: ShoalType.secondary.copyWith(
                         color: last == null
-                            ? AegisColor.textMuted
-                            : AegisColor.textSecondary,
+                            ? ShoalColor.textMuted
+                            : ShoalColor.textSecondary,
                       ),
                     ),
                   ],
@@ -403,7 +403,7 @@ class _NotesTile extends StatelessWidget {
 }
 
 class _ContactTile extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final Contact contact;
   const _ContactTile({required this.engine, required this.contact});
 
@@ -433,12 +433,12 @@ class _ContactTile extends StatelessWidget {
         onLongPress: () => _showActions(context),
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: AegisSpace.s4, vertical: AegisSpace.s3),
+              horizontal: ShoalSpace.s4, vertical: ShoalSpace.s3),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ContactAvatar(name: contact.name),
-              const SizedBox(width: AegisSpace.s3),
+              const SizedBox(width: ShoalSpace.s3),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,23 +450,23 @@ class _ContactTile extends StatelessWidget {
                           child: Text(
                             contact.name,
                             overflow: TextOverflow.ellipsis,
-                            style: AegisType.heading,
+                            style: ShoalType.heading,
                           ),
                         ),
                         if (contact.pinned) ...[
-                          const SizedBox(width: AegisSpace.s1),
+                          const SizedBox(width: ShoalSpace.s1),
                           const Icon(Icons.push_pin_rounded,
-                              size: 12, color: AegisColor.textMuted),
+                              size: 12, color: ShoalColor.textMuted),
                         ],
                         if (contact.blocked) ...[
-                          const SizedBox(width: AegisSpace.s1),
+                          const SizedBox(width: ShoalSpace.s1),
                           const Icon(Icons.block_rounded,
-                              size: 12, color: AegisColor.danger),
+                              size: 12, color: ShoalColor.danger),
                         ],
                         const Spacer(),
                         if (hasLast)
                           Text(formatListTime(contact.lastTs.toInt()),
-                              style: AegisType.meta),
+                              style: ShoalType.meta),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -474,12 +474,12 @@ class _ContactTile extends StatelessWidget {
                       preview,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AegisType.secondary.copyWith(
+                      style: ShoalType.secondary.copyWith(
                         // An unstarted conversation reads as a prompt, not as a
                         // message someone actually sent.
                         color: hasLast
-                            ? AegisColor.textSecondary
-                            : AegisColor.textMuted,
+                            ? ShoalColor.textSecondary
+                            : ShoalColor.textMuted,
                       ),
                     ),
                   ],
@@ -496,7 +496,7 @@ class _ContactTile extends StatelessWidget {
     HapticFeedback.mediumImpact();
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -514,7 +514,7 @@ class _ContactTile extends StatelessWidget {
                     child: Text(
                       contact.name,
                       style: const TextStyle(
-                        color: AegisColor.textPrimary,
+                        color: ShoalColor.textPrimary,
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
                       ),
@@ -529,19 +529,19 @@ class _ContactTile extends StatelessWidget {
                   ? Icons.push_pin_outlined
                   : Icons.push_pin_rounded,
               label: contact.pinned ? 'Unpin' : 'Pin to top',
-              onTap: () => engine.setPinned(contact.aegisId, !contact.pinned),
+              onTap: () => engine.setPinned(contact.shoalId, !contact.pinned),
             ),
             _action(
               sheetCtx,
               icon: Icons.arrow_upward_rounded,
               label: 'Move up',
-              onTap: () => engine.moveChat(contact.aegisId, up: true),
+              onTap: () => engine.moveChat(contact.shoalId, up: true),
             ),
             _action(
               sheetCtx,
               icon: Icons.arrow_downward_rounded,
               label: 'Move down',
-              onTap: () => engine.moveChat(contact.aegisId, up: false),
+              onTap: () => engine.moveChat(contact.shoalId, up: false),
             ),
             _action(
               sheetCtx,
@@ -550,9 +550,9 @@ class _ContactTile extends StatelessWidget {
                   : Icons.block_rounded,
               label: contact.blocked ? 'Unblock' : 'Block',
               danger: !contact.blocked,
-              onTap: () => engine.setBlocked(contact.aegisId, !contact.blocked),
+              onTap: () => engine.setBlocked(contact.shoalId, !contact.blocked),
             ),
-            const Divider(height: 1, color: AegisColor.border),
+            const Divider(height: 1, color: ShoalColor.border),
             _action(
               sheetCtx,
               icon: Icons.delete_outline_rounded,
@@ -574,7 +574,7 @@ class _ContactTile extends StatelessWidget {
     required VoidCallback onTap,
     bool danger = false,
   }) {
-    final color = danger ? AegisColor.danger : AegisColor.textPrimary;
+    final color = danger ? ShoalColor.danger : ShoalColor.textPrimary;
     return ListTile(
       leading: Icon(icon, color: color, size: 22),
       title: Text(label, style: TextStyle(color: color, fontSize: 15)),
@@ -588,7 +588,7 @@ class _ContactTile extends StatelessWidget {
   void _confirmDelete(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -601,7 +601,7 @@ class _ContactTile extends StatelessWidget {
               child: Text(
                 'Delete this chat?',
                 style: TextStyle(
-                  color: AegisColor.textPrimary,
+                  color: ShoalColor.textPrimary,
                   fontWeight: FontWeight.w700,
                   fontSize: 16,
                 ),
@@ -611,7 +611,7 @@ class _ContactTile extends StatelessWidget {
               padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
               child: Text(
                 'This cannot be undone.',
-                style: TextStyle(color: AegisColor.textSecondary, fontSize: 13),
+                style: TextStyle(color: ShoalColor.textSecondary, fontSize: 13),
               ),
             ),
             _action(
@@ -619,14 +619,14 @@ class _ContactTile extends StatelessWidget {
               icon: Icons.person_remove_rounded,
               label: 'Delete for me',
               danger: true,
-              onTap: () => engine.deleteChat(contact.aegisId),
+              onTap: () => engine.deleteChat(contact.shoalId),
             ),
             _action(
               sheetCtx,
               icon: Icons.delete_forever_rounded,
               label: 'Delete for everyone',
               danger: true,
-              onTap: () => engine.deleteChatForBoth(contact.aegisId),
+              onTap: () => engine.deleteChatForBoth(contact.shoalId),
             ),
             const SizedBox(height: 8),
           ],
@@ -644,7 +644,7 @@ class _EmptyState extends StatelessWidget {
     return const EmptyState(
       icon: Icons.forum_outlined,
       title: 'No conversations yet',
-      message: 'Add someone by their Aegis code to start an encrypted '
+      message: 'Add someone by their Shoal code to start an encrypted '
           'conversation. There are no phone numbers or usernames to look up.',
     );
   }
@@ -666,7 +666,7 @@ class _SecurityBanner extends StatelessWidget {
       label: 'Device check failed',
       detail: '$reason On a compromised device your keys and messages can be '
           'read while unlocked — treat this device as untrusted.',
-      tone: AegisColor.danger,
+      tone: ShoalColor.danger,
       emphasis: true,
       onDismiss: onDismiss,
     );
@@ -677,7 +677,7 @@ class _SecurityBanner extends StatelessWidget {
 /// protocol can move between versions, and a client that falls behind stops
 /// being able to send or receive at all.
 class _UpdateBanner extends StatelessWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final UpdateInfo update;
   const _UpdateBanner({required this.engine, required this.update});
 
@@ -687,7 +687,7 @@ class _UpdateBanner extends StatelessWidget {
       icon: Icons.system_update_rounded,
       label: 'Update ${update.version}',
       detail: 'Older versions may stop working. Tap to update.',
-      tone: AegisColor.warning,
+      tone: ShoalColor.warning,
       emphasis: true,
       onTap: () => showUpdateDialog(context, engine, update),
     );
@@ -698,21 +698,21 @@ class _UpdateBanner extends StatelessWidget {
 /// that an out-of-date client can stop working when the protocol/network moves.
 Future<void> showUpdateDialog(
   BuildContext context,
-  AegisEngineController engine,
+  ShoalEngineController engine,
   UpdateInfo update,
 ) {
   return showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: AegisColor.surface,
+      backgroundColor: ShoalColor.surface,
       title: Row(
         children: [
-          const Icon(Icons.system_update_rounded, color: AegisColor.accent),
+          const Icon(Icons.system_update_rounded, color: ShoalColor.accent),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Update ${update.version}',
-              style: const TextStyle(color: AegisColor.textPrimary, fontSize: 18),
+              style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 18),
             ),
           ),
         ],
@@ -723,31 +723,31 @@ Future<void> showUpdateDialog(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'A newer version of Aegis is available. Please update: the '
+              'A newer version of Shoal is available. Please update: the '
               'protocol and network can change between versions, and an '
               'out-of-date app may fail to send or receive — or stop working '
               'entirely.',
-              style: TextStyle(color: AegisColor.textSecondary, fontSize: 13, height: 1.45),
+              style: TextStyle(color: ShoalColor.textSecondary, fontSize: 13, height: 1.45),
             ),
             if (update.notes.isNotEmpty) ...[
               const SizedBox(height: 14),
               const Text("What's new",
                   style: TextStyle(
-                      color: AegisColor.textPrimary,
+                      color: ShoalColor.textPrimary,
                       fontWeight: FontWeight.w700,
                       fontSize: 13)),
               const SizedBox(height: 6),
               Text(
                 update.notes,
                 style: const TextStyle(
-                    color: AegisColor.textSecondary, fontSize: 12.5, height: 1.4),
+                    color: ShoalColor.textSecondary, fontSize: 12.5, height: 1.4),
               ),
             ],
             if (!update.hasApk) ...[
               const SizedBox(height: 12),
               const Text(
                 'Opens the release page — download the APK there and install it.',
-                style: TextStyle(color: AegisColor.textSecondary, fontSize: 11, height: 1.4),
+                style: TextStyle(color: ShoalColor.textSecondary, fontSize: 11, height: 1.4),
               ),
             ],
           ],
@@ -756,12 +756,12 @@ Future<void> showUpdateDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Later', style: TextStyle(color: AegisColor.textSecondary)),
+          child: const Text('Later', style: TextStyle(color: ShoalColor.textSecondary)),
         ),
         FilledButton.icon(
           style: FilledButton.styleFrom(
-            backgroundColor: AegisColor.accent,
-            foregroundColor: AegisColor.textOnAccent,
+            backgroundColor: ShoalColor.accent,
+            foregroundColor: ShoalColor.textOnAccent,
           ),
           icon: const Icon(Icons.download_rounded, size: 18),
           label: const Text('Download update'),

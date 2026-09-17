@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Give back the disk that deploy/build-apk.sh took, and leave the node running.
 #
-#   curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/clean-build-toolchain.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/clean-build-toolchain.sh | bash
 #
 # build-apk.sh downloads about 10 GB of Android toolchain -- NDK, Flutter SDK,
 # Gradle, the Android SDK, a JDK, a pub cache -- and leaves all of it under
@@ -11,14 +11,14 @@
 #
 # WHAT IT WILL NOT TOUCH, and checks before every delete:
 #
-#   the node binary        /usr/local/bin/aegis-relay-server
-#                          (or ~/.local/bin/aegis-relay-server)
-#   the node's data dir    /var/lib/aegis  (or ~/.local/share/aegis)
+#   the node binary        /usr/local/bin/shoal-relay-server
+#                          (or ~/.local/bin/shoal-relay-server)
+#   the node's data dir    /var/lib/shoal  (or ~/.local/share/shoal)
 #                          -- the relay key, the mix key and every queued
 #                          envelope. Deleting it makes this node a stranger to
 #                          the network and loses undelivered mail.
-#   the systemd unit       /etc/systemd/system/aegis-node.service
-#                          (or ~/.config/systemd/user/aegis-node.service)
+#   the systemd unit       /etc/systemd/system/shoal-node.service
+#                          (or ~/.config/systemd/user/shoal-node.service)
 #
 # Everything it does remove is downloadable again: re-running build-apk.sh
 # rebuilds the whole toolchain from scratch.
@@ -39,15 +39,15 @@ warn() { printf '\033[33m!!\033[0m %s\n' "$*" >&2; }
 # --- 1. Find the node, so the report says what is being protected ------------
 
 NODE_BIN=""; NODE_DATA=""; NODE_UNIT=""; NODE_HOW="not found"
-if [ -x /usr/local/bin/aegis-relay-server ]; then
-  NODE_BIN=/usr/local/bin/aegis-relay-server
-  NODE_DATA="${DATA_DIR:-/var/lib/aegis}"
-  NODE_UNIT=/etc/systemd/system/aegis-node.service
+if [ -x /usr/local/bin/shoal-relay-server ]; then
+  NODE_BIN=/usr/local/bin/shoal-relay-server
+  NODE_DATA="${DATA_DIR:-/var/lib/shoal}"
+  NODE_UNIT=/etc/systemd/system/shoal-node.service
   NODE_HOW="system (root install)"
-elif [ -x "$HOME/.local/bin/aegis-relay-server" ]; then
-  NODE_BIN="$HOME/.local/bin/aegis-relay-server"
-  NODE_DATA="${DATA_DIR:-$HOME/.local/share/aegis}"
-  NODE_UNIT="$HOME/.config/systemd/user/aegis-node.service"
+elif [ -x "$HOME/.local/bin/shoal-relay-server" ]; then
+  NODE_BIN="$HOME/.local/bin/shoal-relay-server"
+  NODE_DATA="${DATA_DIR:-$HOME/.local/share/shoal}"
+  NODE_UNIT="$HOME/.config/systemd/user/shoal-node.service"
   NODE_HOW="rootless (under \$HOME)"
 fi
 
@@ -58,31 +58,31 @@ if [ -n "$NODE_UNIT" ] && [ -f "$NODE_UNIT" ]; then
   [ -n "${unit_data:-}" ] && NODE_DATA="$unit_data"
 fi
 
-log "Aegis node: $NODE_HOW"
+log "Shoal node: $NODE_HOW"
 if [ -n "$NODE_BIN" ]; then
   echo "    binary : $NODE_BIN"
   echo "    data   : $NODE_DATA   (never touched by this script)"
-  if systemctl is-active --quiet aegis-node 2>/dev/null; then
+  if systemctl is-active --quiet shoal-node 2>/dev/null; then
     echo "    status : running (system service)"
-  elif systemctl --user is-active --quiet aegis-node 2>/dev/null; then
+  elif systemctl --user is-active --quiet shoal-node 2>/dev/null; then
     echo "    status : running (user service)"
-  elif pgrep -x aegis-relay-server >/dev/null 2>&1; then
+  elif pgrep -x shoal-relay-server >/dev/null 2>&1; then
     echo "    status : running (started directly, no systemd unit)"
   else
     warn "    status : NOT running -- this cleanup is not the cause, but check it"
-    warn "             afterwards with: journalctl -u aegis-node -n 50 --no-pager"
+    warn "             afterwards with: journalctl -u shoal-node -n 50 --no-pager"
   fi
 else
   warn "No node found on this box. Nothing here will install one; this script"
   warn "only frees space. To install or update the node afterwards:"
-  warn "  curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.sh | sudo bash"
+  warn "  curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh | sudo bash"
 fi
 echo
 
 # --- 2. Refuse to remove anything the node depends on ------------------------
 
 PROTECTED=()
-for p in "$NODE_BIN" "$NODE_DATA" "$NODE_UNIT" /var/lib/aegis "$HOME/.local/share/aegis"; do
+for p in "$NODE_BIN" "$NODE_DATA" "$NODE_UNIT" /var/lib/shoal "$HOME/.local/share/shoal"; do
   [ -n "$p" ] && [ -e "$p" ] && PROTECTED+=("$(readlink -f "$p")")
 done
 
@@ -103,7 +103,7 @@ endangers_node() {
 # --- 3. What build-apk.sh leaves behind --------------------------------------
 
 CANDIDATES=(
-  "${WORK:-$HOME/aegis-build}"                       # the build's fresh clone + build output
+  "${WORK:-$HOME/shoal-build}"                       # the build's fresh clone + build output
   "${ANDROID_SDK_ROOT:-$HOME/android-sdk}"           # SDK + NDK: the single biggest item
   "${FLUTTER_DIR:-$HOME/flutter}"                    # Flutter SDK + downloaded engine artifacts
   "$HOME/.gradle"                                    # Gradle distribution + build caches
@@ -117,7 +117,7 @@ CANDIDATES=(
 # temporary directory.
 for d in /tmp/tmp.*/src; do
   [ -d "$d" ] || continue
-  grep -qs 'aegis-relay-server' "$d/Cargo.toml" && CANDIDATES+=( "${d%/src}" )
+  grep -qs 'shoal-relay-server' "$d/Cargo.toml" && CANDIDATES+=( "${d%/src}" )
 done
 
 log "measuring (this reads every file, so give it a moment)"
@@ -169,7 +169,7 @@ if [ "$PURGE_RUST" != "1" ] && [ -x "$HOME/.cargo/bin/rustup" ]; then
   "$HOME/.cargo/bin/rustup" target remove \
     aarch64-linux-android armv7-linux-androideabi x86_64-linux-android >/dev/null 2>&1 || true
   rm -f "$HOME/.cargo/bin/cargo-ndk" "$HOME/.cargo/bin/flutter_rust_bridge_codegen"
-  # Aegis itself has no third-party crates, so this cache only ever held the
+  # Shoal itself has no third-party crates, so this cache only ever held the
   # dependencies of those two tools. install.sh does not need it.
   rm -rf "$HOME/.cargo/registry" "$HOME/.cargo/git"
 fi
@@ -182,13 +182,13 @@ df -h "$HOME" | tail -1 | awk '{print "    " $4 " free on " $6 " (" $5 " used)"}
 
 if [ -n "$NODE_BIN" ]; then
   echo
-  if systemctl is-active --quiet aegis-node 2>/dev/null || \
-     systemctl --user is-active --quiet aegis-node 2>/dev/null || \
-     pgrep -x aegis-relay-server >/dev/null 2>&1; then
+  if systemctl is-active --quiet shoal-node 2>/dev/null || \
+     systemctl --user is-active --quiet shoal-node 2>/dev/null || \
+     pgrep -x shoal-relay-server >/dev/null 2>&1; then
     log "The node is still running, on the same identity and the same stored mail."
   else
     warn "The node is not running. It was not removed -- start it with:"
-    warn "  systemctl start aegis-node      (or: systemctl --user start aegis-node)"
+    warn "  systemctl start shoal-node      (or: systemctl --user start shoal-node)"
   fi
 fi
 

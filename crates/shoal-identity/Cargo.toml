@@ -1,0 +1,12 @@
+[package]
+name = "shoal-identity"
+description = "Shoal identity keys, Shoal IDs, and stealth addressing (Phase 0)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Cryptographic primitives (zero third-party deps) live in the shoal-crypto
+# crate, shared with shoal-session.
+shoal-crypto = { path = "../shoal-crypto" }

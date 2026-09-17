@@ -5,20 +5,20 @@ resolver = "2"
 # this workspace.
 exclude = ["app/rust"]
 members = [
-    "crates/aegis-crypto",
-    "crates/aegis-identity",
-    "crates/aegis-session",
-    "crates/aegis-mailbox",
-    "crates/aegis-net",
-    "crates/aegis-client",
-    "crates/aegis-relay",
-    "crates/aegis-relay-server",
-    "crates/aegis-mix",
-    "crates/aegis-api",
+    "crates/shoal-crypto",
+    "crates/shoal-identity",
+    "crates/shoal-session",
+    "crates/shoal-mailbox",
+    "crates/shoal-net",
+    "crates/shoal-client",
+    "crates/shoal-relay",
+    "crates/shoal-relay-server",
+    "crates/shoal-mix",
+    "crates/shoal-api",
 ]
 
 [workspace.package]
 version = "0.0.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/monxley/Aegis"
+repository = "https://github.com/monxley/shoal"
