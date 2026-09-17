@@ -140,13 +140,13 @@ The Android app — Android-first, anonymous by default, private under pressure.
 <table>
   <tr>
     <td width="33%"><img src="docs/screenshots/chats.jpg" alt="Chats — Mixnet, anonymous send"/><br/><sub><b>Chats.</b> Anonymous send over the mixnet.</sub></td>
+    <td width="33%"><img src="docs/screenshots/contacts.jpg" alt="Contacts — each entry shows its Shoal ID"/><br/><sub><b>Contacts.</b> Every entry carries the Shoal ID it belongs to.</sub></td>
     <td width="33%"><img src="docs/screenshots/lock.jpg" alt="Lock screen — password, biometrics, hold to wipe"/><br/><sub><b>Lock screen.</b> Password or biometrics; hold to wipe everything.</sub></td>
-    <td width="33%"><img src="docs/screenshots/nodes.jpg" alt="Network nodes — add your own, route only through them"/><br/><sub><b>Nodes.</b> Add your own by host:port; route only through them.</sub></td>
   </tr>
   <tr>
-    <td width="33%"><img src="docs/screenshots/settings-identity.jpg" alt="Settings — profile, app password, duress password, biometric unlock"/><br/><sub><b>Identity & locks.</b> Share code, app password, duress/decoy, biometrics.</sub></td>
-    <td width="33%"><img src="docs/screenshots/settings-privacy.jpg" alt="Settings — recovery phrase, notifications, block screenshots, background, proxy/Tor"/><br/><sub><b>Privacy.</b> Recovery phrase, screenshot block, 24/7 background, SOCKS5/Tor.</sub></td>
-    <td width="33%"><img src="docs/screenshots/settings-security.jpg" alt="Settings — disguise, run a node, panic wipe, reset identity"/><br/><sub><b>Under pressure.</b> Disguise as a calculator, panic wipe, reset.</sub></td>
+    <td width="33%"><img src="docs/screenshots/settings.jpg" alt="Settings — share code, security, privacy, network"/><br/><sub><b>Settings.</b> Share code up top; the rest by section.</sub></td>
+    <td width="33%"><img src="docs/screenshots/add-contact.jpg" alt="Add contact — paste their share code"/><br/><sub><b>Add contact.</b> Swap codes both ways, then check the safety number.</sub></td>
+    <td width="33%"><img src="docs/screenshots/nodes.jpg" alt="Network nodes — add your own, route only through them"/><br/><sub><b>Nodes.</b> Add your own by host:port; route only through them.</sub></td>
   </tr>
 </table>
 

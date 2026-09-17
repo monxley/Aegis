@@ -51,6 +51,16 @@ class ShoalColor {
 
   /// The single accent: a restrained teal. Not neon, not a gradient.
   static const accent = Color(0xFF4FD1C5);
+
+  /// The mark's amber — the one fish that is not the school.
+  ///
+  /// Deliberately NOT [accent]. Accent is the interface's action colour and can
+  /// change with the theme; this is the logo's own pigment, and the scale
+  /// field's flare has to stay the colour the mark is drawn in. Using accent
+  /// there made the flare teal, which is the one thing it must never be: the
+  /// whole point of that cell is that it is not the same as everything around
+  /// it, in the brand's colour rather than the UI's.
+  static const markAccent = Color(0xFFF0972A);
   static const accentMuted = Color(0xFF2A4E4C);
 
   // Status. Used with an icon or label, never alone.
