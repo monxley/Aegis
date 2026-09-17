@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../brand.dart';
 import '../design/responsive.dart';
 import '../engine.dart';
 import '../share.dart';
@@ -75,8 +76,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  static const _disguises = [
-    ('default', 'Shoal', Icons.shield_rounded),
+  static const List<(String, String, IconData?)> _disguises = [
+    // Shoal's own entry carries the mark, not a Material glyph: this row is
+    // the product naming itself among seven decoys, and a stock shield says
+    // nothing about which app it is.
+    ('default', 'Shoal', null),
     ('calculator', 'Calculator', Icons.calculate_rounded),
     ('notes', 'Notes', Icons.sticky_note_2_rounded),
     ('weather', 'Weather', Icons.wb_cloudy_rounded),
@@ -88,8 +92,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static String _disguiseLabel(String id) =>
       _disguises.firstWhere((d) => d.$1 == id, orElse: () => _disguises.first).$2;
-  static IconData _disguiseIcon(String id) =>
+  static IconData? _disguiseIcon(String id) =>
       _disguises.firstWhere((d) => d.$1 == id, orElse: () => _disguises.first).$3;
+
+  /// The same mark-or-glyph rule at button size.
+  static Widget _disguiseButtonIcon(String id) {
+    final icon = _disguiseIcon(id);
+    return icon == null
+        ? const BrandGlyph(Brand.markSilver, size: 18)
+        : Icon(icon, size: 18);
+  }
+
+  /// The leading widget for a disguise row: the mark for Shoal, the decoy's
+  /// own glyph for everything else.
+  static Widget _disguiseLeading(IconData? icon, bool selected) => icon == null
+      ? Opacity(
+          opacity: selected ? 1 : 0.75,
+          child: const BrandGlyph(Brand.markSilver, size: 24),
+        )
+      : Icon(icon,
+          color: selected ? ShoalColor.accent : ShoalColor.textPrimary);
 
   Future<void> _showDisguisePicker() async {
     final current = widget.engine.disguise;
@@ -127,8 +149,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             for (final d in _disguises)
               ListTile(
-                leading: Icon(d.$3,
-                    color: d.$1 == current ? ShoalColor.accent : ShoalColor.textPrimary),
+                leading: _disguiseLeading(d.$3, d.$1 == current),
                 title: Text(d.$2, style: const TextStyle(color: ShoalColor.textPrimary)),
                 trailing: d.$1 == current
                     ? const Icon(Icons.check_rounded, color: ShoalColor.accent)
@@ -798,7 +819,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
-                    icon: Icon(_disguiseIcon(e.disguise), size: 18),
+                    icon: _disguiseButtonIcon(e.disguise),
                     label: Text('Appearance: ${_disguiseLabel(e.disguise)}'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: ShoalColor.textPrimary,
