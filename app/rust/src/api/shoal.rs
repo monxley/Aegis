@@ -706,6 +706,23 @@ impl ShoalEngine {
             .map_err(|e| e.to_string())
     }
 
+    /// Mixes before the exit, or `None` when this engine is not on the mixnet.
+    #[frb(sync)]
+    pub fn hops(&self) -> Option<u32> {
+        self.with(|app| app.hops()).map(|h| h as u32)
+    }
+
+    /// Route through `hops` mixes before the exit.
+    ///
+    /// Clamped in the core to 1..=MAX_HOPS-1, so a bad value cannot produce an
+    /// unroutable path. Each extra hop is one more mix that would have to be
+    /// compromised to link a route, and one more store-and-forward delay. No-op
+    /// unless on the mixnet.
+    #[frb(sync)]
+    pub fn set_hops(&self, hops: u32) {
+        self.with(|app| app.set_hops(hops as usize));
+    }
+
     /// Emit one cover-traffic packet into the mixnet (a decoy), so an observer
     /// can't tell when this device is actually sending. Call on a Poisson
     /// schedule; no-op unless on the mixnet.
