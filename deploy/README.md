@@ -135,25 +135,91 @@ Even ignoring all three, the build wants ~10 GB of free space and more RAM than
 a phone will give Gradle, R8 and the Dart compiler at once.
 
 **What to do from a phone instead** — drive CI from Termux and install what it
-produces. This gives a properly signed release APK, which an on-device build
-could never do anyway:
+produces. CI holds the release key, so this is also the only path that yields a
+*properly signed* APK; an on-device build could not produce one.
+
+### One-time setup
 
 ```sh
-pkg install gh
-gh auth login
-gh workflow run release.yml -R monxley/shoal -f tag=v0.1.0   # or push a v* tag
-gh run watch  -R monxley/shoal
-gh release download v0.1.0 -R monxley/shoal -p '*.apk'
-termux-open app-release.apk
+pkg update && pkg install -y gh openssl-tool
+gh auth login          # HTTPS, authenticate with a browser
+gh repo set-default monxley/shoal
 ```
 
-Check what you are installing first — the release publishes a SHA-256 next to
-the APK:
+### Cut a release
+
+The workflow runs on a pushed `v*` tag. It **refuses to publish a debug-signed
+APK**, so a green run is itself the signing check.
 
 ```sh
-gh release download v0.1.0 -R monxley/shoal -p '*.sha256'
-sha256sum -c app-release.apk.sha256
+# From a clone (git clone https://github.com/monxley/shoal ~/shoal && cd ~/shoal):
+git tag v1.1.0 && git push origin v1.1.0
+gh run watch -R monxley/shoal
 ```
+
+No clone on the phone? Tag straight from the API and then dispatch:
+
+```sh
+SHA=$(gh api repos/monxley/shoal/commits/main --jq .sha)
+gh api repos/monxley/shoal/git/refs -f ref=refs/tags/v1.1.0 -f sha="$SHA"
+gh workflow run release.yml -R monxley/shoal -f tag=v1.1.0
+gh run watch -R monxley/shoal
+```
+
+`release.yml` also takes an optional title, for a re-publish after a failed
+upload:
+
+```sh
+gh workflow run release.yml -R monxley/shoal -f tag=v1.1.0 -f release_name='Shoal 1.1.0'
+```
+
+### Check what you are installing, then install it
+
+The release publishes a SHA-256 next to the APK. Verify it *before* installing —
+on a phone, an unnoticed bad download is an app you then trust with your keys.
+
+```sh
+cd ~/storage/downloads 2>/dev/null || cd ~
+gh release download v1.1.0 -R monxley/shoal -p '*.apk' -p '*.sha256' --clobber
+sha256sum -c ./*.sha256 && termux-open ./*.apk
+```
+
+`sha256sum -c` prints `OK` or `FAILED`; if it prints `FAILED`, or prints
+nothing, do not install the file.
+
+A checksum only proves the file arrived intact. To prove *who signed it*,
+compare the signer against the fingerprint of the key that signed v1.0.0:
+
+```sh
+# needs: pkg install -y apksigner   (or check on a desktop)
+apksigner verify --print-certs ./*.apk | grep -i 'SHA-256 digest'
+# expected:
+# ad4a315c9f6f92e7684d38d999e07594d287b312d06239bf5015809fa00a7b66
+```
+
+If that digest is
+`be4765da26f83caf9f014d5fe55a7ab847df1339079531b1521780b436b1d321`, the APK was
+signed with Android's **public debug key** — it is not a release build, it
+cannot be installed over a real one, and it proves nothing about its origin.
+
+### Updating a node from the phone
+
+The same one-liner the node was installed with. Pass the same `PUBLIC_HOST` and
+`BOOTSTRAP` you installed with: the unit file is rewritten from them, so
+anything you omit reverts to its default.
+
+```sh
+pkg install -y openssh
+ssh root@your.host '
+  curl -fsSL https://raw.githubusercontent.com/monxley/shoal/main/deploy/install.sh \
+    | PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 bash
+  systemctl status shoal-node --no-pager
+'
+```
+
+It builds whatever is on **`main`**, so a change still sitting in a branch or an
+open pull request is not deployed until it is merged. `/var/lib/shoal` is left
+alone, so the node keeps its identity and its queued envelopes.
 
 ## Quick start (Docker)
 
