@@ -14,7 +14,6 @@ import 'identity.dart';
 import 'nodes.dart';
 import 'notes.dart';
 import 'search.dart';
-import 'settings.dart';
 
 /// The home screen: the list of conversations. Rebuilds whenever the engine
 /// signals new state (a sent or polled message, a new contact).
@@ -109,15 +108,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_rounded, color: AegisColor.textPrimary),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SettingsScreen(engine: engine),
-              ),
-            ),
-          ),
         ],
       ),
       body: AnimatedBuilder(
@@ -181,18 +171,77 @@ class _ChatsScreenState extends State<ChatsScreen> {
 /// relay, or no network at all); reachability — the only connectivity evidence
 /// the app really has — chooses the colour *and* a word, so it survives
 /// greyscale and colour-blindness.
-class _ConnectionStatus extends StatelessWidget {
+class _ConnectionStatus extends StatefulWidget {
   final AegisEngineController engine;
   const _ConnectionStatus({required this.engine});
 
   @override
+  State<_ConnectionStatus> createState() => _ConnectionStatusState();
+}
+
+class _ConnectionStatusState extends State<_ConnectionStatus>
+    with SingleTickerProviderStateMixin {
+  /// Drives both the spin while connecting and the settle when it lands. One
+  /// controller rather than two: they are never both wanted, and a single
+  /// repeating clock cannot drift against itself.
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
+
+  bool? _lastReachable;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.engine.addListener(_onEngine);
+    _sync();
+  }
+
+  @override
+  void dispose() {
+    widget.engine.removeListener(_onEngine);
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  void _onEngine() {
+    if (!mounted) return;
+    final now = widget.engine.relayReachable;
+    if (now != _lastReachable) {
+      _lastReachable = now;
+      _sync();
+    }
+  }
+
+  /// While a check is in flight the icon turns continuously; the moment it
+  /// resolves it stops and plays once, so "connected" is a thing you *see*
+  /// happen rather than a label that was already there when you looked.
+  void _sync() {
+    final reachable = widget.engine.relayReachable;
+    if (reachable == null) {
+      if (!_pulse.isAnimating) _pulse.repeat();
+    } else {
+      _pulse
+        ..stop()
+        ..forward(from: 0);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Vestibular-safe: a spinner that never stops is the worst offender in a
+    // status bar, so when the system asks for less motion it simply does not
+    // move. Nothing is lost -- the word and the colour carry the same state.
+    final still = MediaQuery.disableAnimationsOf(context);
+
     return AnimatedBuilder(
-      animation: engine,
+      animation: Listenable.merge([widget.engine, _pulse]),
       builder: (context, _) {
+        final engine = widget.engine;
         final label = engine.connectionLabel;
         // In-memory mode never talks to a relay, so "unreachable" would be
-        // meaningless there — the label already says the app is offline.
+        // meaningless there -- the label already says the app is offline.
         final networked = !label.startsWith('Offline');
         final (icon, tone, text) = switch ((networked, engine.relayReachable)) {
           (false, _) => (Icons.cloud_off_rounded, AegisColor.textMuted, label),
@@ -219,6 +268,23 @@ class _ConnectionStatus extends StatelessWidget {
             ),
         };
 
+        final connecting = networked && engine.relayReachable == null;
+        Widget mark = Icon(icon, size: 11, color: tone);
+
+        if (!still) {
+          if (connecting) {
+            mark = RotationTransition(turns: _pulse, child: mark);
+          } else if (networked) {
+            // A single soft expansion on arrival. Curves.easeOut so it decays
+            // rather than bouncing: this is a status line, not a notification.
+            final t = Curves.easeOut.transform(_pulse.value);
+            mark = Transform.scale(
+              scale: 1 + 0.55 * (1 - t) * (_pulse.isAnimating ? 1 : 0),
+              child: Opacity(opacity: 0.55 + 0.45 * t, child: mark),
+            );
+          }
+        }
+
         return Semantics(
           button: true,
           label: 'Network: $text',
@@ -233,13 +299,19 @@ class _ConnectionStatus extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 11, color: tone),
+                  mark,
                   const SizedBox(width: AegisSpace.s1),
                   Flexible(
-                    child: Text(
-                      text,
-                      overflow: TextOverflow.ellipsis,
-                      style: AegisType.meta.copyWith(color: tone),
+                    // The label crossfades rather than snapping, so a transport
+                    // change reads as one state becoming another.
+                    child: AnimatedSwitcher(
+                      duration: Duration(milliseconds: still ? 0 : 220),
+                      child: Text(
+                        text,
+                        key: ValueKey(text),
+                        overflow: TextOverflow.ellipsis,
+                        style: AegisType.meta.copyWith(color: tone),
+                      ),
                     ),
                   ),
                 ],
