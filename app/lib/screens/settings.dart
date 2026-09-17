@@ -765,9 +765,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ];
   }
 
+  /// One row per level, with the actual numbers on it.
+  ///
+  /// The trade is stated rather than implied: people pick the top option by
+  /// default when a list only gets better downwards, and then wonder why the
+  /// battery went. Saying "4 mixes, decoy every ~10s" lets them decide.
+  Widget _anonRow(AnonLevel level, String title, String body) {
+    final selected = widget.engine.anonLevel == level;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+        color: selected ? ShoalColor.accent : ShoalColor.textMuted,
+      ),
+      title: Text(title,
+          style: TextStyle(
+              color: ShoalColor.textPrimary,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+      subtitle: Text(
+        '$body\n${level.hops} mixes before the exit · decoy packet every '
+        '~${level.coverMeanSecs}s on average',
+        style: ShoalType.secondary,
+      ),
+      isThreeLine: true,
+      onTap: _busy
+          ? null
+          : () async {
+              await widget.engine.setAnonLevel(level);
+              if (!mounted) return;
+              setState(() {});
+            },
+    );
+  }
+
   List<Widget> _networkCards() {
     final e = widget.engine;
     return [
+            const SizedBox(height: 14),
+            _card(
+              icon: Icons.hub_rounded,
+              title: 'Traffic analysis',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'How much work it takes to tell who you are talking to, '
+                    'and when. This does not hide that you use Shoal from '
+                    'someone watching your connection — it makes the pattern '
+                    'of your traffic harder to read.',
+                    style: ShoalType.secondary,
+                  ),
+                  const SizedBox(height: 4),
+                  _anonRow(AnonLevel.balanced, 'Balanced',
+                      'The default. What every build has shipped with.'),
+                  _anonRow(AnonLevel.strengthened, 'Strengthened',
+                      'A longer route and more decoys. Slightly slower '
+                      'delivery, more background data.'),
+                  _anonRow(AnonLevel.maximum, 'Maximum',
+                      'The longest route the protocol allows. Noticeably '
+                      'slower, and the heaviest on battery and data.'),
+                  const SizedBox(height: 4),
+                  Text(
+                    e.networked
+                        ? 'Applies to the running connection immediately.'
+                        : 'Takes effect on the mixnet. This device is in local '
+                            'mode, so nothing is routed right now.',
+                    style: ShoalType.secondary,
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 14),
             _card(
               icon: Icons.vpn_lock_rounded,
