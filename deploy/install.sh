@@ -51,8 +51,8 @@ detect_public_host() {
 # of merging two identities, because picking one silently is how a node ends up
 # with a key that does not match the address it advertises.
 
-migrate_from_shoal() {
-  local old=/var/lib/shoal
+migrate_from_aegis() {
+  local old=/var/lib/aegis
   [ -d "$old" ] || return 0
   if [ -e "$DATA_DIR" ] && [ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
     echo "Both $old and $DATA_DIR exist and are non-empty." >&2
@@ -61,33 +61,39 @@ migrate_from_shoal() {
     exit 1
   fi
   log "migrating the node's identity: $old -> $DATA_DIR"
-  systemctl stop shoal-node 2>/dev/null || true
-  systemctl disable shoal-node >/dev/null 2>&1 || true
-  rm -f /etc/systemd/system/shoal-node.service
+  systemctl stop aegis-node 2>/dev/null || true
+  systemctl disable aegis-node >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/aegis-node.service
   systemctl daemon-reload 2>/dev/null || true
   mkdir -p "$(dirname "$DATA_DIR")"
+  # `mv src dst` puts src INSIDE dst when dst already exists as a directory, so
+  # an empty $DATA_DIR left behind by an earlier failed run would silently give
+  # us /var/lib/shoal/aegis and a node that starts with no keys. rmdir only
+  # succeeds on an empty directory, which is exactly the case we want to clear.
+  rmdir "$DATA_DIR" 2>/dev/null || true
   mv "$old" "$DATA_DIR"
   chown -R shoal:shoal "$DATA_DIR" 2>/dev/null || true
-  rm -f /usr/local/bin/shoal-relay-server
+  rm -f /usr/local/bin/aegis-relay-server
   log "the node keeps its keys and its queued mail; it is the same node to the network"
 }
 
-migrate_from_shoal_rootless() {
-  local old="$HOME/.local/share/shoal"
+migrate_from_aegis_rootless() {
+  local old="$HOME/.local/share/aegis"
   [ -d "$old" ] || return 0
   if [ -e "$DATA_DIR" ] && [ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
     echo "Both $old and $DATA_DIR exist and are non-empty; refusing to guess." >&2
     exit 1
   fi
   log "migrating the node's identity: $old -> $DATA_DIR"
-  systemctl --user stop shoal-node 2>/dev/null || true
-  systemctl --user disable shoal-node >/dev/null 2>&1 || true
-  rm -f "$HOME/.config/systemd/user/shoal-node.service"
+  systemctl --user stop aegis-node 2>/dev/null || true
+  systemctl --user disable aegis-node >/dev/null 2>&1 || true
+  rm -f "$HOME/.config/systemd/user/aegis-node.service"
   systemctl --user daemon-reload 2>/dev/null || true
-  pkill -f shoal-relay-server >/dev/null 2>&1 || true
+  pkill -f aegis-relay-server >/dev/null 2>&1 || true
   mkdir -p "$(dirname "$DATA_DIR")"
+  rmdir "$DATA_DIR" 2>/dev/null || true   # see the note above
   mv "$old" "$DATA_DIR"
-  rm -f "$HOME/.local/bin/shoal-relay-server"
+  rm -f "$HOME/.local/bin/aegis-relay-server"
 }
 
 PUBLIC_HOST="${PUBLIC_HOST:-}"
@@ -140,7 +146,7 @@ BOOT_ARG=""
 if [ "$(id -u)" -eq 0 ]; then
   install -m 0755 "$BIN" /usr/local/bin/shoal-relay-server
   id shoal >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin shoal
-  migrate_from_shoal
+  migrate_from_aegis
   mkdir -p "$DATA_DIR"; chown -R shoal:shoal "$DATA_DIR"
   log "installing system service"
   cat > /etc/systemd/system/shoal-node.service <<UNIT
@@ -174,7 +180,7 @@ UNIT
 else
   log "no root — installing under \$HOME (rootless)"
   BIN_DIR="$HOME/.local/bin"; DATA_DIR="$HOME/.local/share/shoal"
-  migrate_from_shoal_rootless
+  migrate_from_aegis_rootless
   mkdir -p "$BIN_DIR" "$DATA_DIR" "$HOME/.config/systemd/user"
   install -m 0755 "$BIN" "$BIN_DIR/shoal-relay-server"
   RUN_CMD="$BIN_DIR/shoal-relay-server --listen 0.0.0.0:${MAILBOX_PORT} --mix 0.0.0.0:${MIX_PORT} --data ${DATA_DIR} --advertise-mix ${PUBLIC_HOST}:${MIX_PORT} --advertise-provider ${PUBLIC_HOST}:${MAILBOX_PORT} ${BOOT_ARG}"
