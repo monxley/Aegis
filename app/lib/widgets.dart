@@ -293,11 +293,11 @@ class ContactAvatar extends StatelessWidget {
   }
 }
 
-/// Shorten an Aegis ID for display: `aegis:AB12…9Z`.
+/// Shorten an Aegis ID for display: `shoal:AB12…9Z`.
 String shortId(String aegisId) {
-  final body = aegisId.startsWith('aegis:') ? aegisId.substring(6) : aegisId;
+  final body = aegisId.startsWith('shoal:') ? aegisId.substring(6) : aegisId;
   if (body.length <= 12) return aegisId;
-  return 'aegis:${body.substring(0, 6)}…${body.substring(body.length - 4)}';
+  return 'shoal:${body.substring(0, 6)}…${body.substring(body.length - 4)}';
 }
 
 const _months = [

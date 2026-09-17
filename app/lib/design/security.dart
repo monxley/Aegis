@@ -82,7 +82,7 @@ class ProtocolFacts {
 
   /// The one caveat that belongs next to any security claim in this build.
   static const String maturity =
-      'Aegis is alpha software and has not had an external security audit. '
+      'Shoal is alpha software and has not had an external security audit. '
       'The protocol and its implementation may contain flaws.';
 }
 

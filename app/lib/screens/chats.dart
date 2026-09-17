@@ -644,7 +644,7 @@ class _EmptyState extends StatelessWidget {
     return const EmptyState(
       icon: Icons.forum_outlined,
       title: 'No conversations yet',
-      message: 'Add someone by their Aegis code to start an encrypted '
+      message: 'Add someone by their Shoal code to start an encrypted '
           'conversation. There are no phone numbers or usernames to look up.',
     );
   }
@@ -723,7 +723,7 @@ Future<void> showUpdateDialog(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'A newer version of Aegis is available. Please update: the '
+              'A newer version of Shoal is available. Please update: the '
               'protocol and network can change between versions, and an '
               'out-of-date app may fail to send or receive — or stop working '
               'entirely.',

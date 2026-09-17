@@ -86,8 +86,8 @@ fi
 # namespace without moving every source file would leave the manifest pointing
 # at a class that does not exist.
 #
-# Override with AEGIS_APPLICATION_ID if you publish under your own domain.
-APP_ID="${AEGIS_APPLICATION_ID:-io.github.monxley.aegis}"
+# Override with SHOAL_APPLICATION_ID if you publish under your own domain.
+APP_ID="${SHOAL_APPLICATION_ID:-io.github.monxley.shoal}"
 python3 - "$APP_ID" <<'PY' || log "warning: could not set the app's name and id"
 import re
 import sys

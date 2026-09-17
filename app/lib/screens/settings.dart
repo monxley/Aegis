@@ -76,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   static const _disguises = [
-    ('default', 'Aegis', Icons.shield_rounded),
+    ('default', 'Shoal', Icons.shield_rounded),
     ('calculator', 'Calculator', Icons.calculate_rounded),
     ('notes', 'Notes', Icons.sticky_note_2_rounded),
     ('weather', 'Weather', Icons.wb_cloudy_rounded),
@@ -119,7 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Changes the launcher icon and name. Aegis still opens '
+                  'Changes the launcher icon and name. Shoal still opens '
                   'normally — you just tap the decoy.',
                   style: TextStyle(color: AegisColor.textSecondary, fontSize: 12, height: 1.4),
                 ),
@@ -153,7 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(id == 'default'
-            ? 'Showing as Aegis'
+            ? 'Showing as Shoal'
             : 'Now disguised as “$label” on the home screen'),
       ),
     );
@@ -311,7 +311,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             const Center(
               child: Text(
-                'All cryptography runs on this device. Aegis never sees your '
+                'All cryptography runs on this device. Shoal never sees your '
                 'messages, keys, or contacts.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -790,7 +790,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     e.disguise == 'default'
-                        ? 'Show Aegis as itself on the home screen. Switch to a '
+                        ? 'Show Shoal as itself on the home screen. Switch to a '
                             'decoy icon and name to blend in.'
                         : 'Disguised as “${_disguiseLabel(e.disguise)}”. The home-'
                             'screen icon and name are hidden.',
@@ -966,7 +966,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text(
                     'News and releases. These open Telegram and Instagram — '
                     'ordinary services with ordinary tracking, outside anything '
-                    'Aegis protects.',
+                    'Shoal protects.',
                     style: AegisType.secondary,
                   ),
                   const SizedBox(height: 12),
@@ -1011,12 +1011,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _version.isEmpty ? 'Aegis' : 'Aegis $_version',
+                    _version.isEmpty ? 'Shoal' : 'Shoal $_version',
                     style: const TextStyle(color: AegisColor.textPrimary, fontSize: 15),
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Aegis is sideloaded, so it updates from GitHub releases. Keep '
+                    'Shoal is sideloaded, so it updates from GitHub releases. Keep '
                     'it current — an out-of-date app can stop sending or receiving '
                     'when the network changes.',
                     style: AegisType.secondary,
@@ -1397,7 +1397,7 @@ class _ProfileCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Your Aegis ID',
+        const Text('Your Shoal ID',
             style: TextStyle(color: AegisColor.textSecondary, fontSize: 12)),
         const SizedBox(height: 4),
         SelectableText(
@@ -1435,7 +1435,7 @@ class _ProfileCard extends StatelessWidget {
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: aegisId));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Aegis ID copied')),
+                    const SnackBar(content: Text('Shoal ID copied')),
                   );
                 },
               ),

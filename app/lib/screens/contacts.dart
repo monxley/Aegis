@@ -177,7 +177,7 @@ class _ContactRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: '${contact.name}. Aegis ID ${shortId(contact.aegisId)}',
+      label: '${contact.name}. Shoal ID ${shortId(contact.aegisId)}',
       excludeSemantics: true,
       child: InkWell(
         onTap: () => Navigator.of(context).push(
@@ -254,14 +254,14 @@ class _ContactRow extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.copy_rounded,
                   color: AegisColor.textPrimary),
-              title: const Text('Copy Aegis ID'),
+              title: const Text('Copy Shoal ID'),
               onTap: () async {
                 Navigator.of(sheet).pop();
                 await Clipboard.setData(
                     ClipboardData(text: contact.aegisId));
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Aegis ID copied')),
+                    const SnackBar(content: Text('Shoal ID copied')),
                   );
                 }
               },
@@ -355,7 +355,7 @@ class _NoContactsYet extends StatelessWidget {
                 style: AegisType.heading, textAlign: TextAlign.center),
             SizedBox(height: AegisSpace.s2),
             Text(
-              'Add someone by their Aegis ID, or share yours so they can add '
+              'Add someone by their Shoal ID, or share yours so they can add '
               'you. There is no directory to search and no phone number to '
               'look up — that is the point.',
               textAlign: TextAlign.center,

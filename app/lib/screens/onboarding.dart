@@ -268,7 +268,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const Center(child: ShieldMark(size: 88)),
               const SizedBox(height: 24),
               const Text(
-                'Aegis',
+                'Shoal',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 40,

@@ -55,7 +55,7 @@ class _AegisAppState extends State<AegisApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Aegis',
+      title: 'Shoal',
       debugShowCheckedModeBanner: false,
       theme: AegisTheme.dark,
       // One scroll feel everywhere: stretch instead of the Material glow, and
@@ -278,7 +278,7 @@ class _StartupError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: ErrorStateView(
-        title: 'Aegis could not start',
+        title: 'Shoal could not start',
         message: 'Nothing has been lost: your identity and messages are on '
             'this device, encrypted, and a failed start does not touch them. '
             'Retrying usually works. Reinstalling erases local data — your '

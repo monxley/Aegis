@@ -784,7 +784,7 @@ class AegisEngineController extends ChangeNotifier {
   /// fingerprint/face match.
   Future<bool> unlockWithBiometric() async {
     if (!await Biometrics.hasStoredSeed()) return false;
-    if (!await Biometrics.authenticate('Unlock Aegis')) return false;
+    if (!await Biometrics.authenticate('Unlock Shoal')) return false;
     final seed = await Biometrics.readSeed();
     if (seed == null) return false;
     await _ensureRustInit();
@@ -1198,7 +1198,7 @@ class AegisEngineController extends ChangeNotifier {
   AegisEngine get _requireEngine {
     final engine = _engine;
     if (engine == null) {
-      throw StateError('Aegis is locked or still starting up');
+      throw StateError('Shoal is locked or still starting up');
     }
     return engine;
   }

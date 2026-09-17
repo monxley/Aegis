@@ -173,7 +173,7 @@ impl Identity {
 /// Errors decoding an [`AegisId`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AegisIdError {
-    /// Missing/incorrect `aegis:` prefix.
+    /// Missing/incorrect `shoal:` prefix.
     BadPrefix,
     /// A character outside the base32 alphabet.
     BadCharacter,
@@ -188,7 +188,7 @@ pub enum AegisIdError {
 impl core::fmt::Display for AegisIdError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
-            AegisIdError::BadPrefix => "missing 'aegis:' prefix",
+            AegisIdError::BadPrefix => "missing 'shoal:' prefix",
             AegisIdError::BadCharacter => "invalid base32 character",
             AegisIdError::BadLength => "wrong decoded length",
             AegisIdError::BadVersion => "unknown Aegis ID version",
@@ -200,13 +200,13 @@ impl core::fmt::Display for AegisIdError {
 
 impl std::error::Error for AegisIdError {}
 
-const AEGIS_ID_PREFIX: &str = "aegis:";
+const AEGIS_ID_PREFIX: &str = "shoal:";
 const AEGIS_ID_VERSION: u8 = 1;
 const CHECKSUM_LEN: usize = 4;
 // version(1) + identity_dh(32) + view(32) + signing-key hash(32)
 const PAYLOAD_LEN: usize = 1 + 32 + 32 + 32;
 
-/// A shareable Aegis identity string: `aegis:` + base32(version ‖ IK ‖ V ‖
+/// A shareable Aegis identity string: `shoal:` + base32(version ‖ IK ‖ V ‖
 /// H(IK^sig) ‖ checksum). The checksum is the first 4 bytes of
 /// `SHA-256(version ‖ IK ‖ V ‖ H(IK^sig))`, so a mistyped ID is rejected
 /// rather than silently pointing at a wrong key. The signing-key hash lets a
@@ -262,7 +262,7 @@ impl AegisId {
         p
     }
 
-    /// Encode to the shareable `aegis:...` string.
+    /// Encode to the shareable `shoal:...` string.
     pub fn encode(&self) -> String {
         let payload = self.payload();
         let checksum = sha256(&payload);
@@ -272,7 +272,7 @@ impl AegisId {
         format!("{AEGIS_ID_PREFIX}{}", base32_encode(&framed))
     }
 
-    /// Decode from a shareable `aegis:...` string, verifying the checksum.
+    /// Decode from a shareable `shoal:...` string, verifying the checksum.
     pub fn decode(s: &str) -> Result<AegisId, AegisIdError> {
         let body = s
             .strip_prefix(AEGIS_ID_PREFIX)

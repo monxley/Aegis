@@ -48,7 +48,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
       );
       Navigator.of(context).pop();
     } on FormatException {
-      setState(() => _error = 'That is not a valid Aegis code.');
+      setState(() => _error = 'That is not a valid Shoal code.');
     } catch (e) {
       setState(() => _error = 'Could not add contact: $e');
     }
@@ -77,7 +77,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Aegis code',
+                  const Text('Shoal code',
                       style: TextStyle(color: AegisColor.textSecondary)),
                   TextButton.icon(
                     onPressed: _paste,
@@ -100,7 +100,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
                 minLines: 3,
                 maxLines: 5,
                 decoration: const InputDecoration(
-                  hintText: 'aegis:…#…',
+                  hintText: 'shoal:…#…',
                 ),
               ),
               if (_error != null) ...[
@@ -202,7 +202,7 @@ class _HowItWorksState extends State<_HowItWorks> {
                   _Step(
                     n: '3',
                     title: 'It is public — send it anywhere',
-                    body: 'The code is your Aegis ID plus your public keys: the '
+                    body: 'The code is your Shoal ID plus your public keys: the '
                         'X25519 handshake key, the ML-KEM prekey and the ML-DSA '
                         'signing key. Nothing in it can decrypt anything. It is '
                         'long because post-quantum keys are large — too large '

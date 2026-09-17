@@ -13,7 +13,7 @@ class Notifications {
     android: AndroidNotificationDetails(
       _channelId,
       'Messages',
-      channelDescription: 'New Aegis messages',
+      channelDescription: 'New Shoal messages',
       importance: Importance.high,
       priority: Priority.high,
     ),

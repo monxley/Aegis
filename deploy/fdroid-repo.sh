@@ -38,7 +38,7 @@ KEYSTORE="${KEYSTORE:?set KEYSTORE to the .jks that signs the index}"
 KEY_ALIAS="${KEY_ALIAS:?set KEY_ALIAS}"
 KEYSTORE_PASSWORD="${KEYSTORE_PASSWORD:?set KEYSTORE_PASSWORD}"
 KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
-PKG="${AEGIS_APPLICATION_ID:-io.github.monxley.aegis}"
+PKG="${SHOAL_APPLICATION_ID:-io.github.monxley.shoal}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 log()  { printf '\n\033[36m==>\033[0m %s\n' "$*"; }

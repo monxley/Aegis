@@ -30,7 +30,7 @@ class IdentityScreen extends StatelessWidget {
               const SizedBox(height: 20),
               const Center(
                 child: Text(
-                  'Your Aegis ID',
+                  'Your Shoal ID',
                   style: TextStyle(color: AegisColor.textSecondary, fontSize: 13),
                 ),
               ),

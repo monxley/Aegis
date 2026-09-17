@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Aegis site (docs/index.html and docs/ru/index.html).
+"""Generate the Shoal site (docs/index.html and docs/ru/index.html).
 
 Both languages come out of one structure so they cannot drift apart. That is
 not tidiness: hreflang tells search engines these two URLs are the same page in
@@ -33,7 +33,7 @@ LANGS = {
         "dir": "",
         "locale": "en_US",
         "alt_locale": "ru_RU",
-        "title": "Aegis — anonymous post-quantum encrypted messenger",
+        "title": "Shoal — anonymous post-quantum encrypted messenger",
         "desc": (
             "Open-source messenger with no phone number and no account. "
             "Post-quantum end-to-end encryption and a Sphinx/Loopix mixnet "
@@ -55,7 +55,7 @@ LANGS = {
         "hero_h1_b": "Can't read.",
         "hero_h1_c": "Can't link.",
         "hero_lead": (
-            "Aegis is an anonymous, end-to-end-encrypted messenger. No phone "
+            "Shoal is an anonymous, end-to-end-encrypted messenger. No phone "
             "number, no email, no account on anyone's server. The relays that "
             "carry your messages cannot read them, and cannot tell who they "
             "are between."
@@ -65,7 +65,7 @@ LANGS = {
         "cta_fdroid": "Add the F-Droid repo",
         "fdroid_h2": "Updates without a store account",
         "fdroid_lead": (
-            "Add the project's F-Droid repository and Aegis updates like any "
+            "Add the project's F-Droid repository and Shoal updates like any "
             "other app on your phone — no Google account, no Play Services, no "
             "sideload prompt each time. Every build there is signed with the "
             "same key as the APKs on GitHub, so you can move between the two "
@@ -74,7 +74,7 @@ LANGS = {
         "cta_note": "Free and open source, Apache-2.0. Sideloaded APK — not on Google Play.",
         "alpha_title": "Alpha software.",
         "alpha_body": (
-            "Aegis has not had an external security audit. The protocol and "
+            "Shoal has not had an external security audit. The protocol and "
             "its implementation may contain flaws. Do not rely on it where "
             "being wrong would put someone in danger."
         ),
@@ -178,10 +178,10 @@ LANGS = {
              "the app is closed."),
         ],
         "shots_h2": "The app",
-        "shots": [("chats.jpg", "The Aegis conversation list on Android"),
-                  ("settings-security.jpg", "Aegis security settings: app lock, duress password, panic wipe"),
-                  ("settings-privacy.jpg", "Aegis privacy settings: Tor and SOCKS5 proxy chain, screenshot blocking"),
-                  ("nodes.jpg", "The Aegis network view, listing discovered mix nodes")],
+        "shots": [("chats.jpg", "The Shoal conversation list on Android"),
+                  ("settings-security.jpg", "Shoal security settings: app lock, duress password, panic wipe"),
+                  ("settings-privacy.jpg", "Shoal privacy settings: Tor and SOCKS5 proxy chain, screenshot blocking"),
+                  ("nodes.jpg", "The Shoal network view, listing discovered mix nodes")],
         "node_h2": "Run a node",
         "node_lead": (
             "The network is whoever runs it. A node is a blind mailbox and a "
@@ -201,7 +201,7 @@ LANGS = {
         ),
         "limits": [
             ("No external audit",
-             "Aegis is alpha and has not been reviewed by anyone outside the "
+             "Shoal is alpha and has not been reviewed by anyone outside the "
              "project. Treat every guarantee on this page as a design "
              "intention that has not yet been independently checked."),
             ("Anonymity needs a crowd",
@@ -213,7 +213,7 @@ LANGS = {
              "global, long-running observer remains the hardest open problem "
              "in the field. We claim strong resistance, not impossibility."),
             ("Your device is still your device",
-             "If someone controls your phone while Aegis is unlocked, the "
+             "If someone controls your phone while Shoal is unlocked, the "
              "messages are on the screen. No protocol fixes that."),
         ],
         "faq_h2": "Questions",
@@ -235,7 +235,7 @@ LANGS = {
              "fresh one-time address."),
             ("How is this different from Signal?",
              "Signal encrypts message content extremely well but requires a "
-             "phone number and runs on its own servers. Aegis has no phone "
+             "phone number and runs on its own servers. Shoal has no phone "
              "number and no central identity, and routes traffic through a "
              "Sphinx/Loopix mixnet so that who-talks-to-whom is protected too, "
              "not only what was said."),
@@ -264,7 +264,7 @@ LANGS = {
         "dir": "ru",
         "locale": "ru_RU",
         "alt_locale": "en_US",
-        "title": "Aegis — анонимный постквантовый мессенджер",
+        "title": "Shoal — анонимный постквантовый мессенджер",
         "desc": (
             "Мессенджер с открытым кодом без номера и без аккаунта. "
             "Постквантовое шифрование и миксеть Sphinx/Loopix скрывают и текст "
@@ -286,7 +286,7 @@ LANGS = {
         "hero_h1_b": "Не прочитать.",
         "hero_h1_c": "Не связать.",
         "hero_lead": (
-            "Aegis — анонимный мессенджер со сквозным шифрованием. Без номера "
+            "Shoal — анонимный мессенджер со сквозным шифрованием. Без номера "
             "телефона, без почты, без аккаунта на чьём-либо сервере. Узлы, "
             "через которые идут сообщения, не могут их прочитать и не знают, "
             "между кем они."
@@ -296,7 +296,7 @@ LANGS = {
         "cta_fdroid": "Репозиторий F-Droid",
         "fdroid_h2": "Обновления без аккаунта в магазине",
         "fdroid_lead": (
-            "Добавьте репозиторий проекта в F-Droid, и Aegis будет обновляться "
+            "Добавьте репозиторий проекта в F-Droid, и Shoal будет обновляться "
             "как обычное приложение — без аккаунта Google, без Play Services и "
             "без ручной установки каждый раз. Сборки там подписаны тем же "
             "ключом, что и APK на GitHub, так что переходить между ними можно "
@@ -305,7 +305,7 @@ LANGS = {
         "cta_note": "Бесплатно и с открытым кодом, Apache-2.0. APK ставится вручную — в Google Play его нет.",
         "alpha_title": "Альфа-версия.",
         "alpha_body": (
-            "Aegis не проходил внешний аудит безопасности. В протоколе и в его "
+            "Shoal не проходил внешний аудит безопасности. В протоколе и в его "
             "реализации могут быть ошибки. Не полагайтесь на него там, где "
             "ошибка поставит кого-то под удар."
         ),
@@ -409,10 +409,10 @@ LANGS = {
              "приходят при закрытом приложении."),
         ],
         "shots_h2": "Приложение",
-        "shots": [("chats.jpg", "Список переписок Aegis на Android"),
-                  ("settings-security.jpg", "Настройки безопасности Aegis: блокировка, пароль под принуждением, экстренное стирание"),
-                  ("settings-privacy.jpg", "Настройки приватности Aegis: цепочка Tor и SOCKS5, блокировка скриншотов"),
-                  ("nodes.jpg", "Вид сети Aegis со списком найденных микс-узлов")],
+        "shots": [("chats.jpg", "Список переписок Shoal на Android"),
+                  ("settings-security.jpg", "Настройки безопасности Shoal: блокировка, пароль под принуждением, экстренное стирание"),
+                  ("settings-privacy.jpg", "Настройки приватности Shoal: цепочка Tor и SOCKS5, блокировка скриншотов"),
+                  ("nodes.jpg", "Вид сети Shoal со списком найденных микс-узлов")],
         "node_h2": "Поднять свой узел",
         "node_lead": (
             "Сеть — это те, кто её держит. Узел совмещает слепой почтовый ящик "
@@ -433,7 +433,7 @@ LANGS = {
         ),
         "limits": [
             ("Внешнего аудита не было",
-             "Aegis в альфе, и его не проверял никто вне проекта. Считайте "
+             "Shoal в альфе, и его не проверял никто вне проекта. Считайте "
              "каждую гарантию на этой странице проектным намерением, которое "
              "пока не подтверждено независимо."),
             ("Анонимности нужна толпа",
@@ -446,7 +446,7 @@ LANGS = {
              "открытой задачей в этой области. Мы заявляем сильную "
              "устойчивость, а не невозможность."),
             ("Ваше устройство остаётся вашим устройством",
-             "Если кто-то управляет вашим телефоном, пока Aegis разблокирован, "
+             "Если кто-то управляет вашим телефоном, пока Shoal разблокирован, "
              "сообщения у него на экране. Это не чинится протоколом."),
         ],
         "faq_h2": "Вопросы",
@@ -468,7 +468,7 @@ LANGS = {
              "на новый одноразовый адрес."),
             ("Чем это отличается от Signal?",
              "Signal очень хорошо шифрует содержимое, но требует номер "
-             "телефона и работает на своих серверах. В Aegis нет ни номера, "
+             "телефона и работает на своих серверах. В Shoal нет ни номера, "
              "ни центральной личности, а трафик идёт через миксеть "
              "Sphinx/Loopix, так что защищено и то, кто с кем говорит, а не "
              "только сказанное."),
@@ -519,7 +519,7 @@ def json_ld(lang, d):
     return (
         '<script type="application/ld+json">'
         '{"@context":"https://schema.org","@graph":['
-        '{"@type":"SoftwareApplication","name":"Aegis",'
+        '{"@type":"SoftwareApplication","name":"Shoal",'
         '"applicationCategory":"CommunicationApplication",'
         '"operatingSystem":"Android","url":%s,"inLanguage":"%s",'
         '"description":%s,"license":"https://www.apache.org/licenses/LICENSE-2.0",'
@@ -603,14 +603,14 @@ def page(lang, d):
 <link rel="apple-touch-icon" href="{root}assets/icon.png">
 <link rel="stylesheet" href="{root}assets/site.css">
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Aegis">
+<meta property="og:site_name" content="Shoal">
 <meta property="og:title" content="{e(d['title'])}">
 <meta property="og:description" content="{e(d['desc'])}">
 <meta property="og:url" content="{here}">
 <meta property="og:image" content="{BASE}/brand/lockup.png">
 <meta property="og:image:width" content="1402">
 <meta property="og:image:height" content="400">
-<meta property="og:image:alt" content="Aegis — post-quantum private messenger">
+<meta property="og:image:alt" content="Shoal — post-quantum private messenger">
 <meta property="og:locale" content="{d['locale']}">
 <meta property="og:locale:alternate" content="{d['alt_locale']}">
 <meta name="twitter:card" content="summary_large_image">
@@ -625,7 +625,7 @@ def page(lang, d):
 <header class="site">
   <a class="brand" href="{here}">
     <img src="{root}assets/icon.png" alt="" width="32" height="32">
-    <span>Aegis</span>
+    <span>Shoal</span>
   </a>
   <nav aria-label="{e(d['how_h2'])}">{nav}</nav>
   <div class="head-actions">
@@ -764,12 +764,12 @@ def write(path, text):
 
 
 def main():
-    print("building the Aegis site")
+    print("building the Shoal site")
     write("index.html", page("en", LANGS["en"]))
     write("ru/index.html", page("ru", LANGS["ru"]))
     write("sitemap.xml", sitemap())
     # robots.txt only takes effect at a domain root. On project pages the site
-    # lives at /Aegis/, so crawlers read monxley.github.io/robots.txt instead
+    # lives at /Shoal/, so crawlers read monxley.github.io/robots.txt instead
     # and never see this one. It is here so it is already correct if the site
     # ever moves to its own domain.
     write("robots.txt",
