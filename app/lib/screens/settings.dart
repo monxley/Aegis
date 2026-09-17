@@ -286,6 +286,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final e = widget.engine;
     return Scaffold(
+      // Transparent so HomeShell's scale field shows through; the
+      // field is drawn once, behind all three tabs, rather than by
+      // each of them.
+      backgroundColor: Colors.transparent,
       appBar: AppBar(title: const Text('Settings')),
       body: ReadingColumn(
         child: ListView(
