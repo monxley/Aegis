@@ -212,7 +212,7 @@ class _BootstrapState extends State<_Bootstrap> with WidgetsBindingObserver {
   }
 }
 
-/// The splash shown while the engine boots — the shield mark over the app
+/// The splash shown while the engine boots — the mark over the app
 /// background, with a quiet progress hint.
 class _Splash extends StatefulWidget {
   const _Splash();

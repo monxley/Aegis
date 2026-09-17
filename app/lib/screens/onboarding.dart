@@ -265,7 +265,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(),
-              const Center(child: ShieldMark(size: 88)),
+              const Center(child: ShoalMark(size: 88)),
               const SizedBox(height: 24),
               const Text(
                 'Shoal',

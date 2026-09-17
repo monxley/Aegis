@@ -59,7 +59,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            const ShieldMark(size: 30),
+            const ShoalMark(size: 30),
             const SizedBox(width: ShoalSpace.s2),
             // Expanded, not a bare Column: a Row hands its non-flex children
             // unbounded width, and the status line below flexes its label so a

@@ -4,23 +4,26 @@ import 'theme.dart';
 
 /// Brand assets.
 ///
-/// The shield is the product's *identity mark*. It appears where a product
-/// signs its name — the lock screen, onboarding, the app bar — and nowhere
-/// else. It is deliberately not used as a security indicator: a padlock or
-/// shield stamped next to every message is decoration, and decoration that
-/// claims to mean "safe" is worse than no indicator at all. Security state is
-/// communicated by [SecurityIndicator] and by message state, in words.
+/// The mark — a shoal of fish, one of them picked out in amber — is the
+/// product's *identity mark*. It appears where a product signs its name: the
+/// lock screen, onboarding, the app bar, and nowhere else. It is deliberately
+/// not used as a security indicator: a padlock stamped next to every message
+/// is decoration, and decoration that claims to mean "safe" is worse than no
+/// indicator at all. Security state is communicated by [SecurityIndicator] and
+/// by message state, in words.
 class Brand {
   const Brand._();
 
-  static const shieldHero = 'assets/brand/shield_hero.png';
-  static const shieldLayered = 'assets/brand/shield_layered.png';
-  static const shieldSilver = 'assets/brand/shield_silver.png';
-  static const shieldMono = 'assets/brand/shield_mono.png';
+  static const markHero = 'assets/brand/mark_hero.png';
+  static const markLayered = 'assets/brand/mark_layered.png';
+  static const markSilver = 'assets/brand/mark_silver.png';
+  static const markMono = 'assets/brand/mark_mono.png';
   static const lock = 'assets/brand/lock.png';
   static const chevrons = 'assets/brand/chevrons.png';
   static const broadcast = 'assets/brand/broadcast.png';
   static const wordmark = 'assets/brand/wordmark.png';
+  /// The wordmark in brand ink, for light grounds and print.
+  static const wordmarkDark = 'assets/brand/wordmark_dark.png';
   static const lockupVertical = 'assets/brand/lockup_vertical.png';
   static const lockupHorizontal = 'assets/brand/lockup_horizontal.png';
 }

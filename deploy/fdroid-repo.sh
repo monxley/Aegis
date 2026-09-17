@@ -111,7 +111,7 @@ make_current_version_link: false
 YAML
 )
 mkdir -p "$WORK/repo/icons"
-cp "$HERE/app/assets/logo/icon.png" "$WORK/repo/icons/icon.png" 2>/dev/null || true
+cp "$HERE/app/assets/logo/icon_legacy.png" "$WORK/repo/icons/icon.png" 2>/dev/null || true
 
 ( cd "$WORK" && fdroid update --pretty --verbose ) || fail "fdroid update failed"
 

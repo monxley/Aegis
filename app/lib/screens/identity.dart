@@ -26,7 +26,7 @@ class IdentityScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 16),
-              const Center(child: ShieldMark(size: 72)),
+              const Center(child: ShoalMark(size: 72)),
               const SizedBox(height: 20),
               const Center(
                 child: Text(

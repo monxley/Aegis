@@ -79,13 +79,11 @@ header.site {
   font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
   font-size: .95rem;
 }
-/* The app icon is a near-black shield on a transparent background -- built for
- * a launcher, where the system supplies a light tile. Dropped straight onto
- * this page it is invisible, so it gets its tile here. */
-.brand img {
-  border-radius: 7px; background: var(--text); padding: 3px;
-  box-sizing: content-box;
-}
+/* The icon ships opaque, on the brand ground, so that it reads on a browser
+ * tab strip of any colour. It needs no tile of its own here -- it used to get
+ * one because the old mark was near-black on transparent and vanished into the
+ * page, and leaving that tile in place frames the new icon in white. */
+.brand img { border-radius: 7px; }
 header.site nav { display: flex; gap: 1.1rem; flex-wrap: wrap; margin-inline-start: auto; }
 header.site nav a, .head-actions a {
   color: var(--muted); text-decoration: none; font-size: .9rem;

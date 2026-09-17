@@ -78,6 +78,40 @@ else
   ok "no unexplained mention of the old name"
 fi
 
+# --- 5. Asset paths ----------------------------------------------------------
+#
+# Flutter resolves `Image.asset` at *runtime*. A renamed or mistyped asset path
+# compiles, ships, and then throws when the screen that uses it is opened --
+# which during a rename is every brand image at once. Check that each path a
+# Dart file names exists, and that pubspec still declares its directory.
+missing=0
+while read -r ref; do
+  [ -z "$ref" ] && continue
+  if [ ! -f "app/$ref" ]; then
+    note "Dart asks for app/$ref, which does not exist"
+    missing=1
+  fi
+done <<EOF
+$(grep -rhoE "'assets/[A-Za-z0-9_/.-]+\.(png|jpg|svg|webp)'" app/lib --include=*.dart 2>/dev/null \
+  | tr -d "'" | sort -u)
+EOF
+[ "$missing" -eq 0 ] && ok "every asset a Dart file names is present"
+
+for d in $(grep -rhoE "^ *- assets/[a-z_]+/" app/pubspec.yaml | sed 's/^ *- //'); do
+  [ -d "app/$d" ] || note "pubspec declares assets dir $d, which does not exist"
+done
+
+# The launcher icons are read by flutter_launcher_icons, not by Dart, so the
+# check above never sees them.
+for k in image_path adaptive_icon_foreground; do
+  v=$(grep -hoE "^ *$k: *\"[^\"]+\"" app/pubspec.yaml | head -1 | sed 's/.*"\(.*\)"/\1/')
+  if [ -n "$v" ] && [ ! -f "app/$v" ]; then
+    note "pubspec $k points at app/$v, which does not exist"
+  elif [ -n "$v" ]; then
+    ok "launcher $k -> $v"
+  fi
+done
+
 echo
 [ "$fail" -eq 0 ] && echo "names are consistent" || echo "name checks failed" >&2
 exit "$fail"
