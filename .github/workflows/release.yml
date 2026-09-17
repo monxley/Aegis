@@ -236,6 +236,39 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
+            ### Upgrading from v1.0.0 — read this first
+
+            v1.0.0 was published under the package id `io.github.monxley.aegis`.
+            The rename to Shoal changed it to `io.github.monxley.shoal`, and
+            Android treats a different package id as a **different app**: this
+            release will not install over v1.0.0, it installs alongside it, and
+            it starts empty. Your identity stays in the old app until you move
+            it.
+
+            **What survives the move is your identity, not your history.** The
+            24-word phrase restores the key pair that is your address, so people
+            can still reach you at the same code. Past messages are not
+            restored — the old app's history stays in the old app, and is gone
+            when you uninstall it.
+
+            To carry your identity across:
+
+            1. Open the **old** app → Settings → **Recovery phrase**, and write
+               down all 24 words.
+            2. Install this release.
+            3. Open it, choose **Restore from recovery phrase**, and enter them.
+            4. Check that your own share code matches the one the old app shows.
+            5. Only then uninstall the old app.
+
+            Do not uninstall the old app first. That phrase is the only copy of
+            the identity, and nobody — including this project — can reset it for
+            you. If your history matters to you, keep the old app installed:
+            nothing forces you to remove it.
+
+            This is a one-time break. Future releases upgrade normally.
+
+            ---
+
             Sideload the APK below. Android will ask you to allow installs from
             this source the first time.
 
