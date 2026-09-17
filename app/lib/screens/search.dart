@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../engine.dart';
-import '../src/rust/api/aegis.dart';
+import '../src/rust/api/shoal.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'chat.dart';
@@ -10,7 +10,7 @@ import 'chat.dart';
 /// already decrypted in memory, so the search never touches the network — it
 /// just scans what this device holds.
 class SearchScreen extends StatefulWidget {
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   const SearchScreen({super.key, required this.engine});
 
   @override
@@ -34,13 +34,13 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  /// Contacts whose name or Aegis ID contains the query.
+  /// Contacts whose name or Shoal ID contains the query.
   List<Contact> _contactHits(String q) {
     return widget.engine
         .contacts()
         .where((c) =>
             c.name.toLowerCase().contains(q) ||
-            c.aegisId.toLowerCase().contains(q))
+            c.shoalId.toLowerCase().contains(q))
         .toList();
   }
 
@@ -49,7 +49,7 @@ class _SearchScreenState extends State<SearchScreen> {
   List<_MessageHit> _messageHits(String q) {
     final hits = <_MessageHit>[];
     for (final c in widget.engine.contacts()) {
-      for (final m in widget.engine.history(c.aegisId)) {
+      for (final m in widget.engine.history(c.shoalId)) {
         if (m.text.toLowerCase().contains(q)) {
           hits.add(_MessageHit(c, m));
         }
@@ -80,7 +80,7 @@ class _SearchScreenState extends State<SearchScreen> {
         title: TextField(
           controller: _controller,
           autofocus: true,
-          style: const TextStyle(color: AegisColor.textPrimary, fontSize: 16),
+          style: const TextStyle(color: ShoalColor.textPrimary, fontSize: 16),
           textInputAction: TextInputAction.search,
           onChanged: (v) => setState(() => _query = v),
           decoration: const InputDecoration(
@@ -94,7 +94,7 @@ class _SearchScreenState extends State<SearchScreen> {
         actions: [
           if (_query.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.close_rounded, color: AegisColor.textSecondary),
+              icon: const Icon(Icons.close_rounded, color: ShoalColor.textSecondary),
               onPressed: () {
                 _controller.clear();
                 setState(() => _query = '');
@@ -114,10 +114,10 @@ class _SearchScreenState extends State<SearchScreen> {
                             leading: ContactAvatar(name: c.name),
                             title: Text(c.name,
                                 style:
-                                    const TextStyle(color: AegisColor.textPrimary)),
-                            subtitle: Text(shortId(c.aegisId),
+                                    const TextStyle(color: ShoalColor.textPrimary)),
+                            subtitle: Text(shortId(c.shoalId),
                                 style: const TextStyle(
-                                    color: AegisColor.textSecondary, fontSize: 12)),
+                                    color: ShoalColor.textSecondary, fontSize: 12)),
                             onTap: () => _open(c),
                           )),
                     ],
@@ -130,13 +130,13 @@ class _SearchScreenState extends State<SearchScreen> {
                                 Expanded(
                                   child: Text(h.contact.name,
                                       style: const TextStyle(
-                                          color: AegisColor.textPrimary,
+                                          color: ShoalColor.textPrimary,
                                           fontWeight: FontWeight.w600)),
                                 ),
                                 Text(
                                   formatListTime(h.message.timestampMs.toInt()),
                                   style: const TextStyle(
-                                      color: AegisColor.textSecondary, fontSize: 11),
+                                      color: ShoalColor.textSecondary, fontSize: 11),
                                 ),
                               ],
                             ),
@@ -162,7 +162,7 @@ class _SectionLabel extends StatelessWidget {
       child: Text(
         text.toUpperCase(),
         style: const TextStyle(
-          color: AegisColor.accent,
+          color: ShoalColor.accent,
           fontSize: 12,
           fontWeight: FontWeight.w800,
           letterSpacing: 1.5,
@@ -182,7 +182,7 @@ class _Snippet extends StatelessWidget {
   Widget build(BuildContext context) {
     final lower = text.toLowerCase();
     final i = lower.indexOf(query);
-    const base = TextStyle(color: AegisColor.textSecondary, fontSize: 13);
+    const base = TextStyle(color: ShoalColor.textSecondary, fontSize: 13);
     if (i < 0 || query.isEmpty) {
       return Text(text,
           maxLines: 1, overflow: TextOverflow.ellipsis, style: base);
@@ -198,7 +198,7 @@ class _Snippet extends StatelessWidget {
           TextSpan(
             text: text.substring(i, i + query.length),
             style: const TextStyle(
-                color: AegisColor.accent, fontWeight: FontWeight.w700),
+                color: ShoalColor.accent, fontWeight: FontWeight.w700),
           ),
           TextSpan(text: text.substring(i + query.length)),
         ],
@@ -221,7 +221,7 @@ class _Hint extends StatelessWidget {
           'Search your conversations and contacts. Everything stays on this '
           'device — nothing is sent anywhere.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: AegisColor.textSecondary, height: 1.4),
+          style: TextStyle(color: ShoalColor.textSecondary, height: 1.4),
         ),
       ),
     );
@@ -240,7 +240,7 @@ class _NoResults extends StatelessWidget {
         child: Text(
           'No matches for “$query”.',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: AegisColor.textSecondary),
+          style: const TextStyle(color: ShoalColor.textSecondary),
         ),
       ),
     );

@@ -37,7 +37,7 @@ ConnectionState connectionStateFor(bool? relayReachable) =>
 ///
 /// Kept as data, in one place, so the interface can never drift into claiming
 /// something the protocol does not do. Every entry here corresponds to an
-/// implementation in `crates/aegis-crypto` — nothing aspirational.
+/// implementation in `crates/shoal-crypto` — nothing aspirational.
 class ProtocolFacts {
   const ProtocolFacts._();
 
@@ -106,17 +106,17 @@ class SecurityIndicator extends StatelessWidget {
     final (label, color, icon) = switch (verification) {
       VerificationState.verified => (
           'Verified',
-          AegisColor.success,
+          ShoalColor.success,
           Icons.check_circle_outline_rounded,
         ),
       VerificationState.unverified => (
           'Encrypted · not verified',
-          AegisColor.textMuted,
+          ShoalColor.textMuted,
           Icons.lock_outline_rounded,
         ),
       VerificationState.changed => (
           'Identity changed',
-          AegisColor.warning,
+          ShoalColor.warning,
           Icons.error_outline_rounded,
         ),
     };
@@ -126,20 +126,20 @@ class SecurityIndicator extends StatelessWidget {
       label: 'Security: $label',
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AegisRadius.xs),
+        borderRadius: BorderRadius.circular(ShoalRadius.xs),
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: AegisSpace.s1, vertical: 2),
+              horizontal: ShoalSpace.s1, vertical: 2),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 12, color: color),
-              const SizedBox(width: AegisSpace.s1),
+              const SizedBox(width: ShoalSpace.s1),
               Flexible(
                 child: Text(
                   label,
                   overflow: TextOverflow.ellipsis,
-                  style: AegisType.meta.copyWith(color: color),
+                  style: ShoalType.meta.copyWith(color: color),
                 ),
               ),
             ],
@@ -187,13 +187,13 @@ class _SecurityDetailsSheetState extends State<SecurityDetailsSheet> {
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(
-            AegisSpace.s5, AegisSpace.s2, AegisSpace.s5, AegisSpace.s6),
+            ShoalSpace.s5, ShoalSpace.s2, ShoalSpace.s5, ShoalSpace.s6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Security', style: AegisType.title),
-            const SizedBox(height: AegisSpace.s1),
+            const Text('Security', style: ShoalType.title),
+            const SizedBox(height: ShoalSpace.s1),
             // The plain-language answer, first and without jargon.
             Text(
               switch (widget.verification) {
@@ -209,37 +209,37 @@ class _SecurityDetailsSheetState extends State<SecurityDetailsSheet> {
                       'happens when someone reinstalls, but it can also mean '
                       'someone is intercepting. Verify before you continue.',
               },
-              style: AegisType.secondary,
+              style: ShoalType.secondary,
             ),
-            const SizedBox(height: AegisSpace.s5),
+            const SizedBox(height: ShoalSpace.s5),
 
             if (widget.safetyNumber != null) ...[
-              const Text('SAFETY NUMBER', style: AegisType.label),
-              const SizedBox(height: AegisSpace.s2),
+              const Text('SAFETY NUMBER', style: ShoalType.label),
+              const SizedBox(height: ShoalSpace.s2),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(AegisSpace.s3),
+                padding: const EdgeInsets.all(ShoalSpace.s3),
                 decoration: BoxDecoration(
-                  color: AegisColor.background,
-                  borderRadius: BorderRadius.circular(AegisRadius.sm),
-                  border: Border.all(color: AegisColor.border),
+                  color: ShoalColor.background,
+                  borderRadius: BorderRadius.circular(ShoalRadius.sm),
+                  border: Border.all(color: ShoalColor.border),
                 ),
                 // Mono, because this is exact data the user is asked to compare
                 // digit by digit.
                 child: SelectableText(
                   widget.safetyNumber!,
-                  style: AegisType.code,
+                  style: ShoalType.code,
                 ),
               ),
-              const SizedBox(height: AegisSpace.s2),
+              const SizedBox(height: ShoalSpace.s2),
               Text(
                 'Compare these digits with ${widget.contactName} over a channel '
                 'you already trust — in person, or a call you recognise. If '
                 'they match, no one is in the middle.',
-                style: AegisType.secondary.copyWith(fontSize: 12),
+                style: ShoalType.secondary.copyWith(fontSize: 12),
               ),
               if (widget.onMarkVerified != null) ...[
-                const SizedBox(height: AegisSpace.s4),
+                const SizedBox(height: ShoalSpace.s4),
                 _SheetAction(
                   label: 'They match — mark verified',
                   icon: Icons.check_rounded,
@@ -249,7 +249,7 @@ class _SecurityDetailsSheetState extends State<SecurityDetailsSheet> {
                   },
                 ),
               ],
-              const SizedBox(height: AegisSpace.s6),
+              const SizedBox(height: ShoalSpace.s6),
             ],
 
             // Progressive disclosure: collapsed by default, complete when open.
@@ -258,18 +258,18 @@ class _SecurityDetailsSheetState extends State<SecurityDetailsSheet> {
               onToggle: () => setState(() => _technical = !_technical),
             ),
 
-            const SizedBox(height: AegisSpace.s5),
+            const SizedBox(height: ShoalSpace.s5),
             // The caveat sits with the claims, not buried in an about screen.
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(Icons.info_outline_rounded,
-                    size: 14, color: AegisColor.textMuted),
-                const SizedBox(width: AegisSpace.s2),
+                    size: 14, color: ShoalColor.textMuted),
+                const SizedBox(width: ShoalSpace.s2),
                 Expanded(
                   child: Text(
                     ProtocolFacts.maturity,
-                    style: AegisType.meta.copyWith(height: 1.5),
+                    style: ShoalType.meta.copyWith(height: 1.5),
                   ),
                 ),
               ],
@@ -298,19 +298,19 @@ class _TechnicalDisclosure extends StatelessWidget {
           expanded: expanded,
           child: InkWell(
             onTap: onToggle,
-            borderRadius: BorderRadius.circular(AegisRadius.xs),
+            borderRadius: BorderRadius.circular(ShoalRadius.xs),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: AegisSpace.s2),
+              padding: const EdgeInsets.symmetric(vertical: ShoalSpace.s2),
               child: Row(
                 children: [
                   const Text('How this is protected',
-                      style: AegisType.heading),
-                  const SizedBox(width: AegisSpace.s2),
+                      style: ShoalType.heading),
+                  const SizedBox(width: ShoalSpace.s2),
                   AnimatedRotation(
                     turns: expanded ? 0.5 : 0,
-                    duration: AegisMotion.of(context, AegisMotion.fast),
+                    duration: ShoalMotion.of(context, ShoalMotion.fast),
                     child: const Icon(Icons.expand_more_rounded,
-                        size: 18, color: AegisColor.textMuted),
+                        size: 18, color: ShoalColor.textMuted),
                   ),
                 ],
               ),
@@ -322,20 +322,20 @@ class _TechnicalDisclosure extends StatelessWidget {
           secondChild: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: AegisSpace.s2),
+              const SizedBox(height: ShoalSpace.s2),
               for (final p in ProtocolFacts.primitives) ...[
                 Padding(
-                  padding: const EdgeInsets.only(bottom: AegisSpace.s4),
+                  padding: const EdgeInsets.only(bottom: ShoalSpace.s4),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(p.role.toUpperCase(), style: AegisType.label),
+                      Text(p.role.toUpperCase(), style: ShoalType.label),
                       const SizedBox(height: 3),
-                      SelectableText(p.algorithm, style: AegisType.code),
+                      SelectableText(p.algorithm, style: ShoalType.code),
                       const SizedBox(height: 3),
                       Text(
                         p.note,
-                        style: AegisType.secondary.copyWith(fontSize: 12),
+                        style: ShoalType.secondary.copyWith(fontSize: 12),
                       ),
                     ],
                   ),
@@ -346,8 +346,8 @@ class _TechnicalDisclosure extends StatelessWidget {
           crossFadeState: expanded
               ? CrossFadeState.showSecond
               : CrossFadeState.showFirst,
-          duration: AegisMotion.of(context, AegisMotion.medium),
-          sizeCurve: AegisMotion.move,
+          duration: ShoalMotion.of(context, ShoalMotion.medium),
+          sizeCurve: ShoalMotion.move,
         ),
       ],
     );
@@ -373,24 +373,24 @@ class _SheetAction extends StatelessWidget {
         HapticFeedback.selectionClick();
         onTap();
       },
-      borderRadius: BorderRadius.circular(AegisRadius.sm),
+      borderRadius: BorderRadius.circular(ShoalRadius.sm),
       child: Container(
         width: double.infinity,
-        height: AegisLayout.minTouchTarget,
+        height: ShoalLayout.minTouchTarget,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AegisRadius.sm),
-          border: Border.all(color: AegisColor.borderStrong),
+          borderRadius: BorderRadius.circular(ShoalRadius.sm),
+          border: Border.all(color: ShoalColor.borderStrong),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: AegisColor.accent),
-            const SizedBox(width: AegisSpace.s2),
+            Icon(icon, size: 16, color: ShoalColor.accent),
+            const SizedBox(width: ShoalSpace.s2),
             Text(
               label,
-              style: AegisType.secondary.copyWith(
-                color: AegisColor.textPrimary,
+              style: ShoalType.secondary.copyWith(
+                color: ShoalColor.textPrimary,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -421,7 +421,7 @@ class ConnectionBanner extends StatelessWidget {
           Icons.sync_rounded,
           'Connecting',
           'Messages you send will go out once the connection is up.',
-          AegisColor.textMuted,
+          ShoalColor.textMuted,
         ),
       // Deliberately "No connection", not "You are offline": all the app knows
       // is that it did not get an answer from a relay. That could be this
@@ -430,13 +430,13 @@ class ConnectionBanner extends StatelessWidget {
           Icons.cloud_off_rounded,
           'No connection',
           'Messages are kept on this device and sent when it returns.',
-          AegisColor.warning,
+          ShoalColor.warning,
         ),
       ConnectionState.connected => (
           Icons.lock_rounded,
           '',
           null,
-          AegisColor.textMuted,
+          ShoalColor.textMuted,
         ),
     };
 

@@ -23,7 +23,7 @@ REPO = "https://github.com/monxley/Aegis"
 
 # Every claim below is checked against the repository, not written from
 # impression: the five layers are the ones in docs/screenshots/hero.jpg, the
-# primitives are those in crates/aegis-crypto, and nothing is described as
+# primitives are those in crates/shoal-crypto, and nothing is described as
 # implemented that README.md's roadmap does not mark implemented.
 
 LAYERS_KEY = ["identity", "handshake", "session", "delivery", "network"]
@@ -255,7 +255,7 @@ LANGS = {
         "footer_tagline": "Implement, don't invent.",
         "footer_links": [(REPO, "Source code"),
                          (REPO + "/releases", "Releases"),
-                         (REPO + "/blob/main/AEGIS_PROTOCOL.md", "Protocol design"),
+                         (REPO + "/blob/main/SHOAL_PROTOCOL.md", "Protocol design"),
                          (REPO + "/blob/main/docs/CRYPTO_MATH.md", "Cryptographic details"),
                          (REPO + "/blob/main/SECURITY_AUDIT.md", "Security notes")],
         "footer_licence": "Open source under the Apache License 2.0.",
@@ -488,7 +488,7 @@ LANGS = {
         "footer_tagline": "Реализуй, не изобретай.",
         "footer_links": [(REPO, "Исходный код"),
                          (REPO + "/releases", "Выпуски"),
-                         (REPO + "/blob/main/AEGIS_PROTOCOL.md", "Описание протокола"),
+                         (REPO + "/blob/main/SHOAL_PROTOCOL.md", "Описание протокола"),
                          (REPO + "/blob/main/docs/CRYPTO_MATH.md", "Криптографические детали"),
                          (REPO + "/blob/main/SECURITY_AUDIT.md", "Заметки по безопасности")],
         "footer_licence": "Открытый код под Apache License 2.0.",
@@ -526,7 +526,7 @@ def json_ld(lang, d):
         '"isAccessibleForFree":true,'
         '"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},'
         '"downloadUrl":"%s/releases",'
-        '"softwareHelp":"%s/blob/main/AEGIS_PROTOCOL.md",'
+        '"softwareHelp":"%s/blob/main/SHOAL_PROTOCOL.md",'
         '"codeRepository":"%s"},'
         '{"@type":"FAQPage","inLanguage":"%s","mainEntity":[%s]}'
         ']}</script>'

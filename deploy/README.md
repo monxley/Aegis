@@ -1,7 +1,7 @@
-# Running an Aegis node
+# Running an Shoal node
 
-An Aegis **node** is a blind mailbox *and* a Sphinx mix + directory server, in one
-process (`aegis-relay-server --mix`). Clients auto-discover the network from any
+An Shoal **node** is a blind mailbox *and* a Sphinx mix + directory server, in one
+process (`shoal-relay-server --mix`). Clients auto-discover the network from any
 node's mix port, so end users run nothing — the network is powered by whoever
 runs nodes (the project + volunteers), on always-on, reachable hosts.
 
@@ -34,15 +34,15 @@ curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.s
   | sudo PUBLIC_HOST=node2.host BOOTSTRAP=seed.host:5078 bash
 ```
 
-It installs Rust if needed, builds `aegis-relay-server`, creates a service user,
+It installs Rust if needed, builds `shoal-relay-server`, creates a service user,
 and installs + starts the systemd unit. Open ports 5077 and 5078, then
-`journalctl -u aegis-node -f`.
+`journalctl -u shoal-node -f`.
 
 ## Updating a node
 
 The same script. It is written to be re-run: it clones the repo **fresh** every
 time (never a stale checkout lying around on the box), rebuilds the binary,
-overwrites `/usr/local/bin/aegis-relay-server`, and `systemctl restart`s the
+overwrites `/usr/local/bin/shoal-relay-server`, and `systemctl restart`s the
 unit — a restart rather than `enable --now`, so a re-run actually picks up the
 new binary instead of silently keeping the running one.
 
@@ -56,15 +56,15 @@ curl -fsSL https://raw.githubusercontent.com/monxley/Aegis/main/deploy/install.s
 Then confirm it came back on the new code:
 
 ```sh
-systemctl status aegis-node --no-pager
-journalctl -u aegis-node -n 50 --no-pager
+systemctl status shoal-node --no-pager
+journalctl -u shoal-node -n 50 --no-pager
 ```
 
 Two things worth knowing:
 
 - The script builds whatever is on **`main`**. A change that is still on a
   branch or in an open pull request will not be deployed until it is merged.
-- Data in `/var/lib/aegis` is left alone, so the node keeps its identity and
+- Data in `/var/lib/shoal` is left alone, so the node keeps its identity and
   its queued envelopes across an update.
 
 There is nothing to coordinate across nodes: they gossip the directory, so
@@ -73,7 +73,7 @@ updating them one at a time is fine and the network stays up throughout.
 To update a **Docker** node instead:
 
 ```sh
-git -C /path/to/Aegis pull
+git -C /path/to/Shoal pull
 PUBLIC_HOST=your.host BOOTSTRAP=seed.host:5078 \
   docker compose -f deploy/docker-compose.yml up -d --build
 ```
@@ -169,13 +169,13 @@ PUBLIC_HOST=node2.example BOOTSTRAP=seed.example:5078 \
 ## Quick start (systemd)
 
 ```sh
-cargo build --release -p aegis-relay-server
-sudo cp target/release/aegis-relay-server /usr/local/bin/
-sudo useradd -r -s /usr/sbin/nologin aegis
-sudo mkdir -p /var/lib/aegis && sudo chown aegis /var/lib/aegis
-sudo cp deploy/aegis-node.service /etc/systemd/system/
-sudoedit /etc/systemd/system/aegis-node.service   # set your host + bootstrap
-sudo systemctl enable --now aegis-node
+cargo build --release -p shoal-relay-server
+sudo cp target/release/shoal-relay-server /usr/local/bin/
+sudo useradd -r -s /usr/sbin/nologin shoal
+sudo mkdir -p /var/lib/shoal && sudo chown shoal /var/lib/shoal
+sudo cp deploy/shoal-node.service /etc/systemd/system/
+sudoedit /etc/systemd/system/shoal-node.service   # set your host + bootstrap
+sudo systemctl enable --now shoal-node
 ```
 
 ## Pointing the app at your network

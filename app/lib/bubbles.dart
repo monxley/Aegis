@@ -5,7 +5,7 @@ import 'package:open_filex/open_filex.dart';
 
 import 'attachments.dart';
 import 'engine.dart';
-import 'src/rust/api/aegis.dart';
+import 'src/rust/api/shoal.dart';
 import 'theme.dart';
 import 'voice.dart';
 
@@ -17,14 +17,14 @@ const kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 /// clears it.
 class ReactionChips extends StatelessWidget {
   final ChatMessage message;
-  final AegisEngineController engine;
-  final String aegisId;
+  final ShoalEngineController engine;
+  final String shoalId;
   final bool mine;
   const ReactionChips({
     super.key,
     required this.message,
     required this.engine,
-    required this.aegisId,
+    required this.shoalId,
     required this.mine,
   });
 
@@ -46,7 +46,7 @@ class ReactionChips extends StatelessWidget {
                   // Tapping our own reaction takes it back.
                   ? () {
                       HapticFeedback.selectionClick();
-                      engine.react(aegisId, message.id, '');
+                      engine.react(shoalId, message.id, '');
                     }
                   : null,
               child: AnimatedContainer(
@@ -56,12 +56,12 @@ class ReactionChips extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: r.fromMe
-                      ? AegisColor.accent.withValues(alpha: 0.18)
-                      : AegisColor.surfaceElevated,
+                      ? ShoalColor.accent.withValues(alpha: 0.18)
+                      : ShoalColor.surfaceElevated,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: r.fromMe
-                        ? AegisColor.accent.withValues(alpha: 0.55)
+                        ? ShoalColor.accent.withValues(alpha: 0.55)
                         : Colors.transparent,
                   ),
                 ),
@@ -137,7 +137,7 @@ class _ReactionButtonState extends State<_ReactionButton> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: widget.selected
-                ? AegisColor.accent.withValues(alpha: 0.18)
+                ? ShoalColor.accent.withValues(alpha: 0.18)
                 : Colors.transparent,
           ),
           child: Text(widget.emoji, style: const TextStyle(fontSize: 24)),
@@ -150,14 +150,14 @@ class _ReactionButtonState extends State<_ReactionButton> {
 /// The body of a non-text bubble: a voice note, an image, or a file row.
 class AttachmentContent extends StatelessWidget {
   final ChatMessage message;
-  final AegisEngineController engine;
-  final String aegisId;
+  final ShoalEngineController engine;
+  final String shoalId;
   final bool mine;
   const AttachmentContent({
     super.key,
     required this.message,
     required this.engine,
-    required this.aegisId,
+    required this.shoalId,
     required this.mine,
   });
 
@@ -172,7 +172,7 @@ class AttachmentContent extends StatelessWidget {
         return VoiceNote(
           message: message,
           engine: engine,
-          aegisId: aegisId,
+          shoalId: shoalId,
           mine: mine,
         );
       case MsgKind.image:
@@ -203,7 +203,7 @@ class _TransferProgress extends StatelessWidget {
     final have = message.transferHave;
     final fraction = total == 0 ? 0.0 : (have / total).clamp(0.0, 1.0);
     // Both bubble surfaces are dark, so content is primary text on either side.
-    const fg = AegisColor.textPrimary;
+    const fg = ShoalColor.textPrimary;
     return SizedBox(
       width: 190,
       child: Column(
@@ -238,7 +238,7 @@ class _TransferProgress extends StatelessWidget {
               value: fraction,
               minHeight: 4,
               backgroundColor: fg.withValues(alpha: 0.18),
-              valueColor: const AlwaysStoppedAnimation(AegisColor.accent),
+              valueColor: const AlwaysStoppedAnimation(ShoalColor.accent),
             ),
           ),
         ],
@@ -256,14 +256,14 @@ IconData _iconFor(int kind) => switch (kind) {
 /// A voice note: play/pause, a waveform that fills as it plays, and the length.
 class VoiceNote extends StatelessWidget {
   final ChatMessage message;
-  final AegisEngineController engine;
-  final String aegisId;
+  final ShoalEngineController engine;
+  final String shoalId;
   final bool mine;
   const VoiceNote({
     super.key,
     required this.message,
     required this.engine,
-    required this.aegisId,
+    required this.shoalId,
     required this.mine,
   });
 
@@ -281,7 +281,7 @@ class VoiceNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Both bubble surfaces are dark, so content is primary text on either side.
-    const fg = AegisColor.textPrimary;
+    const fg = ShoalColor.textPrimary;
     final bars = waveformFor(message.id);
     return ValueListenableBuilder<BigInt?>(
       valueListenable: VoicePlayer.instance.playing,
@@ -375,7 +375,7 @@ class VoiceNote extends StatelessWidget {
                     progress: progress,
                     color: fg.withValues(alpha: 0.35),
                     activeColor:
-                        AegisColor.accent,
+                        ShoalColor.accent,
                   ),
                 ),
               ),
@@ -441,7 +441,7 @@ class _WaveformPainter extends CustomPainter {
 /// An image attachment, decrypted on demand and shown inline.
 class _ImageAttachment extends StatefulWidget {
   final ChatMessage message;
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final bool mine;
   const _ImageAttachment({
     required this.message,
@@ -511,8 +511,8 @@ class _ImageAttachmentState extends State<_ImageAttachment> {
               // it arrived on another device).
               ? Icon(Icons.broken_image_rounded,
                   color: widget.mine
-                      ? AegisColor.textMuted
-                      : AegisColor.textSecondary)
+                      ? ShoalColor.textMuted
+                      : ShoalColor.textSecondary)
               : const SizedBox(
                   width: 18,
                   height: 18,
@@ -571,7 +571,7 @@ class _ImageViewer extends StatelessWidget {
 /// A file attachment: name, size, and a tap to open it in another app.
 class _FileAttachment extends StatefulWidget {
   final ChatMessage message;
-  final AegisEngineController engine;
+  final ShoalEngineController engine;
   final bool mine;
   const _FileAttachment({
     required this.message,
@@ -615,7 +615,7 @@ class _FileAttachmentState extends State<_FileAttachment> {
   @override
   Widget build(BuildContext context) {
     // Both bubble surfaces are dark, so content is primary text on either side.
-    const fg = AegisColor.textPrimary;
+    const fg = ShoalColor.textPrimary;
     final name = widget.message.fileName.isEmpty
         ? 'File'
         : widget.message.fileName;
